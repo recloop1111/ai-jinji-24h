@@ -130,7 +130,7 @@ export default function InterviewPage() {
             AI面接のご案内
           </h1>
           <p className="text-sm text-gray-600 text-center">
-            AIがリアルタイムで面接を行います
+            AIがリアルタイムであなたの面接を行います
           </p>
         </div>
 
@@ -138,25 +138,25 @@ export default function InterviewPage() {
           <div className="flex items-start gap-3">
             <span className="text-xl">⏱</span>
             <div>
-              <p className="text-sm font-medium text-gray-900">所要時間：最大約40分</p>
+              <p className="text-sm font-medium text-gray-900">所要時間：最大40分程度</p>
             </div>
           </div>
           <div className="flex items-start gap-3">
             <span className="text-xl">🎥</span>
             <div>
-              <p className="text-sm font-medium text-gray-900">カメラとマイクを使用（録画されます）</p>
+              <p className="text-sm font-medium text-gray-900">カメラとマイクを使用します（面接は録画されます）</p>
             </div>
           </div>
           <div className="flex items-start gap-3">
             <span className="text-xl">📱</span>
             <div>
-              <p className="text-sm font-medium text-gray-900">安定した通信環境と静かな場所</p>
+              <p className="text-sm font-medium text-gray-900">安定した通信環境と静かな場所でご参加ください</p>
             </div>
           </div>
           <div className="flex items-start gap-3">
             <span className="text-xl">🔒</span>
             <div>
-              <p className="text-sm font-medium text-gray-900">情報は採用選考にのみ使用</p>
+              <p className="text-sm font-medium text-gray-900">録画データは採用選考にのみ使用されます</p>
             </div>
           </div>
         </div>
@@ -185,7 +185,7 @@ export default function InterviewPage() {
           onClick={handleNext}
           disabled={!consent1 || !consent2}
         >
-          次へ進む
+          同意して次へ進む
         </PrimaryButton>
       </div>
     </InterviewLayout>
