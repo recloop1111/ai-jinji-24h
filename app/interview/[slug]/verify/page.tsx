@@ -11,7 +11,7 @@ import {
   TextInput,
 } from '@/components/interview/FormComponents'
 
-const STEP_LABELS = ['同意', 'SMS認証', '情報入力', '環境確認', '面接']
+const STEP_LABELS = ['同意', '情報入力', 'SMS認証', '環境確認', '面接']
 
 export default function VerifyPage() {
   const params = useParams()
@@ -67,7 +67,7 @@ export default function VerifyPage() {
     setVerifying(true)
     setTimeout(() => {
       sessionStorage.setItem('interview_phone', phone)
-      router.push(`/interview/${slug}/form`)
+      router.push(`/interview/${slug}/prepare`)
     }, 1000)
   }
 

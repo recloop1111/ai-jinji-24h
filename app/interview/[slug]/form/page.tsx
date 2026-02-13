@@ -15,7 +15,7 @@ import {
   RadioGroup,
 } from '@/components/interview/FormComponents'
 
-const STEP_LABELS = ['同意', 'SMS認証', '情報入力', '環境確認', '面接']
+const STEP_LABELS = ['同意', '情報入力', 'SMS認証', '環境確認', '面接']
 
 const PREFECTURES = [
   '北海道', '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県',
@@ -208,7 +208,7 @@ export default function FormPage() {
 
     if (data) {
       sessionStorage.setItem(`interview_${slug}_applicant_id`, data.id)
-      router.push(`/interview/${slug}/prepare`)
+      router.push(`/interview/${slug}/verify`)
     }
   }
 
@@ -250,7 +250,7 @@ export default function FormPage() {
   return (
     <InterviewLayout>
       <div className="mb-6">
-        <StepIndicator currentStep={3} totalSteps={5} labels={STEP_LABELS} />
+        <StepIndicator currentStep={1} totalSteps={5} labels={STEP_LABELS} />
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">

@@ -44,7 +44,7 @@ export default function InterviewPage() {
 
   function handleNext() {
     if (consent1 && consent2) {
-      router.push(`/interview/${slug}/verify`)
+      router.push(`/interview/${slug}/form`)
     }
   }
 
@@ -187,6 +187,12 @@ export default function InterviewPage() {
         >
           同意して次へ進む
         </PrimaryButton>
+
+        <p className="text-center mt-4">
+          <a href="mailto:recloop.1111@gmail.com" className="text-sm text-blue-600 hover:underline">
+            お困りの方はこちら
+          </a>
+        </p>
       </div>
     </InterviewLayout>
   )
