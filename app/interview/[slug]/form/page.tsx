@@ -1,3 +1,447 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useParams, useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+import InterviewLayout from '@/components/interview/InterviewLayout'
+import {
+  StepIndicator,
+  PrimaryButton,
+  TextLink,
+  InputField,
+  TextInput,
+  TextArea,
+  SelectField,
+  RadioGroup,
+} from '@/components/interview/FormComponents'
+
+const STEP_LABELS = ['同意', 'SMS認証', '情報入力', '環境確認', '面接']
+
+const PREFECTURES = [
+  '北海道', '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県',
+  '茨城県', '栃木県', '群馬県', '埼玉県', '千葉県', '東京都', '神奈川県',
+  '新潟県', '富山県', '石川県', '福井県', '山梨県', '長野県', '岐阜県',
+  '静岡県', '愛知県', '三重県', '滋賀県', '京都府', '大阪府', '兵庫県',
+  '奈良県', '和歌山県', '鳥取県', '島根県', '岡山県', '広島県', '山口県',
+  '徳島県', '香川県', '愛媛県', '高知県', '福岡県', '佐賀県', '長崎県',
+  '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県',
+]
+
+const EDUCATION_OPTIONS = [
+  { value: 'high_school', label: '高校卒' },
+  { value: 'vocational', label: '専門学校卒' },
+  { value: 'junior_college', label: '短大卒' },
+  { value: 'university', label: '大学卒' },
+  { value: 'graduate', label: '大学院卒' },
+  { value: 'other', label: 'その他' },
+]
+
 export default function FormPage() {
-  return <div>FormPage</div>
+  const params = useParams()
+  const router = useRouter()
+  const slug = params.slug as string
+  const supabase = createClient()
+
+  const [companyId, setCompanyId] = useState<string | null>(null)
+  const [jobTypes, setJobTypes] = useState<{ value: string; label: string }[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const [lastName, setLastName] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastNameKana, setLastNameKana] = useState('')
+  const [firstNameKana, setFirstNameKana] = useState('')
+  const [birthYear, setBirthYear] = useState('')
+  const [birthMonth, setBirthMonth] = useState('')
+  const [birthDay, setBirthDay] = useState('')
+  const [gender, setGender] = useState('')
+  const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
+  const [prefecture, setPrefecture] = useState('')
+  const [education, setEducation] = useState('')
+  const [employmentType, setEmploymentType] = useState('')
+  const [industryExperience, setIndustryExperience] = useState('')
+  const [jobTypeId, setJobTypeId] = useState('')
+  const [workHistory, setWorkHistory] = useState('')
+  const [qualifications, setQualifications] = useState('')
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    initialize()
+  }, [slug])
+
+  async function initialize() {
+    setLoading(true)
+    
+    // sessionStorageから電話番号取得
+    const storedPhone = sessionStorage.getItem(`interview_${slug}_phone`) || sessionStorage.getItem('interview_phone')
+    if (storedPhone) {
+      setPhone(storedPhone)
+    }
+
+    // 企業情報取得
+    const { data: company } = await supabase
+      .from('companies')
+      .select('id')
+      .eq('interview_slug', slug)
+      .single()
+
+    if (company) {
+      setCompanyId(company.id)
+
+      // 職種一覧取得
+      const { data: jobTypesData } = await supabase
+        .from('job_types')
+        .select('id, name')
+        .eq('company_id', company.id)
+        .eq('is_active', true)
+
+      if (jobTypesData) {
+        setJobTypes(
+          jobTypesData.map((jt) => ({
+            value: jt.id,
+            label: jt.name,
+          }))
+        )
+      }
+    }
+
+    setLoading(false)
+  }
+
+  function calculateAge(): number | null {
+    if (!birthYear || !birthMonth || !birthDay) return null
+    const today = new Date()
+    const birth = new Date(
+      parseInt(birthYear),
+      parseInt(birthMonth) - 1,
+      parseInt(birthDay)
+    )
+    let age = today.getFullYear() - birth.getFullYear()
+    const m = today.getMonth() - birth.getMonth()
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
+    return age
+  }
+
+  function validate(): boolean {
+    const newErrors: Record<string, string> = {}
+
+    if (!lastName.trim()) newErrors.lastName = '姓を入力してください'
+    if (!firstName.trim()) newErrors.firstName = '名を入力してください'
+    
+    if (!lastNameKana.trim()) {
+      newErrors.lastNameKana = '姓（フリガナ）を入力してください'
+    } else if (!/^[ァ-ヶー]+$/.test(lastNameKana)) {
+      newErrors.lastNameKana = 'カタカナで入力してください'
+    }
+    
+    if (!firstNameKana.trim()) {
+      newErrors.firstNameKana = '名（フリガナ）を入力してください'
+    } else if (!/^[ァ-ヶー]+$/.test(firstNameKana)) {
+      newErrors.firstNameKana = 'カタカナで入力してください'
+    }
+
+    if (!birthYear || !birthMonth || !birthDay) {
+      newErrors.birthDate = '生年月日をすべて入力してください'
+    }
+
+    if (!gender) newErrors.gender = '性別を選択してください'
+    if (!email.trim()) {
+      newErrors.email = 'メールアドレスを入力してください'
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      newErrors.email = 'メールアドレスの形式が正しくありません'
+    }
+
+    if (!prefecture) newErrors.prefecture = '都道府県を選択してください'
+    if (!education) newErrors.education = '最終学歴を選択してください'
+    if (!employmentType) newErrors.employmentType = '就業形態を選択してください'
+    if (!industryExperience) newErrors.industryExperience = '業界経験を選択してください'
+    if (!jobTypeId) newErrors.jobTypeId = '希望職種を選択してください'
+
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
+
+  async function handleSubmit() {
+    if (!validate()) return
+    if (!companyId) {
+      setErrors({ submit: '企業情報の取得に失敗しました' })
+      return
+    }
+
+    setSubmitting(true)
+    const age = calculateAge()
+    const birthDate = `${birthYear}-${birthMonth.padStart(2, '0')}-${birthDay.padStart(2, '0')}`
+
+    const { data, error } = await supabase
+      .from('applicants')
+      .insert({
+        company_id: companyId,
+        last_name: lastName.trim(),
+        first_name: firstName.trim(),
+        last_name_kana: lastNameKana.trim(),
+        first_name_kana: firstNameKana.trim(),
+        birth_date: birthDate,
+        age: age,
+        gender: gender,
+        phone_number: phone,
+        email: email.trim(),
+        prefecture: prefecture,
+        education: education,
+        employment_type: employmentType,
+        industry_experience: industryExperience,
+        job_type_id: jobTypeId,
+        work_history: workHistory.trim() || null,
+        qualifications: qualifications.trim() || null,
+        selection_status: 'pending',
+        duplicate_flag: false,
+        inappropriate_flag: false,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      setErrors({ submit: '送信に失敗しました。もう一度お試しください。' })
+      setSubmitting(false)
+      return
+    }
+
+    if (data) {
+      sessionStorage.setItem(`interview_${slug}_applicant_id`, data.id)
+      router.push(`/interview/${slug}/prepare`)
+    }
+  }
+
+  const currentYear = new Date().getFullYear()
+  const years = Array.from({ length: currentYear - 1939 }, (_, i) => currentYear - i)
+  const months = Array.from({ length: 12 }, (_, i) => i + 1)
+  const days = Array.from({ length: 31 }, (_, i) => i + 1)
+  const age = calculateAge()
+
+  if (loading) {
+    return (
+      <InterviewLayout>
+        <div className="flex items-center justify-center py-12">
+          <svg
+            className="animate-spin h-8 w-8 text-blue-600"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            />
+          </svg>
+        </div>
+      </InterviewLayout>
+    )
+  }
+
+  return (
+    <InterviewLayout>
+      <div className="mb-6">
+        <StepIndicator currentStep={3} totalSteps={5} labels={STEP_LABELS} />
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
+        <div className="mb-6">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2 text-center">
+            基本情報の入力
+          </h1>
+          <p className="text-sm text-gray-600 text-center">
+            面接に必要な情報を入力してください
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <InputField label="姓" required error={errors.lastName}>
+              <TextInput
+                value={lastName}
+                onChange={setLastName}
+                placeholder="山田"
+              />
+            </InputField>
+            <InputField label="名" required error={errors.firstName}>
+              <TextInput
+                value={firstName}
+                onChange={setFirstName}
+                placeholder="太郎"
+              />
+            </InputField>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <InputField label="姓（フリガナ）" required error={errors.lastNameKana}>
+              <TextInput
+                value={lastNameKana}
+                onChange={setLastNameKana}
+                placeholder="ヤマダ"
+              />
+            </InputField>
+            <InputField label="名（フリガナ）" required error={errors.firstNameKana}>
+              <TextInput
+                value={firstNameKana}
+                onChange={setFirstNameKana}
+                placeholder="タロウ"
+              />
+            </InputField>
+          </div>
+
+          <InputField label="生年月日" required error={errors.birthDate}>
+            <div className="flex items-center gap-2">
+              <SelectField
+                value={birthYear}
+                onChange={setBirthYear}
+                options={years.map((y) => ({ value: y.toString(), label: `${y}年` }))}
+                placeholder="年"
+              />
+              <SelectField
+                value={birthMonth}
+                onChange={setBirthMonth}
+                options={months.map((m) => ({ value: m.toString(), label: `${m}月` }))}
+                placeholder="月"
+              />
+              <SelectField
+                value={birthDay}
+                onChange={setBirthDay}
+                options={days.map((d) => ({ value: d.toString(), label: `${d}日` }))}
+                placeholder="日"
+              />
+              {age !== null && (
+                <span className="text-sm text-gray-600 whitespace-nowrap">
+                  ({age}歳)
+                </span>
+              )}
+            </div>
+          </InputField>
+
+          <InputField label="性別" required error={errors.gender}>
+            <SelectField
+              value={gender}
+              onChange={setGender}
+              options={[
+                { value: 'male', label: '男性' },
+                { value: 'female', label: '女性' },
+                { value: 'other', label: 'その他' },
+                { value: 'no_answer', label: '回答しない' },
+              ]}
+              placeholder="選択してください"
+            />
+          </InputField>
+
+          <InputField label="電話番号" required>
+            <div>
+              <TextInput value={phone} onChange={() => {}} disabled />
+              <p className="mt-1 text-xs text-green-600">✓ SMS認証済み</p>
+            </div>
+          </InputField>
+
+          <InputField label="メールアドレス" required error={errors.email}>
+            <TextInput
+              type="email"
+              value={email}
+              onChange={setEmail}
+              placeholder="example@email.com"
+            />
+          </InputField>
+
+          <InputField label="居住都道府県" required error={errors.prefecture}>
+            <SelectField
+              value={prefecture}
+              onChange={setPrefecture}
+              options={PREFECTURES.map((p) => ({ value: p, label: p }))}
+              placeholder="選択してください"
+            />
+          </InputField>
+
+          <InputField label="最終学歴" required error={errors.education}>
+            <SelectField
+              value={education}
+              onChange={setEducation}
+              options={EDUCATION_OPTIONS}
+              placeholder="選択してください"
+            />
+          </InputField>
+
+          <InputField label="就業形態" required error={errors.employmentType}>
+            <RadioGroup
+              value={employmentType}
+              onChange={setEmploymentType}
+              options={[
+                { value: 'new_graduate', label: '新卒' },
+                { value: 'mid_career', label: '中途' },
+              ]}
+            />
+          </InputField>
+
+          <InputField label="業界経験" required error={errors.industryExperience}>
+            <RadioGroup
+              value={industryExperience}
+              onChange={setIndustryExperience}
+              options={[
+                { value: 'experienced', label: 'あり' },
+                { value: 'inexperienced', label: 'なし' },
+              ]}
+            />
+          </InputField>
+
+          <InputField label="希望職種" required error={errors.jobTypeId}>
+            <SelectField
+              value={jobTypeId}
+              onChange={setJobTypeId}
+              options={jobTypes}
+              placeholder="選択してください"
+            />
+          </InputField>
+
+          <InputField label="職歴・業種" error={errors.workHistory}>
+            <TextArea
+              value={workHistory}
+              onChange={setWorkHistory}
+              placeholder="職歴や経験した業種を入力してください（任意）"
+              maxLength={500}
+              rows={4}
+            />
+          </InputField>
+
+          <InputField label="保有資格" error={errors.qualifications}>
+            <TextArea
+              value={qualifications}
+              onChange={setQualifications}
+              placeholder="保有している資格を入力してください（任意）"
+              maxLength={300}
+              rows={3}
+            />
+          </InputField>
+
+          {errors.submit && (
+            <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-3 rounded">
+              {errors.submit}
+            </div>
+          )}
+
+          <PrimaryButton onClick={handleSubmit} loading={submitting}>
+            次へ進む
+          </PrimaryButton>
+
+          <div className="text-center pt-4">
+            <TextLink onClick={() => router.push(`/interview/${slug}/cancelled`)}>
+              面接をキャンセルする
+            </TextLink>
+          </div>
+        </div>
+      </div>
+    </InterviewLayout>
+  )
 }
