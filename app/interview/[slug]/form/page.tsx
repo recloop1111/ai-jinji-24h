@@ -43,16 +43,13 @@ export default function FormPage() {
   const supabase = createClient()
 
   const [companyId, setCompanyId] = useState<string | null>(null)
-  const [jobTypes, setJobTypes] = useState<{ value: string; label: string }[]>([])
   const [loading, setLoading] = useState(true)
 
   const [lastName, setLastName] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastNameKana, setLastNameKana] = useState('')
   const [firstNameKana, setFirstNameKana] = useState('')
-  const [birthYear, setBirthYear] = useState('')
-  const [birthMonth, setBirthMonth] = useState('')
-  const [birthDay, setBirthDay] = useState('')
+  const [age, setAge] = useState('')
   const [gender, setGender] = useState('')
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
@@ -61,6 +58,7 @@ export default function FormPage() {
   const [employmentType, setEmploymentType] = useState('')
   const [industryExperience, setIndustryExperience] = useState('')
   const [jobTypeId, setJobTypeId] = useState('')
+  const [desiredEmploymentForm, setDesiredEmploymentForm] = useState('')
   const [workHistory, setWorkHistory] = useState('')
   const [qualifications, setQualifications] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -88,39 +86,9 @@ export default function FormPage() {
 
     if (company) {
       setCompanyId(company.id)
-
-      // 職種一覧取得
-      const { data: jobTypesData } = await supabase
-        .from('job_types')
-        .select('id, name')
-        .eq('company_id', company.id)
-        .eq('is_active', true)
-
-      if (jobTypesData) {
-        setJobTypes(
-          jobTypesData.map((jt) => ({
-            value: jt.id,
-            label: jt.name,
-          }))
-        )
-      }
     }
 
     setLoading(false)
-  }
-
-  function calculateAge(): number | null {
-    if (!birthYear || !birthMonth || !birthDay) return null
-    const today = new Date()
-    const birth = new Date(
-      parseInt(birthYear),
-      parseInt(birthMonth) - 1,
-      parseInt(birthDay)
-    )
-    let age = today.getFullYear() - birth.getFullYear()
-    const m = today.getMonth() - birth.getMonth()
-    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
-    return age
   }
 
   function validate(): boolean {
@@ -141,11 +109,15 @@ export default function FormPage() {
       newErrors.firstNameKana = 'カタカナで入力してください'
     }
 
-    if (!birthYear || !birthMonth || !birthDay) {
-      newErrors.birthDate = '生年月日をすべて入力してください'
+    const ageNum = parseInt(age, 10)
+    if (!age.trim()) {
+      newErrors.age = '年齢を入力してください'
+    } else if (isNaN(ageNum) || ageNum < 1 || ageNum > 100) {
+      newErrors.age = '年齢は1〜100の範囲で入力してください'
     }
 
     if (!gender) newErrors.gender = '性別を選択してください'
+    if (!phone.trim()) newErrors.phone = '電話番号を入力してください'
     if (!email.trim()) {
       newErrors.email = 'メールアドレスを入力してください'
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -157,6 +129,7 @@ export default function FormPage() {
     if (!employmentType) newErrors.employmentType = '就業形態を選択してください'
     if (!industryExperience) newErrors.industryExperience = '業界経験を選択してください'
     if (!jobTypeId) newErrors.jobTypeId = '希望職種を選択してください'
+    if (!desiredEmploymentForm) newErrors.desiredEmploymentForm = '希望の雇用形態を選択してください'
 
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -170,8 +143,6 @@ export default function FormPage() {
     }
 
     setSubmitting(true)
-    const age = calculateAge()
-    const birthDate = `${birthYear}-${birthMonth.padStart(2, '0')}-${birthDay.padStart(2, '0')}`
 
     const { data, error } = await supabase
       .from('applicants')
@@ -181,8 +152,8 @@ export default function FormPage() {
         first_name: firstName.trim(),
         last_name_kana: lastNameKana.trim(),
         first_name_kana: firstNameKana.trim(),
-        birth_date: birthDate,
-        age: age,
+        birth_date: '2000-01-01',
+        age: parseInt(age, 10),
         gender: gender,
         phone_number: phone,
         email: email.trim(),
@@ -190,7 +161,7 @@ export default function FormPage() {
         education: education,
         employment_type: employmentType,
         industry_experience: industryExperience,
-        job_type_id: jobTypeId,
+        job_type_id: null,
         work_history: workHistory.trim() || null,
         qualifications: qualifications.trim() || null,
         selection_status: 'pending',
@@ -211,12 +182,6 @@ export default function FormPage() {
       router.push(`/interview/${slug}/verify`)
     }
   }
-
-  const currentYear = new Date().getFullYear()
-  const years = Array.from({ length: currentYear - 1939 }, (_, i) => currentYear - i)
-  const months = Array.from({ length: 12 }, (_, i) => i + 1)
-  const days = Array.from({ length: 31 }, (_, i) => i + 1)
-  const age = calculateAge()
 
   if (loading) {
     return (
@@ -250,7 +215,7 @@ export default function FormPage() {
   return (
     <InterviewLayout>
       <div className="mb-6">
-        <StepIndicator currentStep={1} totalSteps={5} labels={STEP_LABELS} />
+        <StepIndicator currentStep={2} totalSteps={5} labels={STEP_LABELS} />
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
@@ -263,7 +228,7 @@ export default function FormPage() {
           </p>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-4 [&_input]:text-gray-900 [&_textarea]:text-gray-900 [&_select]:text-gray-900 [&_label]:text-gray-700">
           <div className="grid grid-cols-2 gap-3">
             <InputField label="姓" required error={errors.lastName}>
               <TextInput
@@ -298,32 +263,16 @@ export default function FormPage() {
             </InputField>
           </div>
 
-          <InputField label="生年月日" required error={errors.birthDate}>
-            <div className="flex items-center gap-2">
-              <SelectField
-                value={birthYear}
-                onChange={setBirthYear}
-                options={years.map((y) => ({ value: y.toString(), label: `${y}年` }))}
-                placeholder="年"
-              />
-              <SelectField
-                value={birthMonth}
-                onChange={setBirthMonth}
-                options={months.map((m) => ({ value: m.toString(), label: `${m}月` }))}
-                placeholder="月"
-              />
-              <SelectField
-                value={birthDay}
-                onChange={setBirthDay}
-                options={days.map((d) => ({ value: d.toString(), label: `${d}日` }))}
-                placeholder="日"
-              />
-              {age !== null && (
-                <span className="text-sm text-gray-600 whitespace-nowrap">
-                  ({age}歳)
-                </span>
-              )}
-            </div>
+          <InputField label="年齢" required error={errors.age}>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={age}
+              onChange={(e) => setAge(e.target.value)}
+              placeholder="例）25"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors bg-white text-gray-900"
+            />
           </InputField>
 
           <InputField label="性別" required error={errors.gender}>
@@ -340,11 +289,13 @@ export default function FormPage() {
             />
           </InputField>
 
-          <InputField label="電話番号" required>
-            <div>
-              <TextInput value={phone} onChange={() => {}} disabled />
-              <p className="mt-1 text-xs text-green-600">✓ SMS認証済み</p>
-            </div>
+          <InputField label="電話番号" required error={errors.phone}>
+            <TextInput
+              type="tel"
+              value={phone}
+              onChange={setPhone}
+              placeholder="09012345678"
+            />
           </InputField>
 
           <InputField label="メールアドレス" required error={errors.email}>
@@ -375,13 +326,14 @@ export default function FormPage() {
           </InputField>
 
           <InputField label="就業形態" required error={errors.employmentType}>
-            <RadioGroup
+            <SelectField
               value={employmentType}
               onChange={setEmploymentType}
               options={[
                 { value: 'new_graduate', label: '新卒' },
                 { value: 'mid_career', label: '中途' },
               ]}
+              placeholder="選択してください"
             />
           </InputField>
 
@@ -400,7 +352,22 @@ export default function FormPage() {
             <SelectField
               value={jobTypeId}
               onChange={setJobTypeId}
-              options={jobTypes}
+              options={[
+                { value: 'engineer', label: 'エンジニア' },
+                { value: 'sales', label: '営業職' },
+              ]}
+              placeholder="選択してください"
+            />
+          </InputField>
+
+          <InputField label="希望の雇用形態" required error={errors.desiredEmploymentForm}>
+            <SelectField
+              value={desiredEmploymentForm}
+              onChange={setDesiredEmploymentForm}
+              options={[
+                { value: 'parttime', label: 'アルバイト' },
+                { value: 'fulltime', label: '正社員' },
+              ]}
               placeholder="選択してください"
             />
           </InputField>
