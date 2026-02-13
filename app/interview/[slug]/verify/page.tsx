@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import InterviewLayout from '@/components/interview/InterviewLayout'
 import {
   StepIndicator,
@@ -16,9 +16,18 @@ const STEP_LABELS = ['同意', '情報入力', 'SMS認証', '環境確認', '面
 export default function VerifyPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const slug = params.slug as string
+  const phoneFromUrl = searchParams.get('phone') || ''
 
   const [phone, setPhone] = useState('')
+  const isPhoneFromForm = !!phoneFromUrl
+
+  useEffect(() => {
+    if (phoneFromUrl) {
+      setPhone(phoneFromUrl)
+    }
+  }, [phoneFromUrl])
   const [codeSent, setCodeSent] = useState(false)
   const [otpCode, setOtpCode] = useState('')
   const [countdown, setCountdown] = useState(60)
@@ -81,7 +90,7 @@ export default function VerifyPage() {
   return (
     <InterviewLayout maxWidth="sm">
       <div className="mb-6">
-        <StepIndicator currentStep={2} totalSteps={5} labels={STEP_LABELS} />
+        <StepIndicator currentStep={3} totalSteps={5} labels={STEP_LABELS} />
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
@@ -115,6 +124,7 @@ export default function VerifyPage() {
                 value={phone}
                 onChange={setPhone}
                 placeholder="09012345678"
+                disabled={isPhoneFromForm}
               />
             </InputField>
 

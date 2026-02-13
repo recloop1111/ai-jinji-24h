@@ -179,7 +179,7 @@ export default function FormPage() {
 
     if (data) {
       sessionStorage.setItem(`interview_${slug}_applicant_id`, data.id)
-      router.push(`/interview/${slug}/verify`)
+      router.push(`/interview/${slug}/verify?phone=${encodeURIComponent(phone)}`)
     }
   }
 
@@ -294,7 +294,7 @@ export default function FormPage() {
               type="tel"
               value={phone}
               onChange={setPhone}
-              placeholder="09012345678"
+              placeholder="例）09012345678"
             />
           </InputField>
 
