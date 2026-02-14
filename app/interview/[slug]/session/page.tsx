@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 
 export default function SessionPage() {
@@ -11,8 +11,8 @@ export default function SessionPage() {
   const [interviewState, setInterviewState] = useState<'idle' | 'listen' | 'think' | 'speak' | 'react'>('idle')
   const [blinking, setBlinking] = useState(false)
   const [showConnectionBanner, setShowConnectionBanner] = useState(false)
-  const [showEndDialog, setShowEndDialog] = useState(false)
   const [bannerOpacity, setBannerOpacity] = useState(0)
+  const [aiSpeechText, setAiSpeechText] = useState('')
   const [demoMode] = useState(false)
   const [hasStream, setHasStream] = useState(false)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
@@ -129,6 +129,20 @@ export default function SessionPage() {
     }
   }, [showConnectionBanner])
 
+  // TODO: OpenAI Realtime API接続後に実データへ差替え
+  useEffect(() => {
+    const t1 = setTimeout(() => {
+      setAiSpeechText('本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？')
+    }, 3000)
+    const t2 = setTimeout(() => {
+      setAiSpeechText('')
+    }, 10000)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
+  }, [])
+
   // 面接タイマー（40分で自動終了）
   useEffect(() => {
     if (elapsedSeconds >= MAX_INTERVIEW_SECONDS) {
@@ -228,7 +242,7 @@ export default function SessionPage() {
         </div>
 
         {/* 応募者カメラ小窓（左上固定） */}
-        <div className="fixed top-4 left-4 md:top-4 md:left-4 z-10 w-32 h-24 md:w-40 md:h-[120px] rounded-lg border-2 border-white/30 overflow-hidden bg-slate-800">
+        <div className="fixed top-4 left-4 z-10 w-40 h-30 rounded-lg border border-white/20 overflow-hidden bg-slate-800">
           {hasStream ? (
             <video
               ref={videoRef}
@@ -258,7 +272,7 @@ export default function SessionPage() {
         {/* 回線品質バナー（上部中央） */}
         {showConnectionBanner && (
           <div
-            className="fixed top-4 left-1/2 transform -translate-x-1/2 z-20 bg-yellow-500/90 text-white px-4 py-2 rounded-lg text-sm transition-opacity duration-300"
+            className="fixed top-4 left-1/2 transform -translate-x-1/2 z-20 bg-yellow-500/90 text-white text-sm py-2 px-4 rounded-lg transition-opacity duration-300"
             style={{ opacity: bannerOpacity }}
           >
             通信が不安定です。Wi-Fi環境をお試しください。
@@ -313,7 +327,7 @@ export default function SessionPage() {
           {/* AI面接官テキスト */}
           <p className="text-white text-base mt-3">AI面接官</p>
 
-          {/* 発話状態テキスト */}
+          {/* 発話状態テキスト（聞いています…/考えています…） */}
           <div
             className={`mt-2 transition-opacity duration-300 ${
               interviewState === 'listen' || interviewState === 'think'
@@ -328,53 +342,42 @@ export default function SessionPage() {
               <p className="text-blue-400 text-sm">考えています...</p>
             )}
           </div>
+
+          {/* AI発話テキスト表示エリア */}
+          <div
+            className={`max-w-lg mx-auto mt-6 bg-white/10 backdrop-blur-sm rounded-2xl px-6 py-4 text-white text-base leading-relaxed text-center line-clamp-3 transition-opacity duration-500 ${
+              aiSpeechText ? 'opacity-100' : 'opacity-0'
+            }`}
+          >
+            {aiSpeechText}
+          </div>
         </div>
 
         {/* 面接終了ボタン（デスクトップ） */}
         <button
-          onClick={() => setShowEndDialog(true)}
+          onClick={() => {
+            if (window.confirm('面接を終了しますか？終了後は再開できません。')) {
+              handleEndInterview()
+            }
+          }}
           className="hidden md:block fixed bottom-6 right-6 z-10 text-red-400 hover:text-red-300 text-sm px-4 py-2 transition-colors"
         >
           面接を終了する
         </button>
 
         {/* 面接終了ボタン（モバイル） */}
-        <div className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900/80 backdrop-blur py-3 z-10">
+        <div className="md:hidden fixed bottom-0 left-0 right-0 bg-gray-900/80 py-3 text-center z-10">
           <button
-            onClick={() => setShowEndDialog(true)}
-            className="w-full text-red-400 text-sm transition-colors"
+            onClick={() => {
+              if (window.confirm('面接を終了しますか？終了後は再開できません。')) {
+                handleEndInterview()
+              }
+            }}
+            className="text-red-400 text-xs transition-colors"
           >
             面接を終了する
           </button>
         </div>
-
-        {/* 確認ダイアログ */}
-        {showEndDialog && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center">
-            <div className="bg-white rounded-2xl p-6 max-w-sm mx-4 shadow-xl">
-              <h3 className="text-lg font-bold text-gray-900">
-                面接を終了しますか？
-              </h3>
-              <p className="text-sm text-gray-500 mt-2">
-                終了後は再開できません。
-              </p>
-              <div className="mt-6 flex gap-3">
-                <button
-                  onClick={() => setShowEndDialog(false)}
-                  className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
-                >
-                  キャンセル
-                </button>
-                <button
-                  onClick={handleEndInterview}
-                  className="flex-1 bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-600 transition-colors"
-                >
-                  終了する
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </>
   )
