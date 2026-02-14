@@ -58,6 +58,10 @@ export default function PreparePage() {
     setAllPassed(passed)
   }, [checks])
 
+  useEffect(() => {
+    runChecks()
+  }, [])
+
   function updateCheck(id: string, status: CheckStatus, message: string = '') {
     setChecks((prev) =>
       prev.map((c) => (c.id === id ? { ...c, status, message } : c))
@@ -139,9 +143,9 @@ export default function PreparePage() {
       function measureMic() {
         if (testDuration >= testLength) {
           if (maxLevel > 5) {
-            updateCheck('mic_test', 'pass', 'マイクが正常に動作しています')
+            updateCheck('mic_test', 'pass', '音声が正常に検出されました')
           } else {
-            updateCheck('mic_test', 'fail', 'マイクからの音声が検出されませんでした')
+            updateCheck('mic_test', 'fail', 'マイクの音声が検出されません。マイクがミュートになっていないか確認してください。')
           }
           setChecking(false)
           return
@@ -169,7 +173,7 @@ export default function PreparePage() {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
     }
-    router.push(`/interview/${slug}/uploading`)
+    router.push(`/interview/${slug}/session`)
   }
 
   function getStatusIcon(status: CheckStatus) {
@@ -240,12 +244,9 @@ export default function PreparePage() {
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
         <div className="mb-6">
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2 text-center">
-            環境チェック
+          <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center">
+            面接の準備
           </h1>
-          <p className="text-sm text-gray-600 text-center">
-            面接に必要な環境を確認します
-          </p>
         </div>
 
         <div className="mb-6">
@@ -259,19 +260,9 @@ export default function PreparePage() {
                 className="w-full h-full object-cover scale-x-[-1]"
               />
             ) : (
-              <div className="text-white text-center">
-                <svg
-                  className="w-16 h-16 mx-auto mb-2 opacity-50"
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
-                <p className="text-sm opacity-50">カメラプレビュー</p>
+              <div className="text-white text-center p-4">
+                <p className="text-sm mb-2">カメラへのアクセスを許可してください</p>
+                <p className="text-sm text-gray-500">ブラウザの許可ダイアログで「許可」を選択してください</p>
               </div>
             )}
           </div>
@@ -319,7 +310,7 @@ export default function PreparePage() {
                     />
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    マイクに向かって話してください
+                    何か話してみてください
                   </p>
                 </div>
               )}
@@ -328,13 +319,16 @@ export default function PreparePage() {
         </div>
 
         <div className="space-y-3">
-          <SecondaryButton
-            onClick={runChecks}
-            disabled={checking}
-          >
-            {hasRunChecks ? '環境チェックを再実行' : '環境チェックを開始'}
-          </SecondaryButton>
+          {checks.some((c) => c.status === 'fail') && (
+            <SecondaryButton
+              onClick={runChecks}
+              disabled={checking}
+            >
+              もう一度チェックする
+            </SecondaryButton>
+          )}
 
+          <p className="text-sm text-red-500">面接を開始すると録画が始まります。</p>
           <PrimaryButton
             onClick={handleStartInterview}
             disabled={!allPassed || checking}
@@ -343,7 +337,13 @@ export default function PreparePage() {
           </PrimaryButton>
 
           <div className="text-center pt-4">
-            <TextLink onClick={() => router.push(`/interview/${slug}/cancelled`)}>
+            <TextLink
+              onClick={() => {
+                if (window.confirm('面接をキャンセルしますか？')) {
+                  router.push(`/interview/${slug}/cancelled`)
+                }
+              }}
+            >
               面接をキャンセルする
             </TextLink>
           </div>
