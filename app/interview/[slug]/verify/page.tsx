@@ -69,7 +69,7 @@ export default function VerifyPage() {
 
   function handleVerify() {
     if (otpCode.length !== 6) {
-      setError('認証コードを6桁入力してください')
+      setError('認証コードが正しくありません。')
       return
     }
 
@@ -93,7 +93,7 @@ export default function VerifyPage() {
         <StepIndicator currentStep={3} totalSteps={5} labels={STEP_LABELS} />
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8 [&_input]:text-gray-900 [&_input]:placeholder:text-gray-400 [&_label]:text-gray-700 [&_label]:font-medium">
         <div className="flex flex-col items-center mb-6">
           <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4">
             <svg
@@ -108,8 +108,8 @@ export default function VerifyPage() {
               <path d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
             </svg>
           </div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2 text-center">
-            SMS認証
+          <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center">
+            電話番号の認証
           </h1>
           <p className="text-sm text-gray-600 text-center">
             本人確認のため、携帯電話番号を入力してください
@@ -147,24 +147,56 @@ export default function VerifyPage() {
               <input
                 type="text"
                 inputMode="numeric"
+                autoComplete="one-time-code"
                 maxLength={6}
                 value={otpCode}
                 onChange={(e) => handleOtpCodeChange(e.target.value)}
                 placeholder="000000"
-                className="w-full py-3 px-4 border-2 border-gray-300 rounded-lg text-2xl text-center font-bold tracking-[1em] focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                className="w-full py-3 px-4 border-2 border-gray-300 rounded-lg text-2xl text-center font-bold tracking-[1em] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
               />
               {error && (
-                <p className="mt-2 text-sm text-red-600">{error}</p>
+                <p className="mt-2 text-sm text-red-500">{error}</p>
               )}
             </div>
 
-            <PrimaryButton
-              onClick={handleVerify}
-              disabled={otpCode.length !== 6}
-              loading={verifying}
-            >
-              認証して次へ
-            </PrimaryButton>
+            {verifying ? (
+              <button
+                type="button"
+                disabled
+                className="w-full py-3 px-6 rounded-lg font-bold text-white text-sm shadow-sm bg-gray-300 cursor-not-allowed"
+              >
+                <span className="flex items-center justify-center gap-2">
+                  <svg
+                    className="animate-spin h-4 w-4 text-white"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    />
+                  </svg>
+                  認証中...
+                </span>
+              </button>
+            ) : (
+              <PrimaryButton
+                onClick={handleVerify}
+                disabled={otpCode.length !== 6}
+              >
+                認証して次へ
+              </PrimaryButton>
+            )}
 
             <div className="text-center">
               {countdown > 0 ? (
@@ -181,12 +213,21 @@ export default function VerifyPage() {
         )}
 
         <div className="flex items-center justify-between mt-6 pt-6 border-t border-gray-200">
-          <TextLink onClick={() => router.push(`/interview/${slug}/cancelled`)}>
-            キャンセル
+          <TextLink
+            onClick={() => {
+              if (window.confirm('面接をキャンセルしますか？')) {
+                router.push(`/interview/${slug}/cancelled`)
+              }
+            }}
+          >
+            面接をキャンセルする
           </TextLink>
-          <TextLink href="#">
-            お困りの方はこちら
-          </TextLink>
+          <a
+            href="mailto:recloop.1111@gmail.com"
+            className="text-xs text-gray-400 hover:text-gray-600 underline transition-colors"
+          >
+            面接を受けられない場合はこちら
+          </a>
         </div>
       </div>
     </InterviewLayout>
