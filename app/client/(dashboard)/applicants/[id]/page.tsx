@@ -1,222 +1,143 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { useState } from 'react'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 
-type TabName = 'basic' | 'recording' | 'evaluation' | 'memo' | 'status'
-
-type Applicant = {
-  id: string
-  last_name: string
-  first_name: string
-  phone_number: string
-  email: string
-  selection_status: string
-  created_at: string
-  job_types: { name: string } | null
+// TODO: 実データに差替え
+const DUMMY_APPLICANT = {
+  name: '山田 太郎',
+  furigana: 'やまだ たろう',
+  email: 'yamada@example.com',
+  phone: '090-1234-5678',
+  age: 28,
+  jobType: 'エンジニア',
+  appliedAt: '2025-02-14 10:00',
+  status: 'second_pass',
+  statusLabel: '二次通過',
+  memo: '',
+  statusHistory: [
+    { date: '2025-02-14 15:00', change: '未実施 → 評価中', by: 'システム' },
+    { date: '2025-02-14 14:35', change: '評価中 → 完了', by: 'システム' },
+    { date: '2025-02-14 14:30', change: '面接開始', by: 'AI' },
+  ],
+  personalityType: '論理型リーダー',
+  personalityCatchphrase: '冷静な分析力で周囲を導く、信頼のリーダー',
+  personalityDescription: 'あなたは物事を論理的に整理し、根拠に基づいた判断ができるタイプです。チームの中では自然とまとめ役になることが多く、周囲からの信頼も厚い傾向があります。',
+  radarData: [
+    { label: '行動力', value: 4 },
+    { label: '協調性', value: 3 },
+    { label: '分析力', value: 5 },
+    { label: '創造性', value: 3 },
+    { label: '安定性', value: 4 },
+  ],
+  summaryMinutes: 25,
+  summaryQuestions: 6,
+  avgResponseSeconds: 42,
+  totalSpeakingTime: '8:30',
+  speakingRate: 65,
+  strengths: [
+    { title: '自己表現力', description: '自身の経験や考えを、具体的なエピソードを交えながら分かりやすく伝えることができています。' },
+    { title: '傾聴力', description: '質問の意図を正確に把握し、的確に回答する力が見られます。' },
+    { title: '論理的思考', description: '回答に一貫性があり、筋道を立てて話を展開する力があります。' },
+  ],
+  totalScore: 85,
+  itemScores: [
+    { label: 'コミュニケーション力', score: 18, max: 20 },
+    { label: '論理的思考', score: 17, max: 20 },
+    { label: '積極性', score: 16, max: 20 },
+    { label: '専門知識', score: 17, max: 20 },
+    { label: '文化適合性', score: 17, max: 20 },
+  ],
+  aiComment: '論理的な回答と明確な志望動機が強みです。具体的なエピソードを交えた説明ができるため、採用後の活躍が期待できます。チームワークに関する質問への回答も適切でした。',
+  qaLogs: [
+    { role: 'ai', text: '自己紹介をお願いします。' },
+    { role: 'applicant', text: 'はじめまして。山田太郎と申します。大学で情報工学を専攻し、現在はWebアプリケーションの開発に5年従事しています。' },
+    { role: 'ai', text: 'なぜ当社を志望されましたか？' },
+    { role: 'applicant', text: '御社のプロダクト開発の文化と、技術への投資姿勢に惹かれました。特にAIを活用した新規事業に興味があります。' },
+    { role: 'ai', text: 'これまでの失敗経験と、そこから学んだことを教えてください。' },
+  ],
+  recordingDuration: '25:30',
 }
 
-type Memo = {
-  id: string
-  content: string
-  created_at: string
-  updated_at: string
-}
-
+// 選考ステータス（企業担当者が手動管理）: 検討中 / 二次通過 / 不採用
 const STATUS_OPTIONS = [
-  { value: 'pending', label: '未対応' },
-  { value: 'second_interview', label: '二次面接へ' },
+  { value: 'considering', label: '検討中' },
+  { value: 'second_pass', label: '二次通過' },
   { value: 'rejected', label: '不採用' },
 ]
 
-const statusLabel = (status: string) =>
-  STATUS_OPTIONS.find(s => s.value === status)?.label ?? status
+type TabKey = 'basic' | 'status' | 'report' | 'score' | 'qa'
 
-const statusBadge = (status: string) => {
-  const styles: Record<string, string> = {
-    pending: 'bg-yellow-100 text-yellow-800',
-    second_interview: 'bg-green-100 text-green-800',
-    rejected: 'bg-gray-100 text-gray-600',
-  }
+function ChevronLeftIcon({ className }: { className?: string }) {
   return (
-    <span className={`inline-block px-2.5 py-1 text-xs font-medium rounded-full ${styles[status] || 'bg-gray-100 text-gray-600'}`}>
-      {statusLabel(status)}
-    </span>
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
   )
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const classes: Record<string, string> = {
+    considering: 'bg-orange-100 text-orange-600',
+    second_pass: 'bg-blue-100 text-blue-600',
+    rejected: 'bg-red-100 text-red-600',
+  }
+  const label = STATUS_OPTIONS.find((o) => o.value === status)?.label || status
+  return <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${classes[status] || 'bg-gray-100 text-gray-600'}`}>{label}</span>
 }
 
 export default function ApplicantDetailPage() {
   const params = useParams()
-  const router = useRouter()
-  const applicantId = params.id as string
-  const supabase = createClient()
+  const id = params.id as string
+  const [activeTab, setActiveTab] = useState<TabKey>('basic')
+  const [selectedStatus, setSelectedStatus] = useState(DUMMY_APPLICANT.status)
+  const [selectionMemo, setSelectionMemo] = useState(DUMMY_APPLICANT.memo)
 
-  const [activeTab, setActiveTab] = useState<TabName>('basic')
-  const [loading, setLoading] = useState(true)
-  const [applicant, setApplicant] = useState<Applicant | null>(null)
-  const [companyId, setCompanyId] = useState('')
-
-  // メモ関連
-  const [memos, setMemos] = useState<Memo[]>([])
-  const [newMemo, setNewMemo] = useState('')
-  const [editingMemoId, setEditingMemoId] = useState<string | null>(null)
-  const [editingContent, setEditingContent] = useState('')
-  const [memoSaving, setMemoSaving] = useState(false)
-
-  // ステータス変更関連
-  const [selectedStatus, setSelectedStatus] = useState('')
-  const [statusSaving, setStatusSaving] = useState(false)
-  const [statusMessage, setStatusMessage] = useState('')
-
-  useEffect(() => {
-    fetchData()
-  }, [applicantId])
-
-  const fetchData = async () => {
-    setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/client/login'); return }
-
-    const { data: company } = await supabase
-      .from('companies')
-      .select('id')
-      .eq('auth_user_id', user.id)
-      .single()
-    if (!company) return
-    setCompanyId(company.id)
-
-    const { data: app } = await supabase
-      .from('applicants')
-      .select('id, last_name, first_name, phone_number, email, selection_status, created_at, job_types(name)')
-      .eq('id', applicantId)
-      .eq('company_id', company.id)
-      .single()
-
-    if (!app) { setLoading(false); return }
-    setApplicant(app as unknown as Applicant)
-    setSelectedStatus(app.selection_status)
-
-    await fetchMemos()
-    setLoading(false)
+  const cx = 100
+  const cy = 100
+  const maxR = 72
+  const getPoint = (i: number, r: number) => {
+    const angle = (-90 + i * 72) * (Math.PI / 180)
+    return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) }
   }
+  const dataPoints = DUMMY_APPLICANT.radarData.map((d, i) => getPoint(i, (d.value / 5) * maxR))
+  const dataPath = dataPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
 
-  const fetchMemos = async () => {
-    const { data } = await supabase
-      .from('internal_memos')
-      .select('id, content, created_at, updated_at')
-      .eq('applicant_id', applicantId)
-      .order('created_at', { ascending: false })
-    setMemos(data || [])
-  }
-
-  // --- メモ CRUD ---
-  const handleCreateMemo = async () => {
-    if (!newMemo.trim()) return
-    setMemoSaving(true)
-    await supabase.from('internal_memos').insert({
-      applicant_id: applicantId,
-      company_id: companyId,
-      content: newMemo.trim(),
-    })
-    setNewMemo('')
-    await fetchMemos()
-    setMemoSaving(false)
-  }
-
-  const handleUpdateMemo = async (memoId: string) => {
-    if (!editingContent.trim()) return
-    setMemoSaving(true)
-    await supabase
-      .from('internal_memos')
-      .update({ content: editingContent.trim(), updated_at: new Date().toISOString() })
-      .eq('id', memoId)
-    setEditingMemoId(null)
-    setEditingContent('')
-    await fetchMemos()
-    setMemoSaving(false)
-  }
-
-  const handleDeleteMemo = async (memoId: string) => {
-    if (!confirm('このメモを削除しますか？')) return
-    await supabase.from('internal_memos').delete().eq('id', memoId)
-    await fetchMemos()
-  }
-
-  const startEditing = (memo: Memo) => {
-    setEditingMemoId(memo.id)
-    setEditingContent(memo.content)
-  }
-
-  // --- ステータス変更 ---
-  const handleStatusChange = async () => {
-    if (!selectedStatus || selectedStatus === applicant?.selection_status) return
-    setStatusSaving(true)
-    setStatusMessage('')
-
-    const { error } = await supabase
-      .from('applicants')
-      .update({ selection_status: selectedStatus, updated_at: new Date().toISOString() })
-      .eq('id', applicantId)
-
-    if (!error) {
-      await supabase.from('selection_status_histories').insert({
-        applicant_id: applicantId,
-        old_status: applicant!.selection_status,
-        new_status: selectedStatus,
-      })
-      setApplicant({ ...applicant!, selection_status: selectedStatus })
-      setStatusMessage('ステータスを更新しました')
-    } else {
-      setStatusMessage('更新に失敗しました')
-    }
-    setStatusSaving(false)
-  }
-
-  const formatDate = (d: string | null) =>
-    d ? new Date(d).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
-
-  if (loading) return <div className="text-center py-12 text-gray-500">読み込み中...</div>
-  if (!applicant) return <div className="text-center py-12 text-gray-500">応募者が見つかりません</div>
-
-  const tabs: { key: TabName; label: string }[] = [
+  const tabs: { key: TabKey; label: string }[] = [
     { key: 'basic', label: '基本情報' },
-    { key: 'recording', label: '面接録画' },
-    { key: 'evaluation', label: 'AI評価' },
-    { key: 'memo', label: 'メモ' },
-    { key: 'status', label: 'ステータス変更' },
+    { key: 'status', label: '選考ステータス' },
+    { key: 'report', label: 'AIレポート' },
+    { key: 'score', label: 'スコア・評価' },
+    { key: 'qa', label: '質疑応答ログ・動画' },
   ]
 
   return (
-    <div>
-      {/* 戻るボタン */}
-      <Link
-        href="/client/applicants"
-        className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-500 mb-4"
-      >
-        ← 応募者一覧に戻る
-      </Link>
-
+    <div className="space-y-6">
       {/* ヘッダー */}
-      <div className="flex items-center gap-3 mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">
-          {applicant.last_name} {applicant.first_name}
-        </h1>
-        {statusBadge(applicant.selection_status)}
+      <div>
+        <Link
+          href="/client/applicants"
+          className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700 font-medium mb-4"
+        >
+          <ChevronLeftIcon className="w-4 h-4" />
+          応募者一覧に戻る
+        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold text-slate-900">{DUMMY_APPLICANT.name}</h1>
+          <StatusBadge status={DUMMY_APPLICANT.status} />
+        </div>
       </div>
 
-      {/* タブナビゲーション */}
-      <div className="border-b mb-6">
-        <nav className="flex gap-0 -mb-px">
-          {tabs.map(tab => (
+      {/* タブ */}
+      <div className="border-b border-slate-200">
+        <nav className="flex gap-0 -mb-px overflow-x-auto">
+          {tabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === tab.key
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              className={`px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                activeTab === tab.key ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'
               }`}
             >
               {tab.label}
@@ -225,184 +146,204 @@ export default function ApplicantDetailPage() {
         </nav>
       </div>
 
-      {/* 基本情報タブ */}
+      {/* タブ1: 基本情報 */}
       {activeTab === 'basic' && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">基本情報</h2>
-          <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 text-sm">
-            <div>
-              <dt className="text-gray-500">応募者名</dt>
-              <dd className="mt-1 text-gray-900 font-medium">{applicant.last_name} {applicant.first_name}</dd>
-            </div>
-            <div>
-              <dt className="text-gray-500">電話番号</dt>
-              <dd className="mt-1 text-gray-900">{applicant.phone_number || '—'}</dd>
-            </div>
-            <div>
-              <dt className="text-gray-500">メールアドレス</dt>
-              <dd className="mt-1 text-gray-900">{applicant.email || '—'}</dd>
-            </div>
-            <div>
-              <dt className="text-gray-500">応募日時</dt>
-              <dd className="mt-1 text-gray-900">{formatDate(applicant.created_at)}</dd>
-            </div>
-            <div>
-              <dt className="text-gray-500">ステータス</dt>
-              <dd className="mt-1">{statusBadge(applicant.selection_status)}</dd>
-            </div>
-            <div>
-              <dt className="text-gray-500">希望職種</dt>
-              <dd className="mt-1 text-gray-900">{applicant.job_types?.name || '—'}</dd>
-            </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+          <h2 className="text-base font-semibold text-slate-900 mb-4">基本情報</h2>
+          <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5 text-sm">
+            <div><dt className="text-slate-500 mb-1">氏名</dt><dd className="text-slate-900 font-medium">{DUMMY_APPLICANT.name}</dd></div>
+            <div><dt className="text-slate-500 mb-1">フリガナ</dt><dd className="text-slate-900">{DUMMY_APPLICANT.furigana}</dd></div>
+            <div><dt className="text-slate-500 mb-1">メールアドレス</dt><dd className="text-slate-900">{DUMMY_APPLICANT.email}</dd></div>
+            <div><dt className="text-slate-500 mb-1">電話番号</dt><dd className="text-slate-900">{DUMMY_APPLICANT.phone}</dd></div>
+            <div><dt className="text-slate-500 mb-1">年齢</dt><dd className="text-slate-900">{DUMMY_APPLICANT.age}歳</dd></div>
+            <div><dt className="text-slate-500 mb-1">応募職種</dt><dd className="text-slate-900">{DUMMY_APPLICANT.jobType}</dd></div>
+            <div><dt className="text-slate-500 mb-1">応募日時</dt><dd className="text-slate-900">{DUMMY_APPLICANT.appliedAt}</dd></div>
           </dl>
         </div>
       )}
 
-      {/* 面接録画タブ */}
-      {activeTab === 'recording' && (
-        <div className="bg-white rounded-lg shadow p-8 text-center">
-          <div className="text-gray-400 text-4xl mb-3">🎥</div>
-          <p className="text-gray-500 font-medium">録画データなし</p>
-          <p className="text-sm text-gray-400 mt-1">面接録画がある場合、ここに表示されます。</p>
-        </div>
-      )}
-
-      {/* AI評価タブ */}
-      {activeTab === 'evaluation' && (
-        <div className="bg-white rounded-lg shadow p-8 text-center">
-          <div className="text-gray-400 text-4xl mb-3">📊</div>
-          <p className="text-gray-500 font-medium">評価データなし</p>
-          <p className="text-sm text-gray-400 mt-1">AI評価レポートがある場合、ここにスコアが表示されます。</p>
-        </div>
-      )}
-
-      {/* メモタブ */}
-      {activeTab === 'memo' && (
+      {/* タブ2: 選考ステータス */}
+      {activeTab === 'status' && (
         <div className="space-y-6">
-          {/* メモ作成 */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-3">新しいメモを追加</h2>
-            <textarea
-              value={newMemo}
-              onChange={e => setNewMemo(e.target.value)}
-              maxLength={2000}
-              rows={3}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="メモを入力..."
-            />
-            <div className="flex items-center justify-between mt-2">
-              <span className="text-xs text-gray-400">{newMemo.length}/2000</span>
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">現在のステータス</h2>
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-sm font-medium text-slate-700 mb-2">ステータス</label>
+                <select
+                  value={selectedStatus}
+                  onChange={(e) => setSelectedStatus(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-gray-300 bg-white text-gray-700 rounded-lg text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                >
+                  {STATUS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
               <button
-                onClick={handleCreateMemo}
-                disabled={memoSaving || !newMemo.trim()}
-                className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 disabled:opacity-50"
+                type="button"
+                className="px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"
               >
-                {memoSaving ? '保存中...' : '追加'}
+                {/* TODO: ステータス更新API実装 */}
+                ステータス変更
               </button>
             </div>
           </div>
-
-          {/* メモ一覧 */}
-          {memos.length === 0 ? (
-            <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
-              メモはまだありません
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {memos.map(memo => (
-                <div key={memo.id} className="bg-white rounded-lg shadow p-4">
-                  {editingMemoId === memo.id ? (
-                    <>
-                      <textarea
-                        value={editingContent}
-                        onChange={e => setEditingContent(e.target.value)}
-                        maxLength={2000}
-                        rows={3}
-                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                      <div className="flex gap-2 mt-2">
-                        <button
-                          onClick={() => handleUpdateMemo(memo.id)}
-                          disabled={memoSaving}
-                          className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 disabled:opacity-50"
-                        >
-                          保存
-                        </button>
-                        <button
-                          onClick={() => { setEditingMemoId(null); setEditingContent('') }}
-                          className="px-3 py-1.5 border border-gray-300 text-sm text-gray-700 rounded-md hover:bg-gray-50"
-                        >
-                          キャンセル
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-sm text-gray-900 whitespace-pre-wrap">{memo.content}</p>
-                      <div className="flex items-center justify-between mt-3 pt-3 border-t">
-                        <span className="text-xs text-gray-400">
-                          {formatDate(memo.created_at)}
-                          {memo.updated_at !== memo.created_at && ` (編集: ${formatDate(memo.updated_at)})`}
-                        </span>
-                        <div className="flex gap-3">
-                          <button
-                            onClick={() => startEditing(memo)}
-                            className="text-xs text-blue-600 hover:text-blue-500"
-                          >
-                            編集
-                          </button>
-                          <button
-                            onClick={() => handleDeleteMemo(memo.id)}
-                            className="text-xs text-red-500 hover:text-red-700"
-                          >
-                            削除
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">選考メモ</h2>
+            {/* TODO: メモ保存API実装 */}
+            <textarea
+              value={selectionMemo}
+              onChange={(e) => setSelectionMemo(e.target.value)}
+              rows={4}
+              className="w-full px-4 py-3 border border-gray-300 bg-white text-gray-700 placeholder-gray-400 rounded-lg text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              placeholder="選考メモを入力..."
+            />
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">ステータス変更履歴</h2>
+            <ul className="space-y-3">
+              {DUMMY_APPLICANT.statusHistory.map((h, i) => (
+                <li key={i} className="flex items-start gap-4 text-sm py-2 border-b border-slate-100 last:border-0">
+                  <span className="text-slate-500 shrink-0">{h.date}</span>
+                  <span className="text-slate-900">{h.change}</span>
+                  <span className="text-slate-500 text-xs">{h.by}</span>
+                </li>
               ))}
-            </div>
-          )}
+            </ul>
+          </div>
         </div>
       )}
 
-      {/* ステータス変更タブ */}
-      {activeTab === 'status' && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">ステータス変更</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            現在のステータス: {statusBadge(applicant.selection_status)}
-          </p>
-          <div className="flex items-end gap-3">
-            <div className="flex-1 max-w-xs">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                新しいステータス
-              </label>
-              <select
-                value={selectedStatus}
-                onChange={e => setSelectedStatus(e.target.value)}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {STATUS_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-            <button
-              onClick={handleStatusChange}
-              disabled={statusSaving || selectedStatus === applicant.selection_status}
-              className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 disabled:opacity-50"
-            >
-              {statusSaving ? '更新中...' : '変更を保存'}
-            </button>
+      {/* タブ3: AIレポート */}
+      {activeTab === 'report' && (
+        <div className="space-y-6">
+          {/* TODO: AI分析結果データに差替え */}
+          <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl p-6 text-white shadow-sm">
+            <h2 className="text-base font-semibold mb-2">性格タイプ診断</h2>
+            <p className="text-xl font-bold mb-1">{DUMMY_APPLICANT.personalityType}</p>
+            <p className="text-white/90 text-sm mb-3">{DUMMY_APPLICANT.personalityCatchphrase}</p>
+            <p className="text-white/80 text-sm leading-relaxed">{DUMMY_APPLICANT.personalityDescription}</p>
           </div>
-          {statusMessage && (
-            <p className={`text-sm mt-3 ${statusMessage.includes('失敗') ? 'text-red-600' : 'text-green-600'}`}>
-              {statusMessage}
-            </p>
-          )}
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">能力プロファイル</h2>
+            <div className="flex justify-center">
+              <svg viewBox="0 0 200 200" className="w-48 h-48 md:w-56 md:h-56">
+                <defs>
+                  <linearGradient id="detailRadar" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#6366f1" stopOpacity="0.3" />
+                    <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.3" />
+                  </linearGradient>
+                </defs>
+                {[1, 2, 3, 4, 5].map((l) => {
+                  const r = (l / 5) * maxR
+                  const pts = [0, 1, 2, 3, 4].map((i) => getPoint(i, r))
+                  const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
+                  return <path key={l} d={path} fill="none" stroke="#e2e8f0" strokeWidth="1" />
+                })}
+                {[0, 1, 2, 3, 4].map((i) => {
+                  const p = getPoint(i, maxR)
+                  return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="#e2e8f0" strokeWidth="1" />
+                })}
+                <path d={dataPath} fill="url(#detailRadar)" stroke="#6366f1" strokeWidth="2" />
+                {DUMMY_APPLICANT.radarData.map((d, i) => {
+                  const p = getPoint(i, maxR + 12)
+                  return <text key={i} x={p.x} y={p.y} textAnchor="middle" fill="#64748b" fontSize="10">{d.label}</text>
+                })}
+              </svg>
+            </div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">面接サマリー</h2>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+              <div><p className="text-slate-500">面接時間</p><p className="font-medium text-slate-900">{DUMMY_APPLICANT.summaryMinutes}分</p></div>
+              <div><p className="text-slate-500">質問数</p><p className="font-medium text-slate-900">{DUMMY_APPLICANT.summaryQuestions}問</p></div>
+              <div><p className="text-slate-500">平均応答時間</p><p className="font-medium text-slate-900">{DUMMY_APPLICANT.avgResponseSeconds}秒</p></div>
+              <div><p className="text-slate-500">総発話時間</p><p className="font-medium text-slate-900">{DUMMY_APPLICANT.totalSpeakingTime}</p></div>
+              <div><p className="text-slate-500">発話率</p><p className="font-medium text-slate-900">{DUMMY_APPLICANT.speakingRate}%</p></div>
+            </div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">あなたの強み</h2>
+            <ul className="space-y-4">
+              {DUMMY_APPLICANT.strengths.map((s, i) => (
+                <li key={i}>
+                  <p className="text-sm font-semibold text-slate-900">{s.title}</p>
+                  <p className="text-sm text-slate-600 mt-0.5">{s.description}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* タブ4: スコア・評価 */}
+      {activeTab === 'score' && (
+        <div className="space-y-6">
+          {/* TODO: AI評価データに差替え */}
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">総合スコア</h2>
+            <p className="text-4xl font-bold text-indigo-600">{DUMMY_APPLICANT.totalScore}<span className="text-2xl font-normal text-slate-500">/100</span></p>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">評価項目別スコア</h2>
+            <div className="space-y-4">
+              {DUMMY_APPLICANT.itemScores.map((item, i) => (
+                <div key={i}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-slate-700">{item.label}</span>
+                    <span className="text-slate-900 font-medium">{item.score}/{item.max}</span>
+                  </div>
+                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-500 rounded-full transition-all"
+                      style={{ width: `${(item.score / item.max) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">AI推薦コメント</h2>
+            <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{DUMMY_APPLICANT.aiComment}</p>
+          </div>
+        </div>
+      )}
+
+      {/* タブ5: 質疑応答ログ・動画 */}
+      {activeTab === 'qa' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">質疑応答ログ</h2>
+            <div className="space-y-4">
+              {DUMMY_APPLICANT.qaLogs.map((log, i) => (
+                <div
+                  key={i}
+                  className={`flex ${log.role === 'ai' ? 'justify-start' : 'justify-end'}`}
+                >
+                  <div
+                    className={`max-w-[85%] rounded-xl px-4 py-3 text-sm ${
+                      log.role === 'ai'
+                        ? 'bg-slate-100 text-slate-900'
+                        : 'bg-indigo-50 text-slate-900'
+                    }`}
+                  >
+                    <p className="text-xs text-slate-500 mb-1">{log.role === 'ai' ? 'AI' : '応募者'}</p>
+                    <p className="whitespace-pre-wrap">{log.text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">面接動画</h2>
+            <div className="aspect-video bg-slate-100 rounded-lg flex items-center justify-center">
+              {/* TODO: Cloudflare R2から動画取得 */}
+              <p className="text-slate-500 text-sm">動画を読み込み中...</p>
+            </div>
+            <p className="mt-3 text-sm text-slate-600">録画時間: {DUMMY_APPLICANT.recordingDuration}</p>
+          </div>
         </div>
       )}
     </div>
