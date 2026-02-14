@@ -43,6 +43,7 @@ export default function FormPage() {
   const supabase = createClient()
 
   const [companyId, setCompanyId] = useState<string | null>(null)
+  const [jobTypes, setJobTypes] = useState<{ value: string; label: string }[]>([])
   const [loading, setLoading] = useState(true)
 
   const [lastName, setLastName] = useState('')
@@ -86,6 +87,22 @@ export default function FormPage() {
 
     if (company) {
       setCompanyId(company.id)
+
+      // 職種一覧取得
+      const { data: jobTypesData } = await supabase
+        .from('job_types')
+        .select('id, name')
+        .eq('company_id', company.id)
+        .eq('is_active', true)
+
+      if (jobTypesData) {
+        setJobTypes(
+          jobTypesData.map((jt) => ({
+            value: jt.id,
+            label: jt.name,
+          }))
+        )
+      }
     }
 
     setLoading(false)
@@ -128,7 +145,7 @@ export default function FormPage() {
     if (!education) newErrors.education = '最終学歴を選択してください'
     if (!employmentType) newErrors.employmentType = '就業形態を選択してください'
     if (!industryExperience) newErrors.industryExperience = '業界経験を選択してください'
-    if (!jobTypeId) newErrors.jobTypeId = '希望職種を選択してください'
+    if (jobTypes.length > 0 && !jobTypeId) newErrors.jobTypeId = '希望職種を選択してください'
     if (!desiredEmploymentForm) newErrors.desiredEmploymentForm = '希望の雇用形態を選択してください'
 
     setErrors(newErrors)
@@ -161,7 +178,8 @@ export default function FormPage() {
         education: education,
         employment_type: employmentType,
         industry_experience: industryExperience,
-        job_type_id: null,
+        job_type_id: jobTypeId || null,
+        // TODO: desired_employment_form カラム追加後にinsertに含める
         work_history: workHistory.trim() || null,
         qualifications: qualifications.trim() || null,
         selection_status: 'pending',
@@ -224,7 +242,7 @@ export default function FormPage() {
             基本情報の入力
           </h1>
           <p className="text-sm text-gray-600 text-center">
-            面接に必要な情報を入力してください
+            必須項目はすべてご入力ください。
           </p>
         </div>
 
@@ -326,14 +344,13 @@ export default function FormPage() {
           </InputField>
 
           <InputField label="就業形態" required error={errors.employmentType}>
-            <SelectField
+            <RadioGroup
               value={employmentType}
               onChange={setEmploymentType}
               options={[
                 { value: 'new_graduate', label: '新卒' },
                 { value: 'mid_career', label: '中途' },
               ]}
-              placeholder="選択してください"
             />
           </InputField>
 
@@ -342,22 +359,23 @@ export default function FormPage() {
               value={industryExperience}
               onChange={setIndustryExperience}
               options={[
-                { value: 'experienced', label: 'あり' },
-                { value: 'inexperienced', label: 'なし' },
+                { value: 'experienced', label: '経験あり' },
+                { value: 'inexperienced', label: '未経験' },
               ]}
             />
           </InputField>
 
           <InputField label="希望職種" required error={errors.jobTypeId}>
-            <SelectField
-              value={jobTypeId}
-              onChange={setJobTypeId}
-              options={[
-                { value: 'engineer', label: 'エンジニア' },
-                { value: 'sales', label: '営業職' },
-              ]}
-              placeholder="選択してください"
-            />
+            {jobTypes.length > 0 ? (
+              <SelectField
+                value={jobTypeId}
+                onChange={setJobTypeId}
+                options={jobTypes}
+                placeholder="選択してください"
+              />
+            ) : (
+              <p className="text-sm text-gray-500">職種が登録されていません</p>
+            )}
           </InputField>
 
           <InputField label="希望の雇用形態" required error={errors.desiredEmploymentForm}>
@@ -403,7 +421,13 @@ export default function FormPage() {
           </PrimaryButton>
 
           <div className="text-center pt-4">
-            <TextLink onClick={() => router.push(`/interview/${slug}/cancelled`)}>
+            <TextLink
+              onClick={() => {
+                if (window.confirm('面接をキャンセルしますか？入力内容は保存されません。')) {
+                  router.push(`/interview/${slug}/cancelled`)
+                }
+              }}
+            >
               面接をキャンセルする
             </TextLink>
           </div>

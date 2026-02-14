@@ -27,20 +27,20 @@ export default function InterviewLayout({
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 flex flex-col">
       <div className="flex-1 flex items-center justify-center px-4 py-8">
         <div className={`w-full ${maxWidthClasses[maxWidth]}`}>
-          {(companyName || companyLogo) && (
-            <div className="mb-8 text-center">
-              {companyLogo && (
-                <img
-                  src={companyLogo}
-                  alt={companyName || 'Company logo'}
-                  className="h-12 mx-auto mb-3"
-                />
-              )}
-              {companyName && (
-                <h1 className="text-xl font-bold text-gray-900">{companyName}</h1>
-              )}
-            </div>
-          )}
+          <div className="mb-8 text-center">
+            {companyLogo ? (
+              <img
+                src={companyLogo}
+                alt={companyName || 'Company logo'}
+                className="h-12 mx-auto mb-3"
+              />
+            ) : (
+              <span className="text-lg font-bold text-blue-600">AI人事24h</span>
+            )}
+            {companyName && (
+              <h1 className="text-xl font-bold text-gray-900 mt-3">{companyName}</h1>
+            )}
+          </div>
           {children}
         </div>
       </div>

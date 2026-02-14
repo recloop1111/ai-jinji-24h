@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+
+const SUPPORT_EMAIL = 'recloop.1111@gmail.com' // TODO: 本番前に support@ai-jinji24h.com に変更
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import InterviewLayout from '@/components/interview/InterviewLayout'
@@ -81,7 +83,13 @@ export default function InterviewPage() {
     return (
       <InterviewLayout>
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8 text-center">
-          <div className="text-red-500 text-5xl mb-4">⚠️</div>
+          <div className="flex justify-center mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-500">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="15" y1="9" x2="9" y2="15"/>
+              <line x1="9" y1="9" x2="15" y2="15"/>
+            </svg>
+          </div>
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">
             この面接URLは無効です
           </h1>
@@ -97,12 +105,15 @@ export default function InterviewPage() {
     return (
       <InterviewLayout companyName={company.name} companyLogo={company.logo_url || undefined}>
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8 text-center">
-          <div className="text-orange-500 text-5xl mb-4">⏸️</div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">
-            面接受付が一時停止されています
-          </h1>
+          <div className="flex justify-center mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="16" x2="12" y2="12"/>
+              <line x1="12" y1="8" x2="12.01" y2="8"/>
+            </svg>
+          </div>
           <p className="text-gray-600">
-            現在、この企業の面接受付は一時停止されています。
+            現在、面接の受付を一時停止しております。恐れ入りますが、しばらく経ってから再度お試しください。
           </p>
         </div>
       </InterviewLayout>
@@ -112,53 +123,13 @@ export default function InterviewPage() {
   return (
     <InterviewLayout companyName={company.name} companyLogo={company.logo_url || undefined}>
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
-        <div className="flex flex-col items-center mb-6">
-          <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4">
-            <svg
-              className="w-8 h-8 text-blue-600"
-              fill="none"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2 text-center">
-            AI面接のご案内
-          </h1>
-          <p className="text-sm text-gray-600 text-center">
-            AIがリアルタイムであなたの面接を行います
-          </p>
-        </div>
-
-        <div className="bg-blue-50 rounded-xl p-4 mb-6 space-y-3">
-          <div className="flex items-start gap-3">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500 flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            <div>
-              <p className="text-sm font-medium text-gray-900">所要時間：最大40分程度</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500 flex-shrink-0 mt-0.5"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
-            <div>
-              <p className="text-sm font-medium text-gray-900">カメラとマイクを使用します（面接は録画されます）</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500 flex-shrink-0 mt-0.5"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
-            <div>
-              <p className="text-sm font-medium text-gray-900">安定した通信環境と静かな場所でご参加ください</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500 flex-shrink-0 mt-0.5"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            <div>
-              <p className="text-sm font-medium text-gray-900">録画データは採用選考にのみ使用されます</p>
-            </div>
-          </div>
+        <div className="bg-blue-50 rounded-xl p-4 mb-6 flex items-start gap-3">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-600 flex-shrink-0">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="16" x2="12" y2="12"/>
+            <line x1="12" y1="8" x2="12.01" y2="8"/>
+          </svg>
+          <p className="text-sm font-medium text-gray-900">この面接は最大約40分間です。静かな環境でお受けください。</p>
         </div>
 
         <div className="space-y-4 mb-6">
@@ -185,11 +156,11 @@ export default function InterviewPage() {
           onClick={handleNext}
           disabled={!consent1 || !consent2}
         >
-          同意して次へ進む
+          次へ進む
         </PrimaryButton>
 
         <p className="text-center mt-4">
-          <a href="mailto:recloop.1111@gmail.com" className="text-sm text-blue-600 hover:underline">
+          <a href={`mailto:${SUPPORT_EMAIL}`} className="text-sm text-blue-600 hover:underline">
             お困りの方はこちら
           </a>
         </p>
