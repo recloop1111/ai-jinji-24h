@@ -19,6 +19,7 @@ type CheckItem = {
   label: string
   status: CheckStatus
   message: string
+  helpMessage?: string
 }
 
 export default function PreparePage() {
@@ -28,7 +29,6 @@ export default function PreparePage() {
 
   const [checks, setChecks] = useState<CheckItem[]>([
     { id: 'camera', label: 'カメラ', status: 'idle', message: '' },
-    { id: 'microphone', label: 'マイク', status: 'idle', message: '' },
     { id: 'network', label: '通信速度', status: 'idle', message: '' },
     { id: 'mic_test', label: 'マイクテスト', status: 'idle', message: '' },
   ])
@@ -36,9 +36,11 @@ export default function PreparePage() {
   const [allPassed, setAllPassed] = useState(false)
   const [checking, setChecking] = useState(false)
   const [hasRunChecks, setHasRunChecks] = useState(false)
+  const [hasStream, setHasStream] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const animationFrameRef = useRef<number | null>(null)
+  const micTestIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
 
   useEffect(() => {
@@ -50,6 +52,9 @@ export default function PreparePage() {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current)
       }
+      if (micTestIntervalRef.current) {
+        clearInterval(micTestIntervalRef.current)
+      }
     }
   }, [])
 
@@ -59,113 +64,188 @@ export default function PreparePage() {
   }, [checks])
 
   useEffect(() => {
+    if (hasStream && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current
+      videoRef.current.play().catch(() => {})
+    }
+  }, [hasStream])
+
+  useEffect(() => {
     runChecks()
   }, [])
 
-  function updateCheck(id: string, status: CheckStatus, message: string = '') {
+  function updateCheck(
+    id: string,
+    status: CheckStatus,
+    message: string = '',
+    helpMessage?: string
+  ) {
     setChecks((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, status, message } : c))
+      prev.map((c) =>
+        c.id === id ? { ...c, status, message, helpMessage } : c
+      )
     )
   }
 
-  async function runChecks() {
-    setChecking(true)
-    setHasRunChecks(true)
-
-    // 1. カメラチェック
-    updateCheck('camera', 'checking', 'カメラにアクセスしています...')
+  async function checkCamera() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true,
       })
       streamRef.current = stream
+      setHasStream(true)
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        videoRef.current.play()
+      const audioTracks = stream.getAudioTracks()
+      if (audioTracks.length === 0) {
+        // マイクは取得できなかったが、カメラはOK
       }
 
       updateCheck('camera', 'pass', 'カメラが正常に動作しています')
-      updateCheck('microphone', 'checking', 'マイクを確認しています...')
-
-      // 2. マイクチェック
-      const audioTracks = stream.getAudioTracks()
-      if (audioTracks.length > 0) {
-        updateCheck('microphone', 'pass', 'マイクが正常に動作しています')
+    } catch (e) {
+      const err = e as DOMException
+      if (err.name === 'NotAllowedError') {
+        updateCheck(
+          'camera',
+          'fail',
+          'カメラへのアクセスが許可されていません',
+          'アドレスバー左の鍵アイコン → カメラを「許可」に変更 → ページを再読み込みしてください'
+        )
+      } else if (err.name === 'NotFoundError') {
+        updateCheck(
+          'camera',
+          'fail',
+          'カメラが見つかりません',
+          'カメラが接続されているか確認してください'
+        )
       } else {
-        updateCheck('microphone', 'fail', 'マイクが見つかりません')
+        updateCheck(
+          'camera',
+          'fail',
+          'カメラの起動に失敗しました',
+          'ブラウザを再起動してもう一度お試しください'
+        )
       }
-    } catch (error) {
-      updateCheck('camera', 'fail', 'カメラへのアクセスが拒否されました')
-      updateCheck('microphone', 'fail', 'マイクへのアクセスが拒否されました')
+    }
+  }
+
+  async function runChecks() {
+    setChecking(true)
+    setHasRunChecks(true)
+
+    // カメラと通信速度を並列実行
+    const cameraPromise = (async () => {
+      updateCheck('camera', 'checking', 'カメラにアクセスしています...')
+      await checkCamera()
+    })()
+
+    const networkPromise = (async () => {
+      updateCheck('network', 'checking', '通信速度を測定しています...')
+      const fetchWork = (async () => {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 5000)
+        try {
+          const start = performance.now()
+          await fetch('https://www.google.com/favicon.ico', {
+            mode: 'no-cors',
+            cache: 'no-cache',
+            signal: controller.signal,
+          })
+          clearTimeout(timeoutId)
+          const duration = performance.now() - start
+          if (duration < 3000) {
+            updateCheck(
+              'network',
+              'pass',
+              `通信速度: 良好（応答時間 ${Math.round(duration)}ms）`
+            )
+          } else {
+            updateCheck('network', 'fail', '通信速度が遅い可能性があります')
+          }
+        } catch (e) {
+          clearTimeout(timeoutId)
+          updateCheck(
+            'network',
+            'fail',
+            '通信速度が遅いため、面接が不安定になる可能性があります'
+          )
+        }
+      })()
+      await Promise.all([fetchWork, new Promise((r) => setTimeout(r, 2000))])
+    })()
+
+    try {
+      await Promise.all([cameraPromise, networkPromise])
+    } catch {
       setChecking(false)
       return
     }
 
-    // 3. 通信速度チェック
-    updateCheck('network', 'checking', '通信速度を測定しています...')
-    const startTime = Date.now()
-    try {
-      await fetch('https://www.google.com/favicon.ico', {
-        mode: 'no-cors',
-        cache: 'no-cache',
-      })
-      const duration = Date.now() - startTime
-      if (duration < 3000) {
-        updateCheck(
-          'network',
-          'pass',
-          `通信速度: 良好（応答時間 ${duration}ms）`
-        )
-      } else {
-        updateCheck('network', 'fail', '通信速度が遅い可能性があります')
-      }
-    } catch (error) {
-      updateCheck('network', 'fail', '通信速度の測定に失敗しました')
-    }
-
-    // 4. マイクテスト
-    updateCheck('mic_test', 'checking', 'マイクレベルを測定しています...')
-    if (streamRef.current) {
+    // マイクテスト（閾値25を0.5秒連続で超えたら即合格、最大10秒）
+    updateCheck('mic_test', 'checking', '')
+    const stream = streamRef.current
+    if (!stream) {
+      updateCheck('mic_test', 'fail', 'ストリームが取得できませんでした')
+      setChecking(false)
+    } else if (stream.getAudioTracks().length === 0) {
+      updateCheck(
+        'mic_test',
+        'fail',
+        'マイクが見つかりません',
+        'マイクが接続されているか確認してください'
+      )
+      setChecking(false)
+    } else {
       const audioContext = new AudioContext()
-      const source = audioContext.createMediaStreamSource(streamRef.current)
+      const source = audioContext.createMediaStreamSource(stream)
       const analyser = audioContext.createAnalyser()
       analyser.fftSize = 256
       source.connect(analyser)
       analyserRef.current = analyser
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount)
-      let maxLevel = 0
-      let testDuration = 0
-      const testLength = 3000 // 3秒
+      let continuousAboveThreshold = 0
+      let tickCount = 0
+      const THRESHOLD = 25
+      const TICKS_FOR_PASS = 5 // 0.5秒 = 5 × 100ms
+      const MAX_TICKS = 100 // 10秒 = 100 × 100ms
+      const INTERVAL_MS = 100
 
-      function measureMic() {
-        if (testDuration >= testLength) {
-          if (maxLevel > 5) {
-            updateCheck('mic_test', 'pass', '音声が正常に検出されました')
-          } else {
-            updateCheck('mic_test', 'fail', 'マイクの音声が検出されません。マイクがミュートになっていないか確認してください。')
-          }
-          setChecking(false)
-          return
-        }
-
+      if (micTestIntervalRef.current) {
+        clearInterval(micTestIntervalRef.current)
+      }
+      micTestIntervalRef.current = setInterval(() => {
         analyser.getByteFrequencyData(dataArray)
         const average =
           dataArray.reduce((sum, val) => sum + val, 0) / dataArray.length
         const level = Math.min(100, (average / 255) * 100)
         setMicLevel(level)
-        maxLevel = Math.max(maxLevel, level)
 
-        testDuration += 100
-        animationFrameRef.current = requestAnimationFrame(measureMic)
-      }
+        if (level > THRESHOLD) {
+          continuousAboveThreshold += 1
+          if (continuousAboveThreshold >= TICKS_FOR_PASS) {
+            if (micTestIntervalRef.current) {
+              clearInterval(micTestIntervalRef.current)
+              micTestIntervalRef.current = null
+            }
+            updateCheck('mic_test', 'pass', '音声が正常に検出されました')
+            setChecking(false)
+            return
+          }
+        } else {
+          continuousAboveThreshold = 0
+        }
 
-      measureMic()
-    } else {
-      updateCheck('mic_test', 'fail', 'ストリームが取得できませんでした')
-      setChecking(false)
+        tickCount += 1
+        if (tickCount >= MAX_TICKS) {
+          if (micTestIntervalRef.current) {
+            clearInterval(micTestIntervalRef.current)
+            micTestIntervalRef.current = null
+          }
+          updateCheck('mic_test', 'fail', 'マイクの音声が検出されません。マイクがミュートになっていないか確認してください。')
+          setChecking(false)
+        }
+      }, INTERVAL_MS)
     }
   }
 
@@ -251,7 +331,7 @@ export default function PreparePage() {
 
         <div className="mb-6">
           <div className="bg-black rounded-xl aspect-video max-w-md mx-auto flex items-center justify-center relative overflow-hidden">
-            {streamRef.current ? (
+            {hasStream ? (
               <video
                 ref={videoRef}
                 autoPlay
@@ -269,53 +349,163 @@ export default function PreparePage() {
         </div>
 
         <div className="space-y-3 mb-6">
-          {checks.map((check) => (
-            <div
-              key={check.id}
-              className={`p-4 rounded-lg border-2 transition-colors ${
-                check.status === 'pass'
-                  ? 'border-green-200 bg-green-50'
-                  : check.status === 'fail'
-                  ? 'border-red-200 bg-red-50'
-                  : 'border-gray-200 bg-gray-50'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                {getStatusIcon(check.status)}
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-900">
-                    {check.label}
-                  </p>
-                  {check.message && (
-                    <p
-                      className={`text-xs mt-1 ${
-                        check.status === 'fail'
-                          ? 'text-red-600'
-                          : check.status === 'pass'
-                          ? 'text-green-600'
-                          : 'text-gray-600'
-                      }`}
-                    >
-                      {check.message}
-                    </p>
+          {checks.map((check) =>
+            check.id === 'mic_test' ? (
+              <div
+                key={check.id}
+                className={`p-6 rounded-xl border-2 transition-colors ${
+                  check.status === 'checking'
+                    ? 'border-blue-200 bg-blue-50'
+                    : check.status === 'pass'
+                    ? 'border-green-200 bg-green-50'
+                    : check.status === 'fail'
+                    ? 'border-red-200 bg-red-50'
+                    : 'border-gray-200 bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center gap-3 mb-4">
+                  {getStatusIcon(check.status)}
+                  <p className="text-sm font-medium text-gray-900">{check.label}</p>
+                </div>
+                <div className="flex flex-col items-center">
+                  {check.status === 'idle' ? (
+                    <>
+                      <svg
+                        className="w-12 h-12 text-gray-400 mb-3"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z" />
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        <line x1="12" y1="19" x2="12" y2="22" />
+                      </svg>
+                      <p className="text-sm text-gray-400 text-center">
+                        カメラと通信速度のチェック完了後にマイクテストを開始します
+                      </p>
+                    </>
+                  ) : check.status === 'checking' ? (
+                    <>
+                      <svg
+                        className="w-12 h-12 text-blue-600 mb-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z" />
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        <line x1="12" y1="19" x2="12" y2="22" />
+                      </svg>
+                      <div className="w-full mb-4">
+                        <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                          <div
+                            className={`h-4 rounded-full transition-all duration-100 ${
+                              micLevel <= 30
+                                ? 'bg-green-400'
+                                : micLevel <= 70
+                                ? 'bg-yellow-400'
+                                : 'bg-red-400'
+                            }`}
+                            style={{ width: `${micLevel}%` }}
+                          />
+                        </div>
+                      </div>
+                      <p className="text-sm text-gray-600 text-center">
+                        マイクの動作を確認します。「こんにちは」と話しかけてください。
+                      </p>
+                    </>
+                  ) : check.status === 'pass' ? (
+                    <>
+                      <svg
+                        className="w-12 h-12 text-green-600 mb-3"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z" />
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        <line x1="12" y1="19" x2="12" y2="22" />
+                      </svg>
+                      <p className="text-sm text-green-600 text-center">
+                        音声が正常に検出されました
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        className="w-12 h-12 text-red-500 mb-3"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z" />
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        <line x1="12" y1="19" x2="12" y2="22" />
+                      </svg>
+                      <p className="text-sm text-red-500 text-center">
+                        {check.message || '音声が検出されませんでした。マイクがミュートになっていないか確認してください。'}
+                      </p>
+                      {check.helpMessage && (
+                        <p className="text-sm text-gray-500 text-center mt-1">
+                          {check.helpMessage}
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
-              {check.id === 'mic_test' && check.status === 'checking' && (
-                <div className="mt-3">
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="h-2 rounded-full bg-gradient-to-r from-green-400 to-green-600 transition-all"
-                      style={{ width: `${micLevel}%` }}
-                    />
+            ) : (
+              <div
+                key={check.id}
+                className={`p-4 rounded-lg border-2 transition-colors ${
+                  check.status === 'pass'
+                    ? 'border-green-200 bg-green-50'
+                    : check.status === 'fail'
+                    ? 'border-red-200 bg-red-50'
+                    : 'border-gray-200 bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  {getStatusIcon(check.status)}
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-900">
+                      {check.label}
+                    </p>
+                    {check.message && (
+                      <p
+                        className={`text-xs mt-1 ${
+                          check.status === 'fail'
+                            ? 'text-red-600'
+                            : check.status === 'pass'
+                            ? 'text-green-600'
+                            : 'text-gray-600'
+                        }`}
+                      >
+                        {check.message}
+                      </p>
+                    )}
+                    {check.status === 'fail' && check.helpMessage && (
+                      <p className="text-sm text-gray-500 mt-1">
+                        {check.helpMessage}
+                      </p>
+                    )}
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    何か話してみてください
-                  </p>
                 </div>
-              )}
-            </div>
-          ))}
+              </div>
+            )
+          )}
         </div>
 
         <div className="space-y-3">
