@@ -13,20 +13,25 @@ export default function SessionPage() {
   const [showConnectionBanner, setShowConnectionBanner] = useState(false)
   const [showEndDialog, setShowEndDialog] = useState(false)
   const [bannerOpacity, setBannerOpacity] = useState(0)
-  const [demoMode] = useState(true)
+  const [demoMode] = useState(false)
+  const [hasStream, setHasStream] = useState(false)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const timeoutRefs = useRef<NodeJS.Timeout[]>([])
+
+  const MAX_INTERVIEW_SECONDS = 40 * 60
 
   // カメラ取得
   useEffect(() => {
     async function setupCamera() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        })
         streamRef.current = stream
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-        }
+        setHasStream(true)
       } catch (error) {
         console.error('カメラへのアクセスに失敗しました:', error)
       }
@@ -40,6 +45,13 @@ export default function SessionPage() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (hasStream && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current
+      videoRef.current.play().catch(() => {})
+    }
+  }, [hasStream])
 
   // まばたきアニメーション
   useEffect(() => {
@@ -116,6 +128,18 @@ export default function SessionPage() {
       return () => clearTimeout(timer)
     }
   }, [showConnectionBanner])
+
+  // 面接タイマー（40分で自動終了）
+  useEffect(() => {
+    if (elapsedSeconds >= MAX_INTERVIEW_SECONDS) {
+      handleEndInterview()
+      return
+    }
+    const timer = setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1)
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [elapsedSeconds])
 
   function handleEndInterview() {
     if (streamRef.current) {
@@ -197,14 +221,15 @@ export default function SessionPage() {
         }
       `}</style>
       <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center relative">
-        {/* デバッグ表示（右上） */}
-        <div className="fixed top-4 right-4 z-30 text-xs text-white/50">
-          State: {interviewState}
+        {/* 面接経過時間（上部中央） */}
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-30 text-sm text-gray-500">
+          {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:
+          {String(elapsedSeconds % 60).padStart(2, '0')} / 40:00
         </div>
 
         {/* 応募者カメラ小窓（左上固定） */}
         <div className="fixed top-4 left-4 md:top-4 md:left-4 z-10 w-32 h-24 md:w-40 md:h-[120px] rounded-lg border-2 border-white/30 overflow-hidden bg-slate-800">
-          {streamRef.current ? (
+          {hasStream ? (
             <video
               ref={videoRef}
               autoPlay
