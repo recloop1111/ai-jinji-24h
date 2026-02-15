@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import Link from 'next/link'
+import { useTemplates, type Template } from '../../contexts/TemplatesContext'
 
 // currentStatus: preparing=準備中(システム), completed=完了(システム)
 // status: considering=検討中, second_pass=二次通過, rejected=不採用(企業担当者が手動管理)
@@ -24,13 +25,9 @@ const DUMMY_APPLICANTS = [
   { id: '15', name: '木村 由美', email: 'kimura@example.com', phone: '070-5678-9012', interviewAt: '2025-02-07 16:00', currentStatus: 'completed', status: 'second_pass', score: 76 },
 ]
 
-const CURRENT_STATUS_OPTIONS = [
-  { value: 'all', label: 'すべて' },
-  { value: 'preparing', label: '準備中' },
-  { value: 'completed', label: '完了' },
-]
+type StatusFilterValue = 'all' | 'considering' | 'second_pass' | 'rejected'
 
-const STATUS_OPTIONS = [
+const STATUS_FILTER_OPTIONS: { value: StatusFilterValue; label: string }[] = [
   { value: 'all', label: 'すべて' },
   { value: 'considering', label: '検討中' },
   { value: 'second_pass', label: '二次通過' },
@@ -74,21 +71,78 @@ function SearchEmptyIcon({ className }: { className?: string }) {
   )
 }
 
+function PhoneIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  )
+}
+
+function MailIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+      <polyline points="22,6 12,13 2,6" />
+    </svg>
+  )
+}
+
+function FilterIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+    </svg>
+  )
+}
 
 // TODO: 運営設定のパスワードでサーバー側認証に差替え
 const CSV_DOWNLOAD_PASSWORD = 'admin123'
 
 export default function ApplicantsPage() {
+  const { templates } = useTemplates()
   const [searchQuery, setSearchQuery] = useState('')
-  const [filterCurrentStatus, setFilterCurrentStatus] = useState('all')
-  const [filterStatus, setFilterStatus] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all')
+  const [filterDropdownOpen, setFilterDropdownOpen] = useState(false)
+  const filterDropdownRef = useRef<HTMLDivElement>(null)
+  const sendListRef = useRef<HTMLDivElement>(null)
+  const [sendListShowFade, setSendListShowFade] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [mailModalOpen, setMailModalOpen] = useState(false)
+  const [mailSelectedIds, setMailSelectedIds] = useState<Set<string>>(new Set())
+  const [mailTemplateId, setMailTemplateId] = useState('')
+  const [mailBody, setMailBody] = useState('')
+  const [mailToast, setMailToast] = useState(false)
   const [csvModalOpen, setCsvModalOpen] = useState(false)
   const [csvPassword, setCsvPassword] = useState('')
   const [csvPasswordError, setCsvPasswordError] = useState('')
   const [csvSuccess, setCsvSuccess] = useState(false)
   const [csvShowPassword, setCsvShowPassword] = useState(false)
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(target)) {
+        setFilterDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  useEffect(() => {
+    if (!mailModalOpen) return
+    const run = () => {
+      const el = sendListRef.current
+      if (!el) return
+      const hasOverflow = el.scrollHeight > el.clientHeight
+      const isAtBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 2
+      setSendListShowFade(hasOverflow && !isAtBottom)
+    }
+    const t = setTimeout(run, 50)
+    return () => clearTimeout(t)
+  }, [mailModalOpen, mailSelectedIds])
 
   const handleCsvDownloadClick = () => {
     setCsvModalOpen(true)
@@ -128,16 +182,94 @@ export default function ApplicantsPage() {
         const q = searchQuery.trim().toLowerCase()
         if (!a.name.toLowerCase().includes(q)) return false
       }
-      if (filterCurrentStatus !== 'all' && a.currentStatus !== filterCurrentStatus) return false
-      if (filterStatus !== 'all' && a.status !== filterStatus) return false
       if (dateFrom || dateTo) {
         const at = a.interviewAt ? new Date(a.interviewAt.replace(' ', 'T')).getTime() : 0
         if (dateFrom && at < new Date(dateFrom).setHours(0, 0, 0, 0)) return false
         if (dateTo && at > new Date(dateTo).setHours(23, 59, 59, 999)) return false
       }
+      if (statusFilter !== 'all') {
+        if (a.status === null) return false
+        if (a.status !== statusFilter) return false
+      }
       return true
     })
-  }, [searchQuery, filterCurrentStatus, filterStatus, dateFrom, dateTo])
+  }, [searchQuery, dateFrom, dateTo, statusFilter])
+
+  const handleStatusFilterSelect = (value: StatusFilterValue) => {
+    setStatusFilter(value)
+    setFilterDropdownOpen(false)
+  }
+
+  const checkSendListFade = () => {
+    const el = sendListRef.current
+    if (!el) return
+    const hasOverflow = el.scrollHeight > el.clientHeight
+    const isAtBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 2
+    setSendListShowFade(hasOverflow && !isAtBottom)
+  }
+
+  const selectedCount = selectedIds.size
+  const allFilteredSelected = filtered.length > 0 && filtered.every((a) => selectedIds.has(a.id))
+
+  const toggleSelectAll = () => {
+    if (allFilteredSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        filtered.forEach((a) => next.delete(a.id))
+        return next
+      })
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        filtered.forEach((a) => next.add(a.id))
+        return next
+      })
+    }
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const openMailModal = (ids: Set<string>) => {
+    setMailSelectedIds(ids)
+    setMailModalOpen(true)
+    setMailTemplateId(templates[0]?.id ?? '')
+    const tmpl = templates[0]
+    if (tmpl) setMailBody(tmpl.body)
+    else setMailBody('')
+  }
+
+  const closeMailModal = () => {
+    setMailModalOpen(false)
+    setMailSelectedIds(new Set())
+    setMailTemplateId('')
+  }
+
+  const handleMailTemplateChange = (id: string) => {
+    setMailTemplateId(id)
+    const tmpl = templates.find((t: Template) => t.id === id)
+    if (tmpl) setMailBody(tmpl.body)
+  }
+
+  const handleMailSend = () => {
+    // TODO: Resend APIでメール送信を実装
+    setMailToast(true)
+    setTimeout(() => setMailToast(false), 2000)
+    setSelectedIds(new Set())
+    closeMailModal()
+  }
+
+  const mailSelectedApplicants = useMemo(() => {
+    return DUMMY_APPLICANTS.filter((a) => mailSelectedIds.has(a.id))
+  }, [mailSelectedIds])
+
+  const selectedTemplate = templates.find((t: Template) => t.id === mailTemplateId)
 
   return (
     <div className="space-y-6">
@@ -156,7 +288,7 @@ export default function ApplicantsPage() {
 
       {/* フィルター・検索 */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-        <div className="flex flex-col lg:flex-row gap-4">
+        <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center">
           <input
             type="text"
             placeholder="応募者名で検索"
@@ -164,28 +296,6 @@ export default function ApplicantsPage() {
             onChange={(e) => setSearchQuery(e.target.value)}
             className="flex-1 min-w-0 px-4 py-2.5 border border-gray-300 bg-white rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           />
-          <select
-            value={filterCurrentStatus}
-            onChange={(e) => setFilterCurrentStatus(e.target.value)}
-            className="px-4 py-2.5 border border-gray-300 bg-white rounded-lg text-sm text-gray-700 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          >
-            {CURRENT_STATUS_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-4 py-2.5 border border-gray-300 bg-white rounded-lg text-sm text-gray-700 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          >
-            {STATUS_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
           <div className="flex flex-wrap items-center gap-2">
             <input
               type="date"
@@ -201,8 +311,55 @@ export default function ApplicantsPage() {
               className="px-4 py-2.5 border border-gray-300 bg-white rounded-lg text-sm text-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             />
           </div>
+          <div ref={filterDropdownRef} className="relative flex justify-end lg:justify-start">
+            <button
+              type="button"
+              onClick={() => setFilterDropdownOpen(!filterDropdownOpen)}
+              className={`inline-flex items-center gap-2 bg-white border border-gray-300 rounded-lg px-4 py-2 text-gray-700 hover:bg-gray-50 transition relative shrink-0 ${statusFilter !== 'all' ? 'text-blue-600' : ''}`}
+            >
+              {statusFilter !== 'all' && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-600 rounded-full" />
+              )}
+              <FilterIcon className="w-4 h-4 shrink-0" />
+              {statusFilter !== 'all' ? '絞り込み中' : '絞り込み'}
+            </button>
+            {filterDropdownOpen && (
+              <div className="absolute right-0 top-full mt-2 bg-white border border-gray-200 rounded-xl shadow-lg p-4 z-50 min-w-[200px]">
+                <p className="text-sm font-semibold text-gray-700 mb-2">ステータスで絞り込み</p>
+                <div className="space-y-2">
+                  {STATUS_FILTER_OPTIONS.map((o) => (
+                    <label key={o.value} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 rounded px-2 py-1 -mx-2 -my-1">
+                      <input
+                        type="radio"
+                        name="statusFilter"
+                        checked={statusFilter === o.value}
+                        onChange={() => handleStatusFilterSelect(o.value)}
+                        className="border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm text-gray-700">{o.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* メール送信バー（選択時） */}
+      {selectedCount > 0 && (
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl">
+          <span className="text-sm font-medium text-slate-700">{selectedCount}名選択中</span>
+          <button
+            type="button"
+            onClick={() => openMailModal(selectedIds)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700"
+          >
+            <MailIcon className="w-4 h-4" />
+            メール送信
+          </button>
+        </div>
+      )}
 
       {/* テーブル または 空状態 */}
       {filtered.length === 0 ? (
@@ -217,6 +374,14 @@ export default function ApplicantsPage() {
             <table className="w-full min-w-[800px] text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="w-12 px-2 py-3">
+                    <input
+                      type="checkbox"
+                      checked={allFilteredSelected}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                  </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">応募者名</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">メールアドレス</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">電話番号</th>
@@ -230,6 +395,14 @@ export default function ApplicantsPage() {
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((a) => (
                   <tr key={a.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="w-12 px-2 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(a.id)}
+                        onChange={() => toggleSelect(a.id)}
+                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                    </td>
                     <td className="px-4 py-3 font-medium text-slate-900">{a.name}</td>
                     <td className="px-4 py-3 text-slate-600">{a.email}</td>
                     <td className="px-4 py-3 text-slate-600">{a.phone}</td>
@@ -264,13 +437,29 @@ export default function ApplicantsPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {/* TODO: 実際のIDに差替え */}
-                      <Link
-                        href={`/client/applicants/${a.id}`}
-                        className="inline-flex items-center px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium rounded-lg transition-colors"
-                      >
-                        詳細
-                      </Link>
+                      <div className="flex items-center justify-end gap-1">
+                        <a
+                          href={`tel:${a.phone}`}
+                          className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          title="電話"
+                        >
+                          <PhoneIcon className="w-4 h-4" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => openMailModal(new Set([a.id]))}
+                          className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          title="メール"
+                        >
+                          <MailIcon className="w-4 h-4" />
+                        </button>
+                        <Link
+                          href={`/client/applicants/${a.id}`}
+                          className="inline-flex items-center px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium rounded-lg transition-colors"
+                        >
+                          詳細
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -320,6 +509,146 @@ export default function ApplicantsPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* メール送信モーダル */}
+      {mailModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={closeMailModal} aria-hidden />
+          <div className="relative bg-white rounded-2xl shadow-xl border border-gray-200 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-6">メール送信</h3>
+
+              {/* ステップ1: テンプレート選択 */}
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">テンプレート選択</label>
+                <select
+                  value={mailTemplateId}
+                  onChange={(e) => handleMailTemplateChange(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400"
+                >
+                  {templates.map((t: Template) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 送信対象一覧 */}
+              <div className="mb-6">
+                <p className="text-sm font-semibold text-gray-700 mb-2">
+                  送信先（<span className="text-blue-600 font-semibold">{mailSelectedApplicants.length}</span>名）
+                </p>
+                <div className="relative rounded-xl border border-gray-200 bg-slate-50/50 overflow-hidden">
+                  <div
+                    ref={sendListRef}
+                    onScroll={checkSendListFade}
+                    className="p-4 max-h-32 overflow-y-auto"
+                  >
+                    <ul className="text-sm">
+                      {mailSelectedApplicants.map((a) => (
+                        <li key={a.id} className="flex justify-between py-1.5">
+                          <span className="font-medium text-gray-800">{a.name}</span>
+                          <span className="text-gray-600">{a.email}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  {sendListShowFade && (
+                    <div
+                      className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-white to-transparent pointer-events-none"
+                      aria-hidden
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* ステップ2: プレビュー */}
+              <div className="mb-6">
+                <p className="text-sm font-semibold text-gray-700 mb-2">プレビュー</p>
+                <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-4">
+                  {selectedTemplate && (
+                    <>
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">件名</p>
+                        <p className="text-sm font-medium text-gray-800">{selectedTemplate.subject}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 mb-2">本文</p>
+                        {mailSelectedApplicants.length === 1 ? (
+                          <>
+                            <p className="text-sm text-gray-600 whitespace-pre-wrap mb-3">
+                              {mailSelectedApplicants[0].name} 様
+                              {'\n'}この度はご応募いただきありがとうございます。
+                            </p>
+                            <textarea
+                              value={mailBody.replace(/\{\{応募者名\}\}/g, mailSelectedApplicants[0].name)}
+                              onChange={(e) =>
+                                setMailBody(e.target.value.split(mailSelectedApplicants[0].name).join('{{応募者名}}'))
+                              }
+                              rows={8}
+                              className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 resize-none"
+                            />
+                          </>
+                        ) : (
+                          <>
+                            <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4 mb-3">
+                              <p className="text-sm text-yellow-800">
+                                応募者様ごとのお名前は自動で記載されますが、テンプレート文章の追加・変更はできません。本当に送信してもよろしいでしょうか？
+                              </p>
+                            </div>
+                            <div className="max-h-64 overflow-y-auto space-y-4 border border-slate-200 rounded-xl divide-y divide-slate-200">
+                              {mailSelectedApplicants.map((a, idx) => (
+                                <div key={a.id} className="p-4 first:pt-4">
+                                  <p className="text-xs font-semibold text-slate-500 mb-2">
+                                    {idx + 1}通目: {a.name} 様
+                                  </p>
+                                  <p className="text-sm text-gray-600 whitespace-pre-wrap mb-2">
+                                    {a.name} 様
+                                    {'\n'}この度はご応募いただきありがとうございます。
+                                  </p>
+                                  <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                                    {mailBody.replace(/\{\{応募者名\}\}/g, a.name)}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* ステップ3: 送信確認 */}
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={handleMailSend}
+                  className="flex-1 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                >
+                  送信する
+                </button>
+                <button
+                  type="button"
+                  onClick={closeMailModal}
+                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50"
+                >
+                  キャンセル
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 送信成功トースト */}
+      {mailToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-6 py-3 bg-gray-900 text-white text-sm font-medium rounded-xl shadow-lg">
+          送信しました
         </div>
       )}
 
