@@ -96,10 +96,13 @@ function FilterIcon({ className }: { className?: string }) {
   )
 }
 
-// TODO: 運営設定のパスワードでサーバー側認証に差替え
-const CSV_DOWNLOAD_PASSWORD = 'admin123'
+// TODO: バックエンド実装フェーズでSupabaseのシステム設定テーブルから共通パスワードを取得する
+const CSV_DOWNLOAD_PASSWORD = 'ABC123'
 
 export default function ApplicantsPage() {
+  // TODO: 実際にはAPIからプラン情報を取得
+  const getCurrentPlan = (): 'A' | 'B' | 'C' | 'custom' => 'B' // TODO: 実データに差替え
+  const currentPlan = getCurrentPlan()
   const { templates } = useTemplates()
   const [searchQuery, setSearchQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
@@ -116,10 +119,11 @@ export default function ApplicantsPage() {
   const [mailBody, setMailBody] = useState('')
   const [mailToast, setMailToast] = useState(false)
   const [csvModalOpen, setCsvModalOpen] = useState(false)
+  const [csvInfoModalOpen, setCsvInfoModalOpen] = useState(false)
   const [csvPassword, setCsvPassword] = useState('')
   const [csvPasswordError, setCsvPasswordError] = useState('')
-  const [csvSuccess, setCsvSuccess] = useState(false)
   const [csvShowPassword, setCsvShowPassword] = useState(false)
+  const [csvDownloadToast, setCsvDownloadToast] = useState(false)
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node
@@ -144,14 +148,19 @@ export default function ApplicantsPage() {
     return () => clearTimeout(t)
   }, [mailModalOpen, mailSelectedIds])
 
-  const handleCsvDownloadClick = () => {
-    setCsvModalOpen(true)
-    setCsvPassword('')
-    setCsvPasswordError('')
-    setCsvSuccess(false)
+  const handleCsvDownloadClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (currentPlan === 'A') {
+      setCsvInfoModalOpen(true)
+    } else {
+      setCsvModalOpen(true)
+      setCsvPassword('')
+      setCsvPasswordError('')
+    }
   }
 
-  const handleCsvModalDownload = () => {
+  const handleCsvModalDownload = (filteredData: typeof DUMMY_APPLICANTS) => {
     if (!csvPassword.trim()) {
       setCsvPasswordError('パスワードを入力してください')
       return
@@ -161,13 +170,49 @@ export default function ApplicantsPage() {
       return
     }
     setCsvPasswordError('')
-    // TODO: CSV生成・ダウンロード実装
-    setCsvSuccess(true)
-    setTimeout(() => {
-      setCsvModalOpen(false)
-      setCsvSuccess(false)
-      setCsvPassword('')
-    }, 2000)
+
+    const escapeCsvField = (v: string | number | null | undefined): string => {
+      const s = v === null || v === undefined ? '' : String(v)
+      if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+        return '"' + s.replace(/"/g, '""') + '"'
+      }
+      return s
+    }
+
+    const currentStatusLabel = (s: string | null) => (s === 'preparing' ? '準備中' : s === 'completed' ? '完了' : '')
+    const statusLabel = (s: string | null) =>
+      s === 'considering' ? '検討中' : s === 'second_pass' ? '二次通過' : s === 'rejected' ? '不採用' : '-'
+
+    const header = '応募者名,メールアドレス,電話番号,面接日時,現在状況,スコア,ステータス'
+    const rows = filteredData.map((a) =>
+      [
+        a.name,
+        a.email,
+        a.phone,
+        a.interviewAt ?? '',
+        currentStatusLabel(a.currentStatus),
+        a.score ?? '',
+        statusLabel(a.status),
+      ].map(escapeCsvField).join(',')
+    )
+    const csvContent = '\uFEFF' + [header, ...rows].join('\r\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const today = new Date()
+    const dateStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0')
+    a.download = `応募者一覧_${dateStr}.csv`
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+
+    setCsvModalOpen(false)
+    setCsvPassword('')
+    setCsvDownloadToast(true)
+    setTimeout(() => setCsvDownloadToast(false), 2000)
   }
 
   const handleCsvModalCancel = () => {
@@ -652,6 +697,41 @@ export default function ApplicantsPage() {
         </div>
       )}
 
+      {/* CSVダウンロード成功トースト */}
+      {csvDownloadToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-6 py-3 bg-gray-900 text-white text-sm font-medium rounded-xl shadow-lg">
+          CSVをダウンロードしました
+        </div>
+      )}
+
+      {/* CSVダウンロード 案内モーダル（プランAの場合） */}
+      {csvInfoModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setCsvInfoModalOpen(false)} aria-hidden />
+          <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold text-slate-900 mb-4">CSVダウンロードについて</h3>
+            <p className="text-sm text-slate-600 mb-6">
+              CSVダウンロード機能はプランB以上でご利用いただけます。
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setCsvInfoModalOpen(false)}
+                className="px-6 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                閉じる
+              </button>
+              <Link
+                href="/client/plan"
+                className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                プランを確認する
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* CSVダウンロード パスワードモーダル */}
       {csvModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -661,50 +741,46 @@ export default function ApplicantsPage() {
             <p className="text-sm text-slate-600 mb-4">
               CSVダウンロードにはパスワードが必要です。パスワードは運営より発行されます。
             </p>
-            {csvSuccess ? (
-              <p className="py-4 text-center text-sm font-medium text-emerald-600">ダウンロードを開始します</p>
-            ) : (
-              <>
-                <div className="mb-4">
-                  <label htmlFor="csv-password" className="block text-sm font-medium text-slate-700 mb-2">パスワード</label>
-                  <div className="relative">
-                    <input
-                      id="csv-password"
-                      type={csvShowPassword ? 'text' : 'password'}
-                      value={csvPassword}
-                      onChange={(e) => { setCsvPassword(e.target.value); setCsvPasswordError('') }}
-                      className="w-full px-4 py-2.5 border border-gray-300 bg-white rounded-lg text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 pr-12"
-                      placeholder="パスワードを入力"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setCsvShowPassword(!csvShowPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600"
-                      aria-label={csvShowPassword ? 'パスワードを隠す' : 'パスワードを表示'}
-                    >
-                      {csvShowPassword ? <EyeOffIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  {csvPasswordError && <p className="mt-1.5 text-sm text-red-600">{csvPasswordError}</p>}
-                </div>
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={handleCsvModalCancel}
-                    className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50"
-                  >
-                    キャンセル
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCsvModalDownload}
-                    className="flex-1 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"
-                  >
-                    ダウンロード
-                  </button>
-                </div>
-              </>
-            )}
+            <div className="mb-4">
+              <label htmlFor="csv-download-password" className="block text-sm font-medium text-slate-700 mb-2">パスワード</label>
+              <div className="relative">
+                <input
+                  id="csv-download-password"
+                  name="csv-download-password"
+                  type={csvShowPassword ? 'text' : 'password'}
+                  value={csvPassword}
+                  onChange={(e) => { setCsvPassword(e.target.value); setCsvPasswordError('') }}
+                  autoComplete="new-password"
+                  className="w-full px-4 py-2.5 text-gray-900 bg-white border border-gray-300 rounded-lg text-sm placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 pr-12"
+                  placeholder="パスワードを入力"
+                />
+                <button
+                  type="button"
+                  onClick={() => setCsvShowPassword(!csvShowPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600"
+                  aria-label={csvShowPassword ? 'パスワードを隠す' : 'パスワードを表示'}
+                >
+                  {csvShowPassword ? <EyeOffIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                </button>
+              </div>
+              {csvPasswordError && <p className="mt-1.5 text-sm text-red-600">{csvPasswordError}</p>}
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={handleCsvModalCancel}
+                className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCsvModalDownload(filtered)}
+                className="flex-1 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"
+              >
+                ダウンロード
+              </button>
+            </div>
           </div>
         </div>
       )}
