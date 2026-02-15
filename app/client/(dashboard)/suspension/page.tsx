@@ -1,183 +1,306 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useState } from 'react'
 
-type SuspensionRequest = {
-  id: string
-  request_type: string
-  reason: string
-  status: string
-  requested_start_date: string | null
-  review_comment: string | null
-  reviewed_at: string | null
-  created_at: string
+// TODO: 実データに差替え
+const FAQ_ITEMS = [
+  {
+    id: 1,
+    question: '一時停止中に既存の応募者データは閲覧できますか？',
+    answer: 'はい、一時停止中でも既存の応募者データ、面接録画、評価レポートはすべて閲覧可能です。新規面接の受付のみ停止されます。',
+  },
+  {
+    id: 2,
+    question: '一時停止を取り消した場合、追加費用は発生しますか？',
+    answer: 'いいえ、取り消しに追加費用は発生しません。取り消し後は通常通りのプラン料金でサービスをご利用いただけます。',
+  },
+  {
+    id: 3,
+    question: '停止後に再開するにはどうすればいいですか？',
+    answer: '運営チームまでメールまたは管理画面のお問い合わせフォームからご連絡ください。通常1〜2営業日以内に再開手続きを行います。',
+  },
+  {
+    id: 4,
+    question: 'プランの変更と停止はどちらが先に適用されますか？',
+    answer: 'プラン変更申請と停止申請を同時に行った場合、停止申請が優先されます。プラン変更は停止が解除された後に改めて申請してください。',
+  },
+]
+
+function PauseIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="6" y="4" width="4" height="16" rx="1" />
+      <rect x="14" y="4" width="4" height="16" rx="1" />
+    </svg>
+  )
 }
 
-const REQUEST_TYPES: Record<string, string> = {
-  suspension: '一時停止',
-  cancellation: '解約',
+function AlertIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  )
 }
 
-const STATUS_BADGE: Record<string, { label: string; className: string }> = {
-  pending: { label: '審査中', className: 'bg-yellow-100 text-yellow-800' },
-  approved: { label: '承認済', className: 'bg-green-100 text-green-800' },
-  rejected: { label: '却下', className: 'bg-red-100 text-red-800' },
+function ChevronDownIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+
+function ChevronUpIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="18 15 12 9 6 15" />
+    </svg>
+  )
 }
 
 export default function SuspensionPage() {
-  const [requests, setRequests] = useState<SuspensionRequest[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
-  const [formType, setFormType] = useState('suspension')
-  const [formReason, setFormReason] = useState('')
-  const [formStartDate, setFormStartDate] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [companyId, setCompanyId] = useState<string | null>(null)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const supabase = createClient()
+  const [currentStatus, setCurrentStatus] = useState<'active' | 'pending_suspension' | 'suspended'>('active')
+  const [toastVisible, setToastVisible] = useState(false)
+  const [toastMessage, setToastMessage] = useState('')
+  const [suspensionModal, setSuspensionModal] = useState({ isOpen: false })
+  const [cancelModal, setCancelModal] = useState({ isOpen: false })
+  const [emergencyModal, setEmergencyModal] = useState({ isOpen: false, reason: '' })
+  const [faqOpen, setFaqOpen] = useState<Record<number, boolean>>({})
 
-  useEffect(() => {
-    fetchRequests()
-  }, [])
+  // TODO: 実データに差替え
+  const applyDate = '2026-02-15'
+  const scheduledDate = '2026-03-15'
+  const daysRemaining = 28
 
-  const fetchRequests = async () => {
-    setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: company } = await supabase
-      .from('companies')
-      .select('id')
-      .eq('auth_user_id', user.id)
-      .single()
-    if (!company) return
-
-    setCompanyId(company.id)
-
-    const { data } = await supabase
-      .from('suspension_requests')
-      .select('*')
-      .eq('company_id', company.id)
-      .order('created_at', { ascending: false })
-
-    if (data) setRequests(data)
-    setLoading(false)
+  const showToast = (msg: string) => {
+    setToastMessage(msg)
+    setToastVisible(true)
+    setTimeout(() => setToastVisible(false), 3000)
   }
 
-  const handleSubmit = async () => {
-    if (!companyId || !formReason.trim()) return
-    setSaving(true)
-    setMessage(null)
+  const toggleFaq = (id: number) => {
+    setFaqOpen((prev) => ({ ...prev, [id]: !prev[id] }))
+  }
 
-    const { error } = await supabase.from('suspension_requests').insert({
-      company_id: companyId,
-      request_type: formType,
-      reason: formReason,
-      requested_start_date: formStartDate || null,
-      status: 'pending',
-    })
+  const handleSuspensionConfirm = () => {
+    setCurrentStatus('pending_suspension')
+    showToast('一時停止申請を送信しました')
+    setSuspensionModal({ isOpen: false })
+    // TODO: Supabaseに保存, // TODO: 運営に通知
+  }
 
-    if (error) {
-      setMessage({ type: 'error', text: '申請の送信に失敗しました。' })
-    } else {
-      setMessage({ type: 'success', text: '申請を送信しました。運営チームが確認次第、ご連絡いたします。' })
-      setShowForm(false)
-      setFormReason('')
-      setFormStartDate('')
-      setFormType('suspension')
-      fetchRequests()
+  const handleCancelConfirm = () => {
+    setCurrentStatus('active')
+    showToast('申請を取り消しました')
+    setCancelModal({ isOpen: false })
+  }
+
+  const handleEmergencyConfirm = () => {
+    showToast('緊急停止申請を送信しました。運営チームが確認次第ご連絡いたします。')
+    setEmergencyModal({ isOpen: false, reason: '' })
+    // TODO: Supabaseに保存, // TODO: 運営に通知
+  }
+
+  const getStatusLabel = () => {
+    switch (currentStatus) {
+      case 'active':
+        return '稼働中'
+      case 'pending_suspension':
+        return '一時停止申請済み'
+      case 'suspended':
+        return '停止中'
+      default:
+        return '稼働中'
     }
-    setSaving(false)
-    setTimeout(() => setMessage(null), 5000)
   }
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '—'
-    return new Date(dateStr).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  const getStatusColor = () => {
+    switch (currentStatus) {
+      case 'active':
+        return 'text-emerald-700'
+      case 'pending_suspension':
+        return 'text-amber-700'
+      case 'suspended':
+        return 'text-gray-600'
+      default:
+        return 'text-emerald-700'
+    }
   }
 
-  const hasPendingRequest = requests.some(r => r.status === 'pending')
+  const getStatusDotColor = () => {
+    switch (currentStatus) {
+      case 'active':
+        return 'bg-emerald-500'
+      case 'pending_suspension':
+        return 'bg-amber-500'
+      case 'suspended':
+        return 'bg-gray-500'
+      default:
+        return 'bg-emerald-500'
+    }
+  }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">停止・解約申請</h1>
-        {!showForm && !hasPendingRequest && (
-          <button onClick={() => setShowForm(true)} className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700">
-            新規申請
+    <>
+      <div className="space-y-6 min-w-0 max-w-[100vw] pb-10">
+        {/* セクション1: ヘッダー */}
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">停止申請</h1>
+          <p className="text-sm text-gray-500 mt-1">サービスの一時停止・緊急停止の申請ができます</p>
+        </div>
+
+        {/* セクション2: 現在のステータスカード */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <span className={`w-3 h-3 rounded-full shrink-0 ${getStatusDotColor()}`} />
+              <span className={`font-semibold ${getStatusColor()}`}>
+                現在のステータス: {getStatusLabel()}
+              </span>
+            </div>
+            <p className="text-sm text-gray-500">
+              プランB（スタンダード）| 契約開始日: 2025-04-01
+            </p>
+          </div>
+          {/* TODO: 実データに差替え */}
+        </div>
+
+        {/* セクション3: 一時停止申請カード */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-2 flex items-center gap-2">
+            <PauseIcon className="w-5 h-5 text-amber-500 shrink-0" />
+            一時停止申請
+          </h2>
+
+          {currentStatus === 'active' && (
+            <>
+              <p className="text-sm text-gray-600 leading-relaxed mb-2">
+                一時停止を申請すると、申請日から1ヶ月後にサービスが自動停止します。
+              </p>
+              <p className="text-sm text-gray-600 leading-relaxed mb-2">
+                停止前であればいつでも取り消し可能です。
+              </p>
+              <p className="text-sm text-gray-600 leading-relaxed mb-4">
+                停止中は新規面接の受付が停止されますが、既存データの閲覧は引き続き可能です。
+              </p>
+              <div className="bg-amber-50 border border-amber-100 rounded-lg p-4 mb-4">
+                <ul className="text-sm text-amber-800 space-y-1 list-disc list-inside">
+                  <li>停止中も月額費用は停止予定日まで発生します</li>
+                  <li>停止後の再開は運営へのお問い合わせが必要です</li>
+                  <li>停止中は応募者が面接URLにアクセスできなくなります</li>
+                </ul>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSuspensionModal({ isOpen: true })}
+                className="bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors"
+              >
+                一時停止を申請する
+              </button>
+            </>
+          )}
+
+          {currentStatus === 'pending_suspension' && (
+            <>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+                <p className="text-sm text-gray-700">申請日: {applyDate}</p>
+                <p className="text-sm text-gray-700 font-semibold mt-1">停止予定日: {scheduledDate}</p>
+                <p className="text-sm text-amber-600 mt-1">残り{daysRemaining}日で停止されます</p>
+              </div>
+              {/* TODO: 実データに差替え */}
+              <button
+                type="button"
+                onClick={() => setCancelModal({ isOpen: true })}
+                className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium px-6 py-2.5 rounded-xl transition-colors"
+              >
+                申請を取り消す
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* セクション4: 緊急停止申請カード */}
+        <div className="bg-white border border-red-200 rounded-xl p-6 mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-2 flex items-center gap-2">
+            <AlertIcon className="w-5 h-5 text-red-500 shrink-0" />
+            緊急停止申請
+          </h2>
+          <p className="text-sm text-gray-600 leading-relaxed mb-2">
+            緊急停止は運営チームの承認後に即時適用されます。
+          </p>
+          <p className="text-sm text-gray-600 leading-relaxed mb-4">
+            不正利用やセキュリティ上の問題が発生した場合にご利用ください。
+          </p>
+          <div className="bg-red-50 border border-red-100 rounded-lg p-4 mb-4">
+            <ul className="text-sm text-red-800 space-y-1 list-disc list-inside">
+              <li>緊急停止は即時適用のため、進行中の面接も中断されます</li>
+              <li>運営チームの承認が必要です（通常1営業日以内）</li>
+              <li>緊急停止後の再開には運営との協議が必要です</li>
+            </ul>
+          </div>
+          <button
+            type="button"
+            onClick={() => setEmergencyModal({ isOpen: true, reason: '' })}
+            className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors"
+          >
+            緊急停止を申請する
           </button>
-        )}
+        </div>
+
+        {/* セクション5: よくある質問 */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">よくある質問</h2>
+          <div className="space-y-0">
+            {FAQ_ITEMS.map((item) => (
+              <div key={item.id} className="border-b border-gray-100 last:border-b-0">
+                <button
+                  type="button"
+                  onClick={() => toggleFaq(item.id)}
+                  className="w-full flex items-center justify-between cursor-pointer py-3 text-left"
+                >
+                  <span className="text-sm font-medium text-gray-800 pr-4">{item.question}</span>
+                  <span className="shrink-0 transition-transform duration-200">
+                    {faqOpen[item.id] ? (
+                      <ChevronUpIcon className="w-5 h-5 text-gray-400" />
+                    ) : (
+                      <ChevronDownIcon className="w-5 h-5 text-gray-400" />
+                    )}
+                  </span>
+                </button>
+                {faqOpen[item.id] && (
+                  <p className="text-sm text-gray-600 leading-relaxed py-3">{item.answer}</p>
+                )}
+              </div>
+            ))}
+          </div>
+          {/* TODO: 実データに差替え */}
+        </div>
       </div>
 
-      {message && (
-        <div className={`rounded-md p-3 mb-4 ${message.type === 'success' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-          <p className={`text-sm ${message.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>{message.text}</p>
-        </div>
-      )}
-
-      {hasPendingRequest && !showForm && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-6">
-          <p className="text-sm text-yellow-800">現在審査中の申請があります。審査完了までお待ちください。</p>
-        </div>
-      )}
-
-      {showForm && (
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">停止・解約申請フォーム</h2>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">申請種別</label>
-              <select
-                value={formType}
-                onChange={e => setFormType(e.target.value)}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="suspension">一時停止</option>
-                <option value="cancellation">解約</option>
-              </select>
-            </div>
-
-            {formType === 'suspension' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">希望停止開始日</label>
-                <input
-                  type="date"
-                  value={formStartDate}
-                  onChange={e => setFormStartDate(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">理由 <span className="text-red-500">*</span></label>
-              <textarea
-                value={formReason}
-                onChange={e => setFormReason(e.target.value)}
-                rows={5}
-                placeholder="停止・解約の理由をご記入ください。"
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-              <p className="text-xs text-gray-400 mt-1">{formReason.length} 文字</p>
-            </div>
-
-            {formType === 'cancellation' && (
-              <div className="bg-red-50 border border-red-200 rounded-md p-3">
-                <p className="text-sm text-red-700">解約を行うと、すべてのデータが削除され、復元できません。面接URLも無効になります。</p>
-              </div>
-            )}
-
-            <div className="flex items-center gap-3 pt-2 border-t">
+      {/* 一時停止確認モーダル */}
+      {suspensionModal.isOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900">一時停止を申請しますか？</h3>
+            <p className="text-sm text-gray-600 mt-2">
+              申請日から1ヶ月後（2026年3月15日）にサービスが停止されます。停止前であれば取り消し可能です。
+            </p>
+            <div className="flex gap-3 mt-6">
               <button
-                onClick={handleSubmit}
-                disabled={saving || !formReason.trim()}
-                className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                type="button"
+                onClick={handleSuspensionConfirm}
+                className="bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
               >
-                {saving ? '送信中...' : '申請を送信'}
+                申請する
               </button>
-              <button onClick={() => { setShowForm(false); setFormReason(''); setFormStartDate('') }} className="px-4 py-2 border border-gray-300 text-sm text-gray-700 rounded-md hover:bg-gray-50">
+              <button
+                type="button"
+                onClick={() => setSuspensionModal({ isOpen: false })}
+                className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
+              >
                 キャンセル
               </button>
             </div>
@@ -185,48 +308,79 @@ export default function SuspensionPage() {
         </div>
       )}
 
-      {loading ? (
-        <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">読み込み中...</div>
-      ) : requests.length === 0 ? (
-        <div className="bg-white rounded-lg shadow p-8 text-center">
-          <p className="text-gray-500 mb-2">申請履歴はありません。</p>
-          <p className="text-sm text-gray-400">停止や解約が必要な場合は「新規申請」から手続きしてください。</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {requests.map(r => {
-            const status = STATUS_BADGE[r.status] || { label: r.status, className: 'bg-gray-100 text-gray-600' }
-            return (
-              <div key={r.id} className="bg-white rounded-lg shadow p-5">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-block px-2 py-0.5 text-xs font-medium rounded bg-gray-100 text-gray-800">
-                      {REQUEST_TYPES[r.request_type] || r.request_type}
-                    </span>
-                    <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded ${status.className}`}>
-                      {status.label}
-                    </span>
-                  </div>
-                  <span className="text-xs text-gray-400">{formatDate(r.created_at)}</span>
-                </div>
-
-                <p className="text-sm text-gray-700 mb-2">{r.reason}</p>
-
-                {r.requested_start_date && (
-                  <p className="text-xs text-gray-500">希望停止開始日: {formatDate(r.requested_start_date)}</p>
-                )}
-
-                {r.review_comment && (
-                  <div className="mt-3 bg-gray-50 rounded p-3">
-                    <p className="text-xs text-gray-500 mb-1">運営からのコメント（{formatDate(r.reviewed_at)}）</p>
-                    <p className="text-sm text-gray-700">{r.review_comment}</p>
-                  </div>
-                )}
-              </div>
-            )
-          })}
+      {/* 取消確認モーダル */}
+      {cancelModal.isOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900">申請を取り消しますか？</h3>
+            <p className="text-sm text-gray-600 mt-2">
+              一時停止申請を取り消すと、サービスは通常通り継続されます。
+            </p>
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={handleCancelConfirm}
+                className="bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
+              >
+                取り消す
+              </button>
+              <button
+                type="button"
+                onClick={() => setCancelModal({ isOpen: false })}
+                className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
         </div>
       )}
-    </div>
+
+      {/* 緊急停止モーダル */}
+      {emergencyModal.isOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-red-600">緊急停止を申請しますか？</h3>
+            <p className="text-sm text-gray-600 mt-2">
+              緊急停止は運営の承認後に即時適用されます。
+            </p>
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">停止理由（必須）</label>
+              <textarea
+                value={emergencyModal.reason}
+                onChange={(e) => setEmergencyModal((prev) => ({ ...prev, reason: e.target.value }))}
+                rows={4}
+                placeholder="緊急停止が必要な理由をご入力ください"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+              />
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={handleEmergencyConfirm}
+                disabled={!emergencyModal.reason.trim()}
+                className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
+              >
+                申請する
+              </button>
+              <button
+                type="button"
+                onClick={() => setEmergencyModal({ isOpen: false, reason: '' })}
+                className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* トースト */}
+      {toastVisible && (
+        <div className="fixed top-6 right-6 z-50 bg-white border border-gray-200 rounded-xl shadow-lg px-4 py-3 text-sm text-gray-800">
+          {toastMessage}
+        </div>
+      )}
+    </>
   )
 }

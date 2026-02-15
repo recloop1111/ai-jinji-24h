@@ -10,9 +10,11 @@ const INTERVIEW_URL = 'https://ai-jinji-24h.vercel.app/interview/demo-company'
 const navigation = [
   { name: 'ダッシュボード', href: '/client/dashboard', icon: DashboardIcon },
   { name: '応募者一覧', href: '/client/applicants', icon: UsersIcon },
+  { name: '面接質問設定', href: '/client/questions', icon: QuestionsIcon },
   { name: 'メールテンプレート', href: '/client/templates', icon: MailIcon },
   { name: 'プラン・契約', href: '/client/plan', icon: PlanIcon },
   { name: '請求履歴', href: '/client/billing', icon: BillingIcon },
+  { name: '停止申請', href: '/client/suspension', icon: SuspensionIcon },
 ]
 
 function DashboardIcon({ className }: { className?: string }) {
@@ -33,6 +35,14 @@ function UsersIcon({ className }: { className?: string }) {
       <circle cx="9" cy="7" r="4" />
       <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  )
+}
+
+function QuestionsIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2v-6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
     </svg>
   )
 }
@@ -63,6 +73,15 @@ function BillingIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="12" y1="1" x2="12" y2="23" />
       <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+    </svg>
+  )
+}
+
+function SuspensionIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="6" y="4" width="4" height="16" rx="1" />
+      <rect x="14" y="4" width="4" height="16" rx="1" />
     </svg>
   )
 }

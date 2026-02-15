@@ -1,141 +1,148 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useState } from 'react'
 
-type BillingRecord = {
-  id: string
-  billing_month: string
-  plan_at_billing: string
-  auto_upgrade_applied: boolean
-  interview_count: number
-  amount_jpy: number
-  tax_jpy: number
-  total_jpy: number
-  payment_status: string
-  invoice_pdf_url: string | null
-  paid_at: string | null
-  created_at: string
+// TODO: 実データに差替え
+const PAYMENT_INFO = {
+  monthlyAmount: 120000,
+  planLabel: 'プランB（11〜20件）',
+  nextBillingDate: '2025-03-15',
+  paymentMethod: '請求書払い（銀行振込）',
+  transferBank: 'みずほ銀行 渋谷支店',
+  transferAccountType: '普通',
+  transferAccountNumber: '1234567',
+  transferAccountName: 'カ）エーアイジンジニジュウヨジカン',
 }
 
-const PLAN_NAMES: Record<string, string> = {
-  plan_a: 'プランA',
-  plan_b: 'プランB',
-  plan_c: 'プランC',
-}
+// TODO: 実データに差替え
+const BILLING_RECORDS = [
+  { id: '1', date: '2025-02-15', description: 'プランB 月額利用料（2月分）', amount: 120000, status: 'pending' as const },
+  { id: '2', date: '2025-01-15', description: 'プランB 月額利用料（1月分）', amount: 120000, status: 'paid' as const },
+  { id: '3', date: '2025-01-15', description: '初期費用', amount: 200000, status: 'paid' as const },
+  { id: '4', date: '2025-01-15', description: '職種追加（営業職）', amount: 100000, status: 'paid' as const },
+  { id: '5', date: '2024-12-20', description: 'プランA 月額利用料（12月分）', amount: 60000, status: 'paid' as const },
+  { id: '6', date: '2024-11-20', description: 'プランA 月額利用料（11月分）', amount: 60000, status: 'paid' as const },
+  { id: '7', date: '2024-10-20', description: 'プランA 月額利用料（10月分）', amount: 60000, status: 'paid' as const },
+  { id: '8', date: '2024-09-20', description: 'プランA 月額利用料（9月分）', amount: 60000, status: 'paid' as const },
+]
 
 const STATUS_BADGE: Record<string, { label: string; className: string }> = {
-  paid: { label: '支払済', className: 'bg-green-100 text-green-800' },
-  pending: { label: '未払い', className: 'bg-yellow-100 text-yellow-800' },
-  failed: { label: '失敗', className: 'bg-red-100 text-red-800' },
-  refunded: { label: '返金済', className: 'bg-gray-100 text-gray-600' },
+  paid: { label: '入金確認済み', className: 'bg-green-100 text-green-700' },
+  pending: { label: '振込待ち', className: 'bg-yellow-100 text-yellow-700' },
+  processing: { label: '処理中', className: 'bg-yellow-100 text-yellow-700' },
+}
+
+function DownloadIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  )
+}
+
+function BankIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 21h18" />
+      <path d="M3 10h18" />
+      <path d="M5 6l7-3 7 3" />
+      <path d="M4 10v11" />
+      <path d="M20 10v11" />
+      <path d="M8 14v3" />
+      <path d="M12 14v3" />
+      <path d="M16 14v3" />
+    </svg>
+  )
 }
 
 export default function BillingPage() {
-  const [records, setRecords] = useState<BillingRecord[]>([])
-  const [loading, setLoading] = useState(true)
-  const supabase = createClient()
-
-  useEffect(() => {
-    fetchBilling()
-  }, [])
-
-  const fetchBilling = async () => {
-    setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: company } = await supabase
-      .from('companies')
-      .select('id')
-      .eq('auth_user_id', user.id)
-      .single()
-    if (!company) return
-
-    const { data } = await supabase
-      .from('billing_records')
-      .select('*')
-      .eq('company_id', company.id)
-      .order('billing_month', { ascending: false })
-
-    if (data) setRecords(data)
-    setLoading(false)
-  }
-
-  const formatMonth = (month: string) => {
-    if (!month) return '—'
-    const [y, m] = month.split('-')
-    return `${y}年${parseInt(m)}月`
-  }
-
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '—'
-    return new Date(dateStr).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  const [downloadToast, setDownloadToast] = useState(false)
+  const handleInvoiceDownload = () => {
+    // TODO: Stripe APIから請求書PDFを取得してダウンロード
+    setDownloadToast(true)
+    setTimeout(() => setDownloadToast(false), 2000)
   }
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">請求履歴</h1>
+    <div className="space-y-6">
+      <h1 className="text-xl font-bold text-slate-900">請求履歴</h1>
 
-      {loading ? (
-        <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">読み込み中...</div>
-      ) : records.length === 0 ? (
-        <div className="bg-white rounded-lg shadow p-8 text-center">
-          <p className="text-gray-500 mb-2">請求履歴はまだありません。</p>
-          <p className="text-sm text-gray-400">利用開始後、毎月の請求情報がここに表示されます。</p>
+      {/* 上部: 支払い情報カード */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+          <p className="text-sm font-medium text-slate-500 mb-1">今月の請求額</p>
+          <p className="text-2xl font-bold text-slate-900">¥{PAYMENT_INFO.monthlyAmount.toLocaleString()}（税別）</p>
+          <p className="text-xs text-slate-500 mt-2">{PAYMENT_INFO.planLabel}</p>
         </div>
-      ) : (
-        <div className="bg-white rounded-lg shadow overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+          <p className="text-sm font-medium text-slate-500 mb-1">次回請求日</p>
+          <p className="text-xl font-bold text-slate-900">{PAYMENT_INFO.nextBillingDate}</p>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+          <p className="text-sm font-medium text-slate-500 mb-1">支払い方法</p>
+          <div className="flex items-center gap-2">
+            <BankIcon className="w-8 h-8 text-slate-600" />
+            <p className="text-base font-medium text-slate-900">{PAYMENT_INFO.paymentMethod}</p>
+          </div>
+          <div className="mt-3 space-y-1">
+            <p className="text-xs text-gray-500">振込先: {PAYMENT_INFO.transferBank}</p>
+            <p className="text-xs text-gray-500">{PAYMENT_INFO.transferAccountType} {PAYMENT_INFO.transferAccountNumber}</p>
+            <p className="text-xs text-gray-500">{PAYMENT_INFO.transferAccountName}</p>
+          </div>
+          {/* TODO: 実際の振込先情報に差替え */}
+        </div>
+      </div>
+
+      {/* 中部: 請求履歴テーブル */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
             <thead>
-              <tr className="border-b bg-gray-50 text-left text-gray-600">
-                <th className="px-4 py-3">請求月</th>
-                <th className="px-4 py-3">プラン</th>
-                <th className="px-4 py-3">面接件数</th>
-                <th className="px-4 py-3 text-right">税抜金額</th>
-                <th className="px-4 py-3 text-right">消費税</th>
-                <th className="px-4 py-3 text-right">合計</th>
-                <th className="px-4 py-3">ステータス</th>
-                <th className="px-4 py-3">支払日</th>
-                <th className="px-4 py-3">請求書</th>
+              <tr className="bg-slate-50 border-b border-slate-200">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">請求日</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">内容</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">金額（税別）</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">ステータス</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">操作</th>
               </tr>
             </thead>
-            <tbody>
-              {records.map(r => {
-                const status = STATUS_BADGE[r.payment_status] || { label: r.payment_status, className: 'bg-gray-100 text-gray-600' }
+            <tbody className="divide-y divide-slate-100">
+              {BILLING_RECORDS.map((r) => {
+                const status = STATUS_BADGE[r.status] ?? { label: r.status, className: 'bg-gray-100 text-gray-600' }
                 return (
-                  <tr key={r.id} className="border-b hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-gray-900">{formatMonth(r.billing_month)}</td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {PLAN_NAMES[r.plan_at_billing] || r.plan_at_billing}
-                      {r.auto_upgrade_applied && (
-                        <span className="ml-1 text-xs text-orange-600">（自動繰上）</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{r.interview_count}件</td>
-                    <td className="px-4 py-3 text-right text-gray-900">¥{r.amount_jpy.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right text-gray-600">¥{r.tax_jpy.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right font-medium text-gray-900">¥{r.total_jpy.toLocaleString()}</td>
+                  <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-4 py-3 text-slate-600">{r.date}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{r.description}</td>
+                    <td className="px-4 py-3 text-right text-slate-900">¥{r.amount.toLocaleString()}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded ${status.className}`}>
+                      <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${status.className}`}>
                         {status.label}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{formatDate(r.paid_at)}</td>
-                    <td className="px-4 py-3">
-                      {r.invoice_pdf_url ? (
-                        <a href={r.invoice_pdf_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-500 text-sm">
-                          PDF
-                        </a>
-                      ) : (
-                        <span className="text-gray-400 text-sm">—</span>
-                      )}
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={handleInvoiceDownload}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
+                      >
+                        <DownloadIcon className="w-4 h-4" />
+                        請求書DL
+                      </button>
                     </td>
                   </tr>
                 )
               })}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* ダウンロード成功トースト */}
+      {downloadToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-6 py-3 bg-gray-900 text-white text-sm font-medium rounded-xl shadow-lg">
+          請求書をダウンロードしました
         </div>
       )}
     </div>
