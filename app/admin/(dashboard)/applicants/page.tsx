@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { Search, Download, Users, CheckCircle, Clock, BarChart3, XCircle } from 'lucide-react'
 
 // TODO: 実データに差替え
 const DUMMY_APPLICANTS = [
@@ -31,73 +32,6 @@ const COMPANIES_OPTIONS = [
   { value: '5', label: '株式会社スタートアップラボ' },
 ]
 
-function SearchIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  )
-}
-
-function DownloadIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </svg>
-  )
-}
-
-function UsersIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-    </svg>
-  )
-}
-
-function CheckCircleIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-      <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
-  )
-}
-
-function ClockIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
-    </svg>
-  )
-}
-
-function BarChartIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="20" x2="12" y2="10" />
-      <line x1="18" y1="20" x2="18" y2="4" />
-      <line x1="6" y1="20" x2="6" y2="16" />
-    </svg>
-  )
-}
-
-function XCircleIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="15" y1="9" x2="9" y2="15" />
-      <line x1="9" y1="9" x2="15" y2="15" />
-    </svg>
-  )
-}
 
 function getPatternBadgeClass(patternType: string): string {
   return patternType === 'fulltime'
@@ -196,7 +130,7 @@ export default function ApplicantsPage() {
             onClick={handleCsvExport}
             className="inline-flex items-center gap-2 bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-gray-400 hover:text-white transition-all shrink-0"
           >
-            <DownloadIcon className="w-4 h-4" />
+            <Download className="w-4 h-4" />
             CSV出力
           </button>
         </div>
@@ -204,29 +138,29 @@ export default function ApplicantsPage() {
         {/* セクション2: サマリーカード5枚 */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
-            <UsersIcon className="absolute top-4 right-4 w-8 h-8 text-blue-400/50" />
+            <Users className="absolute top-4 right-4 w-8 h-8 text-blue-400/50" />
             <p className="text-3xl font-bold text-white">{SUMMARY.total}</p>
             <p className="text-sm text-gray-400 mt-0.5">全応募者数</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
-            <CheckCircleIcon className="absolute top-4 right-4 w-8 h-8 text-emerald-400/50" />
+            <CheckCircle className="absolute top-4 right-4 w-8 h-8 text-emerald-400/50" />
             <p className="text-3xl font-bold text-white">{SUMMARY.completedThisMonth}</p>
             <p className="text-sm text-gray-400 mt-0.5">今月の面接完了</p>
             <p className="text-xs text-emerald-400 mt-1">前月比 +{SUMMARY.completedGrowth}%</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
-            <ClockIcon className="absolute top-4 right-4 w-8 h-8 text-amber-400/50" />
+            <Clock className="absolute top-4 right-4 w-8 h-8 text-amber-400/50" />
             <p className="text-3xl font-bold text-white">{SUMMARY.waiting}</p>
             <p className="text-sm text-gray-400 mt-0.5">面接待ち</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
-            <BarChartIcon className="absolute top-4 right-4 w-8 h-8 text-purple-400/50" />
+            <BarChart3 className="absolute top-4 right-4 w-8 h-8 text-purple-400/50" />
             <p className="text-3xl font-bold text-white">{SUMMARY.avgScore}</p>
             <p className="text-sm text-gray-400 mt-0.5">平均スコア</p>
             <p className="text-xs text-gray-500 mt-1">点 / 100点満点</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
-            <XCircleIcon className="absolute top-4 right-4 w-8 h-8 text-red-400/50" />
+            <XCircle className="absolute top-4 right-4 w-8 h-8 text-red-400/50" />
             <p className="text-3xl font-bold text-white">{SUMMARY.withdrawnInterrupted}</p>
             <p className="text-sm text-gray-400 mt-0.5">辞退・中断</p>
             <p className="text-xs text-red-400 mt-1">全体の{SUMMARY.withdrawnPercent}%</p>
@@ -237,7 +171,7 @@ export default function ApplicantsPage() {
         <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-4 mb-6">
           <div className="flex flex-wrap items-center gap-3">
             <div className="relative flex-1 min-w-[200px] lg:max-w-[288px]">
-              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}

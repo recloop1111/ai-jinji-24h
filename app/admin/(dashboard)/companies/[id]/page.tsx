@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { ArrowLeft, Link as LinkIcon, Plus, User, Info } from 'lucide-react'
 
 const CARD_BASE = 'bg-gradient-to-br from-white/[0.07] to-white/[0.02] backdrop-blur-2xl border border-white/[0.08] rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)]'
 
@@ -112,65 +113,6 @@ const MONTHLY_USAGE = [
 
 const TABS = ['基本情報', 'ブランド設定', 'アバター設定', '質問設定', '評価設定', '利用状況'] as const
 
-function BackIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="19" y1="12" x2="5" y2="12" />
-      <polyline points="12 19 5 12 12 5" />
-    </svg>
-  )
-}
-
-function LinkIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
-  )
-}
-
-function PlusIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
-  )
-}
-
-function GripIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="9" cy="6" r="1" fill="currentColor" />
-      <circle cx="15" cy="6" r="1" fill="currentColor" />
-      <circle cx="9" cy="12" r="1" fill="currentColor" />
-      <circle cx="15" cy="12" r="1" fill="currentColor" />
-      <circle cx="9" cy="18" r="1" fill="currentColor" />
-      <circle cx="15" cy="18" r="1" fill="currentColor" />
-    </svg>
-  )
-}
-
-function UserIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-      <circle cx="12" cy="7" r="4" />
-    </svg>
-  )
-}
-
-function InfoIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="16" x2="12" y2="12" />
-      <line x1="12" y1="8" x2="12.01" y2="8" />
-    </svg>
-  )
-}
-
 export default function CompanyDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -251,7 +193,7 @@ export default function CompanyDetailPage() {
               onClick={() => router.push('/admin/companies')}
               className="flex items-center gap-1 text-sm text-gray-400 hover:text-white cursor-pointer transition-colors mb-2"
             >
-              <BackIcon className="w-4 h-4" />
+              <ArrowLeft className="w-4 h-4" />
               企業一覧に戻る
             </button>
             <div className="flex items-center flex-wrap gap-2">
@@ -467,7 +409,7 @@ export default function CompanyDetailPage() {
                 <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider">アバター画像</label>
                 <div className="flex items-center gap-4 mt-2">
                   <div className="w-24 h-24 rounded-full bg-gradient-to-br from-purple-500/20 to-blue-500/20 border border-white/10 flex items-center justify-center shrink-0">
-                    <UserIcon className="w-10 h-10 text-gray-500" />
+                    <User className="w-10 h-10 text-gray-500" />
                   </div>
                   <div>
                     <button type="button" className="bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 rounded-xl px-4 py-2 text-sm">
@@ -650,7 +592,7 @@ export default function CompanyDetailPage() {
                 onClick={() => showToast('質問追加モーダルは今後実装予定です')}
                 className="inline-flex items-center gap-2 bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.08] text-gray-400 hover:text-white text-sm rounded-xl px-4 py-2 transition-all"
               >
-                <PlusIcon className="w-4 h-4" />
+                <Plus className="w-4 h-4" />
                 質問を追加
               </button>
             </div>
@@ -749,7 +691,7 @@ export default function CompanyDetailPage() {
               })}
             </div>
             <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 mt-6 flex gap-3">
-              <InfoIcon className="w-5 h-5 text-gray-500 flex-shrink-0 mt-0.5" />
+              <Info className="w-5 h-5 text-gray-500 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-gray-500 leading-relaxed">
                 応募者は面接前の情報入力フォームで「希望の雇用形態」「就業形態（新卒/中途）」「業界経験の有無」を選択します。その回答の組み合わせに基づき、冒頭のアイスブレイク → 該当パターンの本編質問 → クロージングの順で面接が自動進行します。
               </p>
@@ -907,7 +849,7 @@ export default function CompanyDetailPage() {
           className="fixed bottom-6 right-6 z-[60] flex items-center px-5 py-3 bg-gradient-to-r from-white/10 to-white/5 backdrop-blur-2xl border border-white/10 text-gray-300 text-sm rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)]"
           style={{ animation: 'slideUp 0.3s ease-out' }}
         >
-          <InfoIcon className="w-4 h-4 text-blue-400 mr-2 shrink-0" />
+          <Info className="w-4 h-4 text-blue-400 mr-2 shrink-0" />
           {toastMessage}
         </div>
       )}

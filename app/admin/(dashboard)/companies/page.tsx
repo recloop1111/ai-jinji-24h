@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import { Plus, Search, Download, Building2, CheckCircle, Clock, Square } from 'lucide-react'
 
 // TODO: 実データに差替え
 const DUMMY_COMPANIES = [
@@ -17,75 +18,6 @@ const DUMMY_COMPANIES = [
 
 type StatusFilter = 'all' | 'active' | 'trial' | 'suspended' | 'cancelled'
 type PlanFilter = 'all' | 'A' | 'B' | 'C' | 'custom'
-
-function PlusIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
-  )
-}
-
-function SearchIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  )
-}
-
-function DownloadIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </svg>
-  )
-}
-
-function BuildingIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
-      <path d="M9 22v-4h6v4" />
-      <path d="M8 6h.01" />
-      <path d="M16 6h.01" />
-      <path d="M12 6h.01" />
-      <path d="M12 10h.01" />
-      <path d="M12 14h.01" />
-    </svg>
-  )
-}
-
-function CheckCircleIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-      <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
-  )
-}
-
-function ClockIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
-    </svg>
-  )
-}
-
-function StopIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="6" y="6" width="12" height="12" rx="1" ry="1" />
-    </svg>
-  )
-}
-
 
 function getPlanBadgeClass(planKey: string): string {
   const map: Record<string, string> = {
@@ -182,7 +114,7 @@ export default function CompaniesPage() {
             onClick={handleAddCompany}
             className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl px-5 py-2.5 transition-all duration-200 shrink-0"
           >
-            <PlusIcon className="w-4 h-4" />
+            <Plus className="w-4 h-4" />
             新規企業を追加
           </button>
         </div>
@@ -190,24 +122,24 @@ export default function CompaniesPage() {
         {/* セクション2: サマリーカード4枚 */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
-            <BuildingIcon className="absolute top-4 right-4 w-8 h-8 text-blue-400/50" />
+            <Building2 className="absolute top-4 right-4 w-8 h-8 text-blue-400/50" />
             <p className="text-3xl font-bold text-white">{SUMMARY.total}</p>
             <p className="text-sm text-gray-400 mt-0.5">全企業数</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
-            <CheckCircleIcon className="absolute top-4 right-4 w-8 h-8 text-emerald-400/50" />
+            <CheckCircle className="absolute top-4 right-4 w-8 h-8 text-emerald-400/50" />
             <p className="text-3xl font-bold text-white">{SUMMARY.active}</p>
             <p className="text-sm text-gray-400 mt-0.5">アクティブ</p>
             <p className="text-xs text-emerald-400 mt-1">全体の{SUMMARY.activePercent}%</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
-            <ClockIcon className="absolute top-4 right-4 w-8 h-8 text-amber-400/50" />
+            <Clock className="absolute top-4 right-4 w-8 h-8 text-amber-400/50" />
             <p className="text-3xl font-bold text-white">{SUMMARY.trial}</p>
             <p className="text-sm text-gray-400 mt-0.5">トライアル中</p>
             <p className="text-xs text-amber-400 mt-1">残り期間7日以内: {SUMMARY.trialNearExpiry}社</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
-            <StopIcon className="absolute top-4 right-4 w-8 h-8 text-red-400/50" />
+            <Square className="absolute top-4 right-4 w-8 h-8 text-red-400/50" />
             <p className="text-3xl font-bold text-white">{SUMMARY.suspended}</p>
             <p className="text-sm text-gray-400 mt-0.5">停止中</p>
           </div>
@@ -217,7 +149,7 @@ export default function CompaniesPage() {
         <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-4 mb-6">
           <div className="flex flex-wrap items-center gap-3">
             <div className="relative flex-1 min-w-[200px] lg:max-w-[320px]">
-              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
@@ -253,7 +185,7 @@ export default function CompaniesPage() {
               onClick={handleCsvExport}
               className="inline-flex items-center gap-2 bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-gray-400 hover:text-white transition-all"
             >
-              <DownloadIcon className="w-4 h-4 shrink-0" />
+              <Download className="w-4 h-4 shrink-0" />
               CSV出力
             </button>
           </div>
