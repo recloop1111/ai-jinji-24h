@@ -1,35 +1,36 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Search, Download, Users, CheckCircle, Clock, BarChart3, XCircle } from 'lucide-react'
+import { Search, Download, Users, CheckCircle, Clock, BarChart3, XCircle, Phone, Mail } from 'lucide-react'
 
 // TODO: 実データに差替え
 const DUMMY_APPLICANTS = [
-  { id: '1', name: '佐藤 太郎', email: 'taro.sato@example.com', company: '株式会社ABC', companyId: '1', pattern: '正社員×新卒', patternType: 'fulltime', status: 'completed', score: 85, date: '2025-02-14', time: '14:00' },
-  { id: '2', name: '田中 美咲', email: 'misaki.tanaka@example.com', company: '株式会社ABC', companyId: '1', pattern: '正社員×中途×経験者', patternType: 'fulltime', status: 'completed', score: 72, date: '2025-02-14', time: '11:30' },
-  { id: '3', name: '鈴木 健太', email: 'kenta.suzuki@example.com', company: '株式会社テックフロンティア', companyId: '2', pattern: '正社員×中途×未経験', patternType: 'fulltime', status: 'completed', score: 58, date: '2025-02-13', time: '16:00' },
-  { id: '4', name: '高橋 遥', email: 'haruka.takahashi@example.com', company: '株式会社テックフロンティア', companyId: '2', pattern: '正社員×新卒', patternType: 'fulltime', status: 'completed', score: 91, date: '2025-02-13', time: '10:00' },
-  { id: '5', name: '伊藤 大輝', email: 'daiki.ito@example.com', company: '山田商事株式会社', companyId: '3', pattern: 'アルバイト×経験者', patternType: 'parttime', status: 'completed', score: 45, date: '2025-02-12', time: '13:00' },
-  { id: '6', name: '渡辺 さくら', email: 'sakura.watanabe@example.com', company: '株式会社ABC', companyId: '1', pattern: '正社員×新卒', patternType: 'fulltime', status: 'waiting', score: null, date: null, time: null },
-  { id: '7', name: '山本 翔太', email: 'shota.yamamoto@example.com', company: '株式会社グローバルHR', companyId: '4', pattern: '正社員×中途×経験者', patternType: 'fulltime', status: 'waiting', score: null, date: null, time: null },
-  { id: '8', name: '中村 愛', email: 'ai.nakamura@example.com', company: '株式会社スタートアップラボ', companyId: '5', pattern: 'アルバイト×未経験', patternType: 'parttime', status: 'in-progress', score: null, date: '2025-02-15', time: '09:30' },
-  { id: '9', name: '小林 誠', email: 'makoto.kobayashi@example.com', company: '株式会社テックフロンティア', companyId: '2', pattern: '正社員×中途×経験者', patternType: 'fulltime', status: 'completed', score: 78, date: '2025-02-11', time: '15:00' },
-  { id: '10', name: '加藤 由美', email: 'yumi.kato@example.com', company: '山田商事株式会社', companyId: '3', pattern: 'アルバイト×未経験', patternType: 'parttime', status: 'withdrawn', score: null, date: '2025-02-10', time: '11:00' },
-  { id: '11', name: '吉田 拓海', email: 'takumi.yoshida@example.com', company: '株式会社ABC', companyId: '1', pattern: '正社員×中途×未経験', patternType: 'fulltime', status: 'interrupted', score: null, date: '2025-02-09', time: '14:30' },
-  { id: '12', name: '松本 結衣', email: 'yui.matsumoto@example.com', company: '株式会社グローバルHR', companyId: '4', pattern: '正社員×新卒', patternType: 'fulltime', status: 'completed', score: 36, date: '2025-02-08', time: '10:00' },
+  { id: '1', name: '佐藤 太郎', email: 'taro.sato@example.com', phone: '090-1111-2222', company: '株式会社ABC', companyId: '1', industry: '飲食', pattern: '正社員×新卒', patternType: 'fulltime', status: 'completed', score: 85, date: '2025-02-14', time: '14:00', applicantResult: 'second_pass' },
+  { id: '2', name: '田中 美咲', email: 'misaki.tanaka@example.com', phone: '090-2222-3333', company: '株式会社ABC', companyId: '1', industry: '飲食', pattern: '正社員×中途×経験者', patternType: 'fulltime', status: 'completed', score: 72, date: '2025-02-14', time: '11:30', applicantResult: 'considering' },
+  { id: '3', name: '鈴木 健太', email: 'kenta.suzuki@example.com', phone: '090-3333-4444', company: '株式会社テックフロンティア', companyId: '2', industry: 'IT', pattern: '正社員×中途×未経験', patternType: 'fulltime', status: 'completed', score: 58, date: '2025-02-13', time: '16:00', applicantResult: 'rejected' },
+  { id: '4', name: '高橋 遥', email: 'haruka.takahashi@example.com', phone: '090-4444-5555', company: '株式会社テックフロンティア', companyId: '2', industry: 'IT', pattern: '正社員×新卒', patternType: 'fulltime', status: 'completed', score: 91, date: '2025-02-13', time: '10:00', applicantResult: 'second_pass' },
+  { id: '5', name: '伊藤 大輝', email: 'daiki.ito@example.com', phone: '090-5555-6666', company: '山田商事株式会社', companyId: '3', industry: '不動産', pattern: 'アルバイト×経験者', patternType: 'parttime', status: 'completed', score: 45, date: '2025-02-12', time: '13:00', applicantResult: 'rejected' },
+  { id: '6', name: '渡辺 さくら', email: 'sakura.watanabe@example.com', phone: '090-6666-7777', company: '株式会社ABC', companyId: '1', industry: '飲食', pattern: '正社員×新卒', patternType: 'fulltime', status: 'waiting', score: null, date: null, time: null, applicantResult: null },
+  { id: '7', name: '山本 翔太', email: 'shota.yamamoto@example.com', phone: '090-7777-8888', company: '株式会社グローバルHR', companyId: '4', industry: '人材', pattern: '正社員×中途×経験者', patternType: 'fulltime', status: 'waiting', score: null, date: null, time: null, applicantResult: null },
+  { id: '8', name: '中村 愛', email: 'ai.nakamura@example.com', phone: '090-8888-9999', company: '株式会社スタートアップラボ', companyId: '5', industry: '建築', pattern: 'アルバイト×未経験', patternType: 'parttime', status: 'in-progress', score: null, date: '2025-02-15', time: '09:30', applicantResult: null },
+  { id: '9', name: '小林 誠', email: 'makoto.kobayashi@example.com', phone: '090-9999-0000', company: '株式会社テックフロンティア', companyId: '2', industry: 'IT', pattern: '正社員×中途×経験者', patternType: 'fulltime', status: 'completed', score: 78, date: '2025-02-11', time: '15:00', applicantResult: 'considering' },
+  { id: '10', name: '加藤 由美', email: 'yumi.kato@example.com', phone: '080-1111-0000', company: '山田商事株式会社', companyId: '3', industry: '不動産', pattern: 'アルバイト×未経験', patternType: 'parttime', status: 'withdrawn', score: null, date: '2025-02-10', time: '11:00', applicantResult: null },
+  { id: '11', name: '吉田 拓海', email: 'takumi.yoshida@example.com', phone: '080-2222-1111', company: '株式会社ABC', companyId: '1', industry: '飲食', pattern: '正社員×中途×未経験', patternType: 'fulltime', status: 'interrupted', score: null, date: '2025-02-09', time: '14:30', applicantResult: null },
+  { id: '12', name: '松本 結衣', email: 'yui.matsumoto@example.com', phone: '080-3333-2222', company: '株式会社グローバルHR', companyId: '4', industry: '人材', pattern: '正社員×新卒', patternType: 'fulltime', status: 'completed', score: 36, date: '2025-02-08', time: '10:00', applicantResult: 'rejected' },
 ]
 
 type StatusFilter = 'all' | 'completed' | 'waiting' | 'in-progress' | 'withdrawn' | 'interrupted'
 type ScoreFilter = 'all' | '80+' | '60-79' | '40-59' | '40-'
 type PeriodFilter = 'all' | 'this_month' | 'last_month' | '3months'
+type ApplicantResultFilter = 'all' | 'second_pass' | 'rejected' | 'considering'
 
-const COMPANIES_OPTIONS = [
-  { value: 'all', label: 'すべての企業' },
-  { value: '1', label: '株式会社ABC' },
-  { value: '2', label: '株式会社テックフロンティア' },
-  { value: '3', label: '山田商事株式会社' },
-  { value: '4', label: '株式会社グローバルHR' },
-  { value: '5', label: '株式会社スタートアップラボ' },
+const INDUSTRY_OPTIONS = [
+  { value: 'all', label: 'すべての業種' },
+  { value: '飲食', label: '飲食' },
+  { value: 'IT', label: 'IT' },
+  { value: '不動産', label: '不動産' },
+  { value: '人材', label: '人材' },
+  { value: '建築', label: '建築' },
 ]
 
 
@@ -74,9 +75,10 @@ const TOTAL_PAGES = Math.ceil(SUMMARY.total / ITEMS_PER_PAGE) // 29 pages for 34
 
 export default function ApplicantsPage() {
   const [searchQuery, setSearchQuery] = useState('')
-  const [companyFilter, setCompanyFilter] = useState('all')
+  const [industryFilter, setIndustryFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [scoreFilter, setScoreFilter] = useState<ScoreFilter>('all')
+  const [applicantResultFilter, setApplicantResultFilter] = useState<ApplicantResultFilter>('all')
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [toastVisible, setToastVisible] = useState(false)
@@ -86,7 +88,7 @@ export default function ApplicantsPage() {
     return DUMMY_APPLICANTS.filter((a) => {
       const q = searchQuery.trim().toLowerCase()
       const matchSearch = !q || a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q)
-      const matchCompany = companyFilter === 'all' || a.companyId === companyFilter
+      const matchIndustry = industryFilter === 'all' || a.industry === industryFilter
       const matchStatus = statusFilter === 'all' || a.status === statusFilter
       const matchScore =
         scoreFilter === 'all' ||
@@ -95,10 +97,26 @@ export default function ApplicantsPage() {
             (scoreFilter === '60-79' && a.score >= 60 && a.score < 80) ||
             (scoreFilter === '40-59' && a.score >= 40 && a.score < 60) ||
             (scoreFilter === '40-' && a.score < 40)))
-      const matchPeriod = periodFilter === 'all' // 期間フィルターはダミーなので常に通す
-      return matchSearch && matchCompany && matchStatus && matchScore && matchPeriod
+      const matchResult = applicantResultFilter === 'all' || a.applicantResult === applicantResultFilter
+      const matchPeriod = (() => {
+        if (periodFilter === 'all') return true
+        if (!a.date) return false
+        const d = new Date(a.date)
+        const now = new Date()
+        if (periodFilter === 'this_month') return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
+        if (periodFilter === 'last_month') {
+          const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+          return d.getFullYear() === lm.getFullYear() && d.getMonth() === lm.getMonth()
+        }
+        if (periodFilter === '3months') {
+          const three = new Date(now.getFullYear(), now.getMonth() - 3, 1)
+          return d >= three
+        }
+        return true
+      })()
+      return matchSearch && matchIndustry && matchStatus && matchScore && matchPeriod && matchResult
     })
-  }, [searchQuery, companyFilter, statusFilter, scoreFilter, periodFilter])
+  }, [searchQuery, industryFilter, statusFilter, scoreFilter, applicantResultFilter, periodFilter])
 
   const showToast = (msg: string) => {
     setToastMessage(msg)
@@ -109,11 +127,6 @@ export default function ApplicantsPage() {
   const handleCsvExport = () => {
     // TODO: サーバーサイドCSV生成
     showToast('CSV出力機能は今後実装予定です')
-  }
-
-  const handleDetail = () => {
-    // TODO: /admin/applicants/[id] への遷移
-    showToast('応募者詳細ページは今後実装予定です')
   }
 
   return (
@@ -181,11 +194,11 @@ export default function ApplicantsPage() {
               />
             </div>
             <select
-              value={companyFilter}
-              onChange={(e) => setCompanyFilter(e.target.value)}
+              value={industryFilter}
+              onChange={(e) => setIndustryFilter(e.target.value)}
               className="bg-white/[0.05] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-gray-300 appearance-none cursor-pointer focus:outline-none focus:border-blue-500/50"
             >
-              {COMPANIES_OPTIONS.map((o) => (
+              {INDUSTRY_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
@@ -215,6 +228,16 @@ export default function ApplicantsPage() {
               <option value="40-">40点未満</option>
             </select>
             <select
+              value={applicantResultFilter}
+              onChange={(e) => setApplicantResultFilter(e.target.value as ApplicantResultFilter)}
+              className="bg-white/[0.05] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-gray-300 appearance-none cursor-pointer focus:outline-none focus:border-blue-500/50"
+            >
+              <option value="all">すべての結果</option>
+              <option value="second_pass">二次通過</option>
+              <option value="rejected">不採用</option>
+              <option value="considering">検討中</option>
+            </select>
+            <select
               value={periodFilter}
               onChange={(e) => setPeriodFilter(e.target.value as PeriodFilter)}
               className="bg-white/[0.05] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-gray-300 appearance-none cursor-pointer focus:outline-none focus:border-blue-500/50"
@@ -238,6 +261,7 @@ export default function ApplicantsPage() {
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">パターン</th>
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">ステータス</th>
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">スコア</th>
+                  <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">結果</th>
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">面接日時</th>
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">操作</th>
                 </tr>
@@ -245,7 +269,7 @@ export default function ApplicantsPage() {
               <tbody>
                 {filteredApplicants.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-sm text-gray-500 py-16 text-center">
+                    <td colSpan={8} className="text-sm text-gray-500 py-16 text-center">
                       該当する応募者がありません
                     </td>
                   </tr>
@@ -286,6 +310,19 @@ export default function ApplicantsPage() {
                           )}
                         </td>
                         <td className="py-4 px-5">
+                          {a.applicantResult ? (
+                            <span className={`inline-flex text-xs rounded-lg px-2.5 py-1 font-medium ${
+                              a.applicantResult === 'second_pass' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' :
+                              a.applicantResult === 'rejected' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
+                              'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                            }`}>
+                              {a.applicantResult === 'second_pass' ? '二次通過' : a.applicantResult === 'rejected' ? '不採用' : '検討中'}
+                            </span>
+                          ) : (
+                            <span className="text-sm text-gray-600">—</span>
+                          )}
+                        </td>
+                        <td className="py-4 px-5">
                           {a.date && a.time ? (
                             <div>
                               <p className="text-sm text-gray-300">{a.date}</p>
@@ -296,13 +333,11 @@ export default function ApplicantsPage() {
                           )}
                         </td>
                         <td className="py-4 px-5">
-                          <button
-                            type="button"
-                            onClick={handleDetail}
-                            className="text-xs text-blue-400 hover:text-blue-300"
-                          >
-                            詳細
-                          </button>
+                          <div className="flex items-center gap-3">
+                            <a href={`tel:${a.phone}`} className="text-gray-400 hover:text-emerald-400 transition-colors" title="電話"><Phone className="w-4 h-4" /></a>
+                            <a href={`mailto:${a.email}`} className="text-gray-400 hover:text-blue-400 transition-colors" title="メール"><Mail className="w-4 h-4" /></a>
+                            <a href={`/admin/applicants/${a.id}`} className="text-xs text-blue-400 hover:text-blue-300">詳細</a>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -395,17 +430,24 @@ export default function ApplicantsPage() {
                     ) : (
                       <span className="text-sm text-gray-600">—</span>
                     )}
+                    {a.applicantResult ? (
+                      <span className={`inline-flex text-xs rounded-lg px-2.5 py-1 font-medium ${
+                        a.applicantResult === 'second_pass' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' :
+                        a.applicantResult === 'rejected' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
+                        'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                      }`}>
+                        {a.applicantResult === 'second_pass' ? '二次通過' : a.applicantResult === 'rejected' ? '不採用' : '検討中'}
+                      </span>
+                    ) : null}
                     <span className="text-xs text-gray-500">
                       {a.date && a.time ? `${a.date} ${a.time}` : '未実施'}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleDetail}
-                    className="text-xs text-blue-400 hover:text-blue-300"
-                  >
-                    詳細を見る
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <a href={`tel:${a.phone}`} className="text-gray-400 hover:text-emerald-400 transition-colors" title="電話"><Phone className="w-4 h-4" /></a>
+                    <a href={`mailto:${a.email}`} className="text-gray-400 hover:text-blue-400 transition-colors" title="メール"><Mail className="w-4 h-4" /></a>
+                    <a href={`/admin/applicants/${a.id}`} className="text-xs text-blue-400 hover:text-blue-300">詳細を見る</a>
+                  </div>
                 </div>
               )
             })

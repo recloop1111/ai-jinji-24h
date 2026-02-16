@@ -298,7 +298,7 @@ export default function ApplicantDetailPage() {
           {/* ヘッダー */}
           <div>
             <Link
-              href="/client/applicants"
+              href="/admin/applicants"
               className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-indigo-600 font-medium mb-4 transition-colors rounded-lg hover:bg-white/60 px-2 py-1 -mx-2 -my-1"
             >
               <ChevronLeftIcon className="w-4 h-4 shrink-0" />
