@@ -21,12 +21,12 @@ const API_LOGS = [
 
 // TODO: 実データに差替え
 const EVALUATION_AXES = [
-  { name: 'コミュニケーション力', weight: 20 },
-  { name: '論理的思考力', weight: 20 },
-  { name: '主体性・意欲', weight: 15 },
-  { name: '組織適合性', weight: 15 },
-  { name: 'ストレス耐性', weight: 15 },
-  { name: '業界適合性', weight: 15 },
+  { name: 'コミュニケーション', weight: 16.7 },
+  { name: '論理的思考', weight: 16.7 },
+  { name: 'カルチャーフィット', weight: 16.7 },
+  { name: '仕事への意欲', weight: 16.7 },
+  { name: '課題対応力', weight: 16.7 },
+  { name: '成長可能性', weight: 16.5 },
 ]
 
 function Toggle({
@@ -86,12 +86,10 @@ export default function SettingsPage() {
   // TODO: 実データに差替え（面接設定の初期値）
   const [defaultDuration, setDefaultDuration] = useState('30')
   const [defaultQuestionCount, setDefaultQuestionCount] = useState('9')
-  const [maxFollowUps, setMaxFollowUps] = useState('2')
   const [openaiApiKey, setOpenaiApiKey] = useState('sk-xxxx...xxxx')
   const [openaiModel, setOpenaiModel] = useState('GPT-4o')
   const [voiceModel, setVoiceModel] = useState('alloy')
   const [interviewTone, setInterviewTone] = useState('セミフォーマル')
-  const [evaluationWeights, setEvaluationWeights] = useState(EVALUATION_AXES.map((a) => a.weight))
 
   // TODO: 実データに差替え（通知設定の初期値）
   const [adminNotifyEmail, setAdminNotifyEmail] = useState('admin@ai-interview.example.com')
@@ -115,16 +113,6 @@ export default function SettingsPage() {
     setToastMessage(msg)
     setToastVisible(true)
     setTimeout(() => setToastVisible(false), 2000)
-  }
-
-  const evaluationTotal = evaluationWeights.reduce((a, b) => a + b, 0)
-
-  const updateEvaluationWeight = (index: number, value: number) => {
-    setEvaluationWeights((prev) => {
-      const next = [...prev]
-      next[index] = value
-      return next
-    })
   }
 
   const updateAdminNotification = (key: keyof typeof adminNotifications, value: boolean) => {
@@ -473,16 +461,9 @@ export default function SettingsPage() {
                 </div>
                 <div>
                   <InputLabel>深掘り最大回数</InputLabel>
-                  <select
-                    value={maxFollowUps}
-                    onChange={(e) => setMaxFollowUps(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  >
-                    <option value="0">なし</option>
-                    <option value="1">1回</option>
-                    <option value="2">2回</option>
-                    <option value="3">3回</option>
-                  </select>
+                  <p className="text-sm text-gray-400 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3">
+                    AIが回答の充実度に応じて0〜2回自動判定（v9.0仕様）
+                  </p>
                 </div>
               </div>
               <button
@@ -570,23 +551,13 @@ export default function SettingsPage() {
               <div className="space-y-3">
                 {EVALUATION_AXES.map((axis, i) => (
                   <div key={i} className="flex items-center gap-4">
-                    <span className="text-sm text-gray-300 w-32 shrink-0">{axis.name}</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={evaluationWeights[i]}
-                      onChange={(e) => updateEvaluationWeight(i, Number(e.target.value) || 0)}
-                      className="w-20 bg-white/[0.06] border border-white/[0.08] rounded-xl px-3 py-2 text-white text-sm"
-                    />
-                    <span className="text-sm text-gray-500">{evaluationWeights[i]}%</span>
+                    <span className="text-sm text-gray-300 w-40 shrink-0">{axis.name}</span>
+                    <span className="text-sm text-gray-500">{axis.weight}%</span>
                   </div>
                 ))}
               </div>
-              <p className={`mt-2 text-sm ${evaluationTotal === 100 ? 'text-gray-400' : 'text-red-400'}`}>
-                {evaluationTotal === 100
-                  ? '合計: 100%'
-                  : `合計: ${evaluationTotal}%（100%にしてください）`}
+              <p className="mt-4 text-sm text-gray-400 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3">
+                全軸均等 16.7%（v9.0で固定、将来的にカスタム対応予定）
               </p>
               <button
                 type="button"

@@ -27,7 +27,7 @@ const DUMMY = {
   },
   recommendGrade: 'B',
   recommendReason:
-    '実務経験とコミュニケーション力が高く即戦力として期待できる。キャリアビジョンの明確化が課題。',
+    '実務経験とコミュニケーションが高く即戦力として期待できる。キャリアビジョンの明確化が課題。',
   summaryScores: {
     total: 78,
     communication: 'A',
@@ -41,11 +41,12 @@ const DUMMY = {
   personalityForCompany:
     '管理職やリーダーポジションに適性あり。ただし、チーム内の合意形成プロセスに課題が出る可能性がある。',
   radarAxis: [
-    { label: 'コミュニケーション力', value: 80, comment: '質問の意図を正確に汲み取り、簡潔に回答できている' },
-    { label: '論理的思考力', value: 75, comment: '数値を用いた説明は得意だが、仮説構築にやや弱さがある' },
-    { label: '業界適性・経験値', value: 70, comment: '実務経験は十分だが、業界の最新トレンドへの言及が少ない' },
-    { label: '主体性・意欲', value: 85, comment: '自発的にプロジェクトを推進した経験を複数語っており、意欲が高い' },
-    { label: '組織適合性', value: 65, comment: '個人での成果を重視する傾向があり、チームワークの具体例が少ない' },
+    { label: 'コミュニケーション', value: 78, comment: '質問意図の理解力が高く、簡潔で的確な回答ができている' },
+    { label: '論理的思考', value: 65, comment: '結論→理由→具体例の構成は概ねできているが、仮説構築にやや弱さがある' },
+    { label: 'カルチャーフィット', value: 80, comment: '企業の価値観・働き方への共感が具体的に語れている' },
+    { label: '仕事への意欲', value: 85, comment: '自発的にプロジェクトを推進した経験を複数語っており、意欲が高い' },
+    { label: '課題対応力', value: 58, comment: '困難な状況の質問でやや回答に詰まる場面があった' },
+    { label: '成長可能性', value: 70, comment: '過去経験からの学びはあるが、自己認識の深さにやや欠ける' },
   ],
   strengths: [
     {
@@ -75,12 +76,12 @@ const DUMMY = {
   totalScore: 78,
   averageScore: 72,
   itemScores: [
-    { label: 'コミュニケーション力', score: 16, max: 20, comment: '質問に対して的確かつ簡潔に回答している' },
-    { label: '論理的思考力', score: 15, max: 20, comment: '根拠を示しながら説明できるが、反論への対応にやや弱さ' },
-    { label: '業界知識・経験', score: 14, max: 20, comment: '実務経験は豊富だが最新の業界動向への言及が少ない' },
-    { label: '主体性・意欲', score: 17, max: 20, comment: '自発的な取り組みのエピソードが複数あり高評価' },
-    { label: 'ストレス耐性', score: 10, max: 20, comment: '困難な状況の質問でやや回答に詰まる場面があった' },
-    { label: 'チームフィット', score: 6, max: 20, comment: '個人プレーの傾向が強く協調性の具体例が不足' },
+    { label: 'コミュニケーション', score: 78, max: 100, comment: '質問意図の理解力が高く、簡潔で的確な回答ができている' },
+    { label: '論理的思考', score: 65, max: 100, comment: '結論→理由→具体例の構成は概ねできているが、仮説構築にやや弱さがある' },
+    { label: 'カルチャーフィット', score: 80, max: 100, comment: '企業の価値観・働き方への共感が具体的に語れている' },
+    { label: '仕事への意欲', score: 85, max: 100, comment: '自発的にプロジェクトを推進した経験を複数語っており、意欲が高い' },
+    { label: '課題対応力', score: 58, max: 100, comment: '困難な状況の質問でやや回答に詰まる場面があった' },
+    { label: '成長可能性', score: 70, max: 100, comment: '過去経験からの学びはあるが、自己認識の深さにやや欠ける' },
   ],
   // タブ4: 面接会話要約
   conversationBlocks: [
@@ -285,7 +286,7 @@ export default function ApplicantDetailPage() {
   const cy = 100
   const maxR = 72
   const getPoint = (i: number, r: number) => {
-    const angle = (-90 + i * 72) * (Math.PI / 180)
+    const angle = (-90 + i * 60) * (Math.PI / 180)
     return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) }
   }
   const radarPoints = DUMMY.radarAxis.map((d, i) => getPoint(i, (d.value / 100) * maxR))
@@ -426,7 +427,7 @@ export default function ApplicantDetailPage() {
               </p>
             </div>
             <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-5 sm:p-6 hover:shadow-lg transition-shadow">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">コミュニケーション力</p>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">コミュニケーション</p>
               <p className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">{DUMMY.summaryScores.communication}</p>
             </div>
             <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-5 sm:p-6 hover:shadow-lg transition-shadow">
@@ -454,7 +455,7 @@ export default function ApplicantDetailPage() {
           </div>
           <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
             <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7 shrink-0">
-              <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-5">企業向け5軸レーダーチャート</h2>
+              <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-5">企業向け6軸レーダーチャート</h2>
               <div className="flex justify-center p-4 bg-slate-50/50 rounded-2xl">
                 <svg viewBox="0 0 200 200" className="w-48 h-48 sm:w-56 sm:h-56 drop-shadow-sm">
                   <defs>
@@ -465,7 +466,7 @@ export default function ApplicantDetailPage() {
                   </defs>
                   {[1, 2, 3, 4, 5].map((l) => {
                     const r = (l / 5) * maxR
-                    const pts = [0, 1, 2, 3, 4].map((i) => getPoint(i, r))
+                    const pts = [0, 1, 2, 3, 4, 5].map((i) => getPoint(i, r))
                     const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
                     return (
                       <path
@@ -477,7 +478,7 @@ export default function ApplicantDetailPage() {
                       />
                     )
                   })}
-                  {[0, 1, 2, 3, 4].map((i) => {
+                  {[0, 1, 2, 3, 4, 5].map((i) => {
                     const p = getPoint(i, maxR)
                     return (
                       <line
