@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { ChevronRight as ChevronRightIcon } from 'lucide-react'
 
 // TODO: 実データに差替え
 const KPIS = [
@@ -21,13 +22,6 @@ const RECENT_APPLICANTS = [
   { id: '5', name: '高橋 健太', date: '2025-02-12 15:00', currentStatus: 'completed', status: 'rejected', score: 92 },
 ]
 
-function ChevronRightIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  )
-}
 
 export default function ClientDashboardPage() {
   return (

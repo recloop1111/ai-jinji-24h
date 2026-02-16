@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
+import { ChevronLeft as ChevronLeftIcon, Play as PlayIcon } from 'lucide-react'
 
 // TODO: 実データに差替え
 const DUMMY = {
@@ -182,21 +183,6 @@ const ANSWER_QUALITY_LEGEND = [
 
 type TabKey = 'summary' | 'report' | 'score' | 'conversation' | 'recording'
 
-function ChevronLeftIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="15 18 9 12 15 6" />
-    </svg>
-  )
-}
-
-function PlayIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <polygon points="5 3 19 12 5 21 5 3" />
-    </svg>
-  )
-}
 
 function StatusBadge({ status }: { status: string }) {
   const classes: Record<string, string> = {

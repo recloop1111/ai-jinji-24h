@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Download as DownloadIcon, Landmark as BankIcon } from 'lucide-react'
 
 // TODO: 実データに差替え
 const PAYMENT_INFO = {
@@ -32,30 +33,6 @@ const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   processing: { label: '処理中', className: 'bg-yellow-100 text-yellow-700' },
 }
 
-function DownloadIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </svg>
-  )
-}
-
-function BankIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 21h18" />
-      <path d="M3 10h18" />
-      <path d="M5 6l7-3 7 3" />
-      <path d="M4 10v11" />
-      <path d="M20 10v11" />
-      <path d="M8 14v3" />
-      <path d="M12 14v3" />
-      <path d="M16 14v3" />
-    </svg>
-  )
-}
 
 export default function BillingPage() {
   const [downloadToast, setDownloadToast] = useState(false)

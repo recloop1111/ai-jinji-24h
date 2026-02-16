@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Info as InfoIcon } from 'lucide-react'
 
 // TODO: 実データに差替え
 type CommonQuestionItem = { id: string; label: string; category: string; question: string }
@@ -82,15 +83,6 @@ const PATTERN_CONFIG = [
   { id: 'parttime-inexperienced' as const, label: 'アルバイト × 未経験', count: 9 },
 ]
 
-function InfoIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="16" x2="12" y2="12" />
-      <line x1="12" y1="8" x2="12.01" y2="8" />
-    </svg>
-  )
-}
 
 type RequestModalState = { isOpen: boolean; questionId: string | null; category: string; questionText: string }
 
