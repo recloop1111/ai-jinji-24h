@@ -1,228 +1,327 @@
 'use client'
 
 import { useState } from 'react'
-import { Info as InfoIcon } from 'lucide-react'
+import { Plus, Trash2, GripVertical, FileText, HelpCircle } from 'lucide-react'
 
-// TODO: 実データに差替え
-type CommonQuestionItem = { id: string; label: string; category: string; question: string }
-
-// TODO: 実データに差替え
-const COMMON_QUESTIONS: CommonQuestionItem[] = [
-  { id: 'ice-1', label: '冒頭1', category: 'アイスブレイク', question: '本日はお時間をいただきありがとうございます。これから約30〜40分の面接を行います。途中で聞き取りにくい点があれば遠慮なくお知らせください。本日の体調は問題ありませんか？' },
-  { id: 'ice-2', label: '冒頭2', category: 'アイスブレイク', question: 'ありがとうございます。面接を始める前に、最近あった嬉しかったことや、ちょっとした楽しみにしていることがあれば気軽に教えてください。' },
-  { id: 'close-1', label: 'クロージング', category: 'クロージング', question: '面接は以上となります。最後に、何かご質問や伝えておきたいことはありますか？本日はお忙しい中、ありがとうございました。' },
+const EVALUATION_AXES = [
+  'コミュニケーション',
+  '論理的思考',
+  'カルチャーフィット',
+  '仕事への意欲',
+  '課題対応力',
+  '成長可能性',
 ]
 
-// TODO: 実データに差替え
-type QuestionItem = { id: number; category: string; question: string; followUp: boolean; followUpMax: number; axes: string[] }
-
-// TODO: 実データに差替え
-const QUESTIONS_BY_PATTERN: Record<string, QuestionItem[]> = {
-  'fulltime-new-graduate': [
-    { id: 1, category: '自己紹介', question: '自己紹介をお願いします。大学での専攻や、学生時代に力を入れてきたことを中心に教えてください。', followUp: true, followUpMax: 1, axes: ['コミュニケーション力', '論理的思考力'] },
-    { id: 2, category: '志望動機', question: 'この業界や職種に興味を持ったきっかけと、志望された理由を教えてください。', followUp: true, followUpMax: 2, axes: ['主体性・意欲', '組織適合性'] },
-    { id: 3, category: 'ガクチカ', question: '学生時代に最も力を入れたことについて、目標・取り組み・結果を具体的に教えてください。', followUp: true, followUpMax: 2, axes: ['主体性・意欲', '論理的思考力'] },
-    { id: 4, category: '困難な経験', question: 'これまでに困難や壁にぶつかった経験と、それをどのように乗り越えたか教えてください。', followUp: true, followUpMax: 1, axes: ['コミュニケーション力', '主体性・意欲'] },
-    { id: 5, category: 'チームワーク', question: 'グループやチームで取り組んだ経験について教えてください。その中であなたはどんな役割を担いましたか？', followUp: true, followUpMax: 1, axes: ['組織適合性', 'コミュニケーション力'] },
-    { id: 6, category: '自己分析', question: 'ご自身の強みと弱みをそれぞれ教えてください。弱みに対してどのような改善を心がけていますか？', followUp: true, followUpMax: 1, axes: ['コミュニケーション力', '論理的思考力'] },
-    { id: 7, category: '研究・学び', question: '大学の授業やゼミ、研究の中で、特に興味を持って取り組んだテーマがあれば教えてください。', followUp: false, followUpMax: 0, axes: ['論理的思考力', '業界適性・経験値'] },
-    { id: 8, category: '働く価値観', question: '社会人として働く上で、大切にしたいと考えている価値観や、理想の働き方を教えてください。', followUp: false, followUpMax: 0, axes: ['組織適合性', '主体性・意欲'] },
-    { id: 9, category: 'キャリアビジョン', question: '入社後、3年後・5年後にどのように成長していきたいですか？目指す姿を教えてください。', followUp: false, followUpMax: 0, axes: ['主体性・意欲'] },
-  ],
-  'fulltime-mid-experienced': [
-    { id: 1, category: '自己紹介', question: 'まず自己紹介をお願いします。これまでのご経歴と、直近の業務内容を中心に教えてください。', followUp: true, followUpMax: 1, axes: ['コミュニケーション力', '論理的思考力'] },
-    { id: 2, category: '転職理由', question: '今回転職を考えられた理由と、この職種に応募された動機を教えてください。', followUp: true, followUpMax: 2, axes: ['主体性・意欲', '組織適合性'] },
-    { id: 3, category: '過去の実績', question: 'これまでの業務で最も成果を上げた経験について、課題・アプローチ・結果を具体的に教えてください。', followUp: true, followUpMax: 2, axes: ['論理的思考力', '業界適性・経験値'] },
-    { id: 4, category: '困難な経験', question: '仕事で困難に直面した経験と、それをどのように乗り越えたか教えてください。', followUp: true, followUpMax: 1, axes: ['コミュニケーション力', '主体性・意欲'] },
-    { id: 5, category: 'マネジメント', question: 'チームやプロジェクトをリードした経験があれば教えてください。何名規模で、どのような役割でしたか？', followUp: true, followUpMax: 1, axes: ['組織適合性', 'コミュニケーション力'] },
-    { id: 6, category: '専門スキル', question: '現在お持ちの専門スキルや知識の中で、この職種で最も活かせると考えているものは何ですか？', followUp: true, followUpMax: 1, axes: ['業界適性・経験値', '論理的思考力'] },
-    { id: 7, category: '働き方', question: '仕事を進める上で大切にしているスタイルや、こだわりがあれば教えてください。', followUp: false, followUpMax: 0, axes: ['組織適合性'] },
-    { id: 8, category: '自己課題', question: 'ご自身の課題や、今後伸ばしていきたいスキルがあれば教えてください。', followUp: false, followUpMax: 0, axes: ['主体性・意欲', '論理的思考力'] },
-    { id: 9, category: 'キャリアビジョン', question: '3年後、5年後にどのようなキャリアを描いていますか？この会社で実現したいことを教えてください。', followUp: false, followUpMax: 0, axes: ['主体性・意欲'] },
-  ],
-  'fulltime-mid-inexperienced': [
-    { id: 1, category: '自己紹介', question: 'まず自己紹介をお願いします。これまでの経歴や、現在取り組んでいることを教えてください。', followUp: true, followUpMax: 1, axes: ['コミュニケーション力', '論理的思考力'] },
-    { id: 2, category: '志望動機', question: '未経験の分野に挑戦しようと思ったきっかけや理由を教えてください。', followUp: true, followUpMax: 2, axes: ['主体性・意欲', '組織適合性'] },
-    { id: 3, category: '前職経験', question: '前職ではどのような業務をされていましたか？そこで得たスキルや経験を教えてください。', followUp: true, followUpMax: 1, axes: ['論理的思考力', '業界適性・経験値'] },
-    { id: 4, category: '学習意欲', question: '新しいスキルや知識を身につけるために、これまでどのような取り組みをしてきましたか？', followUp: true, followUpMax: 1, axes: ['主体性・意欲', '論理的思考力'] },
-    { id: 5, category: '困難な経験', question: 'これまでの仕事や人生で、困難を乗り越えた経験を教えてください。', followUp: true, followUpMax: 1, axes: ['コミュニケーション力', '主体性・意欲'] },
-    { id: 6, category: '転用スキル', question: 'これまでの経験の中で、この仕事に活かせると感じているスキルや経験があれば教えてください。', followUp: true, followUpMax: 1, axes: ['業界適性・経験値', '組織適合性'] },
-    { id: 7, category: '適応力', question: '新しい環境に馴染む際に、ご自身が意識していることや心がけていることはありますか？', followUp: false, followUpMax: 0, axes: ['組織適合性', 'コミュニケーション力'] },
-    { id: 8, category: '自己分析', question: 'ご自身の強みと、それをこの仕事でどう活かせると考えていますか？', followUp: false, followUpMax: 0, axes: ['コミュニケーション力'] },
-    { id: 9, category: 'キャリアビジョン', question: 'この仕事を通じて、将来どのように成長していきたいですか？', followUp: false, followUpMax: 0, axes: ['主体性・意欲'] },
-  ],
-  'parttime-experienced': [
-    { id: 1, category: '自己紹介', question: '簡単に自己紹介をお願いします。これまでのアルバイト経験や、現在の状況を教えてください。', followUp: true, followUpMax: 1, axes: ['コミュニケーション力'] },
-    { id: 2, category: '志望動機', question: '今回応募された理由と、これまでの経験で活かせることを教えてください。', followUp: true, followUpMax: 1, axes: ['主体性・意欲', '業界適性・経験値'] },
-    { id: 3, category: '過去の経験', question: '以前のアルバイトで、自分なりに工夫して取り組んだことや、成果を出した経験があれば教えてください。', followUp: true, followUpMax: 1, axes: ['論理的思考力', '業界適性・経験値'] },
-    { id: 4, category: '対応力', question: '接客や業務中にトラブルやクレームがあった場合、どのように対応しますか？過去の経験があれば教えてください。', followUp: true, followUpMax: 1, axes: ['コミュニケーション力', '論理的思考力'] },
-    { id: 5, category: 'チームワーク', question: '職場の仲間と協力して仕事を進める上で、大切にしていることは何ですか？', followUp: false, followUpMax: 0, axes: ['組織適合性', 'コミュニケーション力'] },
-    { id: 6, category: '勤務条件', question: '希望する勤務日数や時間帯を教えてください。また、いつから勤務開始可能ですか？', followUp: false, followUpMax: 0, axes: ['組織適合性'] },
-    { id: 7, category: 'ストレス対処', question: '忙しい時間帯や大変な場面で、ご自身がどのように気持ちを切り替えているか教えてください。', followUp: false, followUpMax: 0, axes: ['主体性・意欲'] },
-    { id: 8, category: '長所', question: 'ご自身の長所や、周囲から評価されていると感じる点を教えてください。', followUp: false, followUpMax: 0, axes: ['コミュニケーション力', '組織適合性'] },
-    { id: 9, category: '目標', question: 'このアルバイトを通じて達成したいことや、身につけたいスキルがあれば教えてください。', followUp: false, followUpMax: 0, axes: ['主体性・意欲'] },
-  ],
-  'parttime-inexperienced': [
-    { id: 1, category: '自己紹介', question: '簡単に自己紹介をお願いします。普段どのような生活をされているか教えてください。', followUp: true, followUpMax: 1, axes: ['コミュニケーション力'] },
-    { id: 2, category: '志望動機', question: '今回このお仕事に応募しようと思った理由を教えてください。', followUp: true, followUpMax: 1, axes: ['主体性・意欲'] },
-    { id: 3, category: '日常の経験', question: '学校生活や日常の中で、自分なりに頑張った経験や、工夫して取り組んだことがあれば教えてください。', followUp: true, followUpMax: 1, axes: ['主体性・意欲', '論理的思考力'] },
-    { id: 4, category: 'コミュニケーション', question: '人と接する時に心がけていることや、意識していることはありますか？', followUp: false, followUpMax: 0, axes: ['コミュニケーション力', '組織適合性'] },
-    { id: 5, category: '勤務条件', question: '希望する勤務日数や時間帯を教えてください。また、いつから勤務開始可能ですか？', followUp: false, followUpMax: 0, axes: ['組織適合性'] },
-    { id: 6, category: '適応力', question: '新しい場所や環境に慣れるために、自分なりに工夫していることはありますか？', followUp: false, followUpMax: 0, axes: ['組織適合性', 'コミュニケーション力'] },
-    { id: 7, category: '自己PR', question: 'ご自身の長所や、周りの人からよく言われることを教えてください。', followUp: false, followUpMax: 0, axes: ['コミュニケーション力'] },
-    { id: 8, category: '困った場面', question: 'もし仕事中に分からないことがあった場合、どのように行動しますか？', followUp: false, followUpMax: 0, axes: ['コミュニケーション力', '論理的思考力'] },
-    { id: 9, category: '意欲', question: 'このお仕事を通じて、どんなことを学びたい、身につけたいと考えていますか？', followUp: false, followUpMax: 0, axes: ['主体性・意欲'] },
-  ],
+// TODO: Phase 4 - Supabaseに質問データを保存
+type Question = {
+  id: string
+  number: number
+  text: string
+  axis: string
 }
 
-const PATTERN_CONFIG = [
-  { id: 'fulltime-new-graduate' as const, label: '正社員 × 新卒', count: 9 },
-  { id: 'fulltime-mid-experienced' as const, label: '正社員 × 中途 × 経験者', count: 9 },
-  { id: 'fulltime-mid-inexperienced' as const, label: '正社員 × 中途 × 未経験', count: 9 },
-  { id: 'parttime-experienced' as const, label: 'アルバイト × 経験者', count: 9 },
-  { id: 'parttime-inexperienced' as const, label: 'アルバイト × 未経験', count: 9 },
-]
-
-
-type RequestModalState = { isOpen: boolean; questionId: string | null; category: string; questionText: string }
+// テンプレート定義
+const TEMPLATES = {
+  general: {
+    name: '総合職向け',
+    questions: [
+      { text: '自己紹介をお願いします。大学での専攻や、学生時代に力を入れてきたことを中心に教えてください。', axis: 'コミュニケーション' },
+      { text: 'この業界や職種に興味を持ったきっかけと、志望された理由を教えてください。', axis: 'カルチャーフィット' },
+      { text: '学生時代に最も力を入れたことについて、目標・取り組み・結果を具体的に教えてください。', axis: '仕事への意欲' },
+      { text: 'これまでに困難や壁にぶつかった経験と、それをどのように乗り越えたか教えてください。', axis: '課題対応力' },
+      { text: '入社後、3年後・5年後にどのように成長していきたいですか？目指す姿を教えてください。', axis: '成長可能性' },
+    ],
+  },
+  engineer: {
+    name: 'エンジニア向け',
+    questions: [
+      { text: 'これまでの開発経験や、得意な技術領域について教えてください。', axis: '論理的思考' },
+      { text: 'なぜエンジニアを志望されたのですか？技術への興味やきっかけを教えてください。', axis: '仕事への意欲' },
+      { text: 'これまでに最も難しかった技術的な課題と、それをどのように解決したか教えてください。', axis: '課題対応力' },
+      { text: 'チーム開発での経験があれば教えてください。どのような役割を担いましたか？', axis: 'コミュニケーション' },
+      { text: '今後、どのような技術を学び、どのように成長していきたいですか？', axis: '成長可能性' },
+    ],
+  },
+  sales: {
+    name: '営業職向け',
+    questions: [
+      { text: 'これまでの営業経験や、実績について教えてください。', axis: 'コミュニケーション' },
+      { text: '営業職に興味を持ったきっかけと、この職種を志望する理由を教えてください。', axis: '仕事への意欲' },
+      { text: 'これまでに最も困難だった商談や、断られた経験をどのように乗り越えたか教えてください。', axis: '課題対応力' },
+      { text: 'お客様との信頼関係を築くために、どのようなことを心がけていますか？', axis: 'コミュニケーション' },
+      { text: '営業として、3年後・5年後にどのような姿を目指していますか？', axis: '成長可能性' },
+    ],
+  },
+  support: {
+    name: 'カスタマーサポート向け',
+    questions: [
+      { text: 'これまでの接客やサポート経験について教えてください。', axis: 'コミュニケーション' },
+      { text: 'カスタマーサポート職に興味を持ったきっかけを教えてください。', axis: 'カルチャーフィット' },
+      { text: 'お客様からのクレームや難しい問い合わせがあった場合、どのように対応しますか？', axis: '課題対応力' },
+      { text: 'チームで協力して業務を進める際に、どのようなことを意識していますか？', axis: 'コミュニケーション' },
+      { text: 'サポート業務を通じて、どのように成長していきたいですか？', axis: '成長可能性' },
+    ],
+  },
+  manager: {
+    name: 'マネージャー向け',
+    questions: [
+      { text: 'これまでのマネジメント経験や、チームを率いた経験について教えてください。', axis: 'コミュニケーション' },
+      { text: 'マネージャーとして、どのような組織やチームを作りたいと考えていますか？', axis: 'カルチャーフィット' },
+      { text: 'これまでに最も困難だったマネジメント上の課題と、それをどのように解決したか教えてください。', axis: '課題対応力' },
+      { text: 'チームメンバーのモチベーションを高めるために、どのような取り組みをしてきましたか？', axis: '仕事への意欲' },
+      { text: 'マネージャーとして、今後どのように成長していきたいですか？', axis: '成長可能性' },
+    ],
+  },
+}
 
 export default function QuestionsPage() {
-  const [activePattern, setActivePattern] = useState<'fulltime-new-graduate' | 'fulltime-mid-experienced' | 'fulltime-mid-inexperienced' | 'parttime-experienced' | 'parttime-inexperienced'>('fulltime-new-graduate')
-  const [requestModal, setRequestModal] = useState<RequestModalState>({ isOpen: false, questionId: null, category: '', questionText: '' })
-  const [requestContent, setRequestContent] = useState('')
-  const [toast, setToast] = useState<string | null>(null)
+  const [questions, setQuestions] = useState<Question[]>(() => {
+    // デフォルト状態：総合職テンプレートの5問をセット
+    return TEMPLATES.general.questions.map((q, i) => ({
+      id: `q-${Date.now()}-${i}`,
+      number: i + 1,
+      text: q.text,
+      axis: q.axis,
+    }))
+  })
+  const [templateModalOpen, setTemplateModalOpen] = useState(false)
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const [toast, setToast] = useState('')
 
-  const showToast = (msg: string) => {
-    setToast(msg)
-    setTimeout(() => setToast(null), 2000)
+  const showToast = (message: string) => {
+    setToast(message)
+    setTimeout(() => setToast(''), 2500)
   }
 
-  const openRequestModal = (questionId: string, category: string, questionText: string) => {
-    setRequestModal({ isOpen: true, questionId, category, questionText })
-    setRequestContent('')
+  // TODO: Phase 4 - OpenAI APIで質問文を分析し評価軸を自動判定
+  const detectAxisFromQuestion = (questionText: string): string => {
+    // ダミー実装：質問文の内容から評価軸を推測
+    if (!questionText.trim()) return 'コミュニケーション' // デフォルト
+    
+    const text = questionText.toLowerCase()
+    if (text.includes('自己紹介') || text.includes('経歴')) return 'コミュニケーション'
+    if (text.includes('志望') || text.includes('応募') || text.includes('理由')) return 'カルチャーフィット'
+    if (text.includes('力を入れた') || text.includes('頑張った') || text.includes('取り組んだ')) return '仕事への意欲'
+    if (text.includes('困難') || text.includes('壁') || text.includes('乗り越え') || text.includes('課題')) return '課題対応力'
+    if (text.includes('成長') || text.includes('将来') || text.includes('今後') || text.includes('未来')) return '成長可能性'
+    if (text.includes('論理') || text.includes('思考') || text.includes('分析')) return '論理的思考'
+    
+    return 'コミュニケーション' // デフォルト
   }
 
-  const closeRequestModal = () => {
-    setRequestModal({ isOpen: false, questionId: null, category: '', questionText: '' })
-    setRequestContent('')
+  const handleAddQuestion = () => {
+    const newQuestion: Question = {
+      id: `q-${Date.now()}`,
+      number: questions.length + 1,
+      text: '',
+      axis: 'コミュニケーション', // デフォルト値（質問文入力時に自動判定）
+    }
+    setQuestions([...questions, newQuestion])
   }
 
-  const handleSubmitRequest = () => {
-    // TODO: Resend APIで運営に通知メール送信
-    // TODO: Supabaseにリクエストレコード保存
-    showToast('リクエストを送信しました。運営チームが確認次第、反映いたします。')
-    closeRequestModal()
+  const handleDeleteQuestion = (id: string) => {
+    const newQuestions = questions.filter((q) => q.id !== id).map((q, i) => ({ ...q, number: i + 1 }))
+    setQuestions(newQuestions)
+  }
+
+  const handleQuestionChange = (id: string, field: 'text' | 'axis', value: string) => {
+    if (field === 'text') {
+      // 質問文が変更されたら、評価軸を自動判定
+      // TODO: Phase 4 - OpenAI APIで質問文を分析し評価軸を自動判定
+      const detectedAxis = detectAxisFromQuestion(value)
+      setQuestions(questions.map((q) => (q.id === id ? { ...q, text: value, axis: detectedAxis } : q)))
+    } else {
+      // axisフィールドの変更は通常発生しない（読み取り専用）
+      setQuestions(questions.map((q) => (q.id === id ? { ...q, [field]: value } : q)))
+    }
+  }
+
+  const handleLoadTemplate = (templateKey: keyof typeof TEMPLATES, confirmOverwrite: boolean) => {
+    if (!confirmOverwrite) {
+      const confirmed = window.confirm('現在の質問を上書きしますか？')
+      if (!confirmed) return
+    }
+    const template = TEMPLATES[templateKey]
+    const newQuestions = template.questions.map((q, i) => ({
+      id: `q-${Date.now()}-${i}`,
+      number: i + 1,
+      text: q.text,
+      axis: q.axis,
+    }))
+    setQuestions(newQuestions)
+    setTemplateModalOpen(false)
+    showToast(`${template.name}テンプレートを読み込みました`)
+  }
+
+  const handleSave = () => {
+    // TODO: Phase 4 - Supabaseに質問データを保存
+    showToast('保存しました')
+  }
+
+  // ドラッグ＆ドロップ処理
+  const handleDragStart = (index: number) => {
+    setDraggedIndex(index)
+  }
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    if (draggedIndex === null || draggedIndex === index) return
+
+    const newQuestions = [...questions]
+    const draggedItem = newQuestions[draggedIndex]
+    newQuestions.splice(draggedIndex, 1)
+    newQuestions.splice(index, 0, draggedItem)
+
+    // 番号を再割り当て
+    const renumberedQuestions = newQuestions.map((q, i) => ({ ...q, number: i + 1 }))
+    setQuestions(renumberedQuestions)
+    setDraggedIndex(index)
+  }
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null)
   }
 
   return (
     <div className="min-w-0 max-w-[100vw] pb-10">
-      <h1 className="text-2xl font-bold text-slate-900">面接質問設定</h1>
-      <p className="text-sm text-gray-500 mt-1">現在設定されている面接質問の一覧です。変更をご希望の場合は「変更リクエスト」からご連絡ください。</p>
-
-      <div className="mt-8 space-y-10">
-        {/* セクション1: 共通質問 */}
-        <section>
-          <h2 className="text-lg font-semibold text-slate-900">共通質問</h2>
-          <p className="text-xs text-gray-400 mt-0.5">すべてのパターンで共通して使用される質問です</p>
-          <div className="mt-4 space-y-3">
-            {COMMON_QUESTIONS.map((cq) => (
-              <div key={cq.id} className="bg-white border border-gray-200 rounded-xl p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-2">
-                      <span className="text-sm font-semibold text-gray-600">{cq.label}</span>
-                      <span className="text-xs bg-gray-100 text-gray-500 rounded px-2 py-0.5">評価対象外</span>
-                    </div>
-                    <p className="text-sm text-gray-700 leading-relaxed">{cq.question}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => openRequestModal(cq.id, cq.category, cq.question)}
-                    className="shrink-0 text-xs text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-lg px-3 py-1.5 transition-all cursor-pointer"
-                  >
-                    変更リクエスト
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* セクション2: パターン別質問 */}
-        <section>
-          <h2 className="text-lg font-semibold text-slate-900">パターン別質問</h2>
-          <p className="text-sm text-gray-500 mt-0.5 mb-4">応募者が入力フォームで選択した「雇用形態」「新卒/中途」「業界経験」に応じて、以下のいずれかのパターンが自動的に使用されます。</p>
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 mb-6">
-            {PATTERN_CONFIG.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => setActivePattern(p.id)}
-                className={`rounded-xl p-4 text-left transition-all border ${
-                  activePattern === p.id
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 bg-white hover:bg-gray-50'
-                }`}
-              >
-                <p className={`text-sm font-medium ${activePattern === p.id ? 'text-blue-700' : 'text-gray-700'}`}>{p.label}</p>
-                <p className="text-xs text-gray-500 mt-1">{p.count}問</p>
-              </button>
-            ))}
-          </div>
-          <div className="space-y-3">
-            {(QUESTIONS_BY_PATTERN[activePattern] ?? []).map((q, i) => (
-              <div key={`${activePattern}-${q.id}`} className="bg-white border border-gray-200 rounded-xl p-5 mb-3">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <span className="text-sm font-semibold text-gray-400">Q{i + 1}</span>
-                  <span className="text-sm font-medium text-gray-600">{q.category}</span>
-                  <span className="text-xs text-gray-400">
-                    {q.followUp ? `深掘り: あり（最大${q.followUpMax}回）` : '深掘り: なし'}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-800 leading-relaxed mt-2">{q.question}</p>
-                <div className="flex items-center justify-between gap-3 mt-4">
-                  <p className="text-xs text-gray-400">{q.axes.join('、')}</p>
-                  <button
-                    type="button"
-                    onClick={() => openRequestModal(`${activePattern}-${q.id}`, q.category, q.question)}
-                    className="shrink-0 text-xs text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-lg px-3 py-1.5 transition-all cursor-pointer"
-                  >
-                    変更リクエスト
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* 下部の案内カード */}
-        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mt-8 flex gap-3">
-          <InfoIcon className="text-blue-400 w-5 h-5 shrink-0 mt-0.5" />
-          <p className="text-sm text-blue-700 leading-relaxed">質問の変更リクエストは、運営チームが内容を確認し、評価精度を保った上で反映いたします。通常1〜2営業日以内に対応いたします。お急ぎの場合はお問い合わせください。</p>
+      <div className="flex items-start justify-between gap-4 mb-2">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">面接質問設定</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            面接で使用する質問を自由に作成・編集できます。ドラッグ＆ドロップで並び替え可能です。
+          </p>
         </div>
+        <button
+          type="button"
+          onClick={() => setTemplateModalOpen(true)}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 text-sm font-medium rounded-xl hover:bg-slate-50 transition-colors shadow-sm"
+        >
+          <FileText className="w-4 h-4" />
+          テンプレートから読み込み
+        </button>
       </div>
 
-      {/* 変更リクエストモーダル */}
-      {requestModal.isOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={(e) => e.target === e.currentTarget && closeRequestModal()}>
-          <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-slate-900">変更リクエスト</h3>
-            <div className="mt-4 bg-gray-50 rounded-xl p-4">
-              <p className="text-xs font-medium text-gray-500 mb-1">{requestModal.category}</p>
-              <p className="text-sm text-gray-700 leading-relaxed">{requestModal.questionText}</p>
+      {/* 質問リスト */}
+      <div className="mt-6 space-y-4">
+        {questions.map((question, index) => (
+          <div
+            key={question.id}
+            draggable
+            onDragStart={() => handleDragStart(index)}
+            onDragOver={(e) => handleDragOver(e, index)}
+            onDragEnd={handleDragEnd}
+            className={`bg-white rounded-xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all ${
+              draggedIndex === index ? 'opacity-50' : ''
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              {/* ドラッグハンドル */}
+              <button
+                type="button"
+                className="mt-1 text-slate-400 hover:text-slate-600 cursor-grab active:cursor-grabbing"
+                aria-label="並び替え"
+              >
+                <GripVertical className="w-5 h-5" />
+              </button>
+
+              {/* 質問番号 */}
+              <span className="shrink-0 mt-1 inline-flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 text-sm font-bold">
+                {question.number}
+              </span>
+
+              {/* 質問文入力 */}
+              <div className="flex-1 min-w-0">
+                <textarea
+                  value={question.text}
+                  onChange={(e) => handleQuestionChange(question.id, 'text', e.target.value)}
+                  placeholder="質問文を入力してください"
+                  rows={2}
+                  className="w-full px-4 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all resize-none"
+                />
+                {/* AI自動判定バッジ */}
+                {question.text.trim() && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-medium rounded-lg border border-slate-200">
+                      AI自動判定：{question.axis}
+                    </span>
+                    <div className="group relative">
+                      <HelpCircle className="w-3.5 h-3.5 text-slate-400 cursor-help" />
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-slate-900 text-white text-xs rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+                        質問内容をAIが分析し、最適な評価軸を自動で割り当てます
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 w-2 h-2 bg-slate-900 rotate-45"></div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 削除ボタン */}
+              <button
+                type="button"
+                onClick={() => handleDeleteQuestion(question.id)}
+                className="shrink-0 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                aria-label="削除"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
             </div>
-            <div className="mt-4">
-              <textarea
-                rows={4}
-                value={requestContent}
-                onChange={(e) => setRequestContent(e.target.value)}
-                placeholder="例：「チームワークの経験」を「弊社のチーム開発を想定した協調性の経験」に変えたいです"
-                className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm w-full resize-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 outline-none"
-              />
+          </div>
+        ))}
+      </div>
+
+      {/* 質問追加ボタン */}
+      <button
+        type="button"
+        onClick={handleAddQuestion}
+        className="mt-6 w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 border-2 border-dashed border-indigo-200 text-indigo-700 text-sm font-medium rounded-xl hover:bg-indigo-100 hover:border-indigo-300 transition-colors"
+      >
+        <Plus className="w-5 h-5" />
+        質問を追加
+      </button>
+
+      {/* 保存ボタン */}
+      <div className="mt-8 flex justify-end">
+        <button
+          type="button"
+          onClick={handleSave}
+          className="px-6 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition-all shadow-md shadow-indigo-500/20"
+        >
+          保存
+        </button>
+      </div>
+
+      {/* テンプレート選択モーダル */}
+      {templateModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          onClick={(e) => e.target === e.currentTarget && setTemplateModalOpen(false)}
+        >
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-slate-900 mb-4">テンプレートから読み込み</h3>
+            <p className="text-sm text-slate-600 mb-6">
+              以下のテンプレートから選択してください。現在の質問は上書きされます。
+            </p>
+            <div className="space-y-2">
+              {Object.entries(TEMPLATES).map(([key, template]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => handleLoadTemplate(key as keyof typeof TEMPLATES, false)}
+                  className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 rounded-xl transition-colors"
+                >
+                  <p className="text-sm font-medium text-slate-900">{template.name}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{template.questions.length}問</p>
+                </button>
+              ))}
             </div>
-            <div className="flex justify-end gap-2 mt-6">
-              <button type="button" onClick={closeRequestModal} className="bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl px-5 py-2.5 text-sm transition-colors">キャンセル</button>
-              <button type="button" onClick={handleSubmitRequest} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-5 py-2.5 text-sm transition-colors">送信</button>
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setTemplateModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+              >
+                キャンセル
+              </button>
             </div>
           </div>
         </div>
@@ -230,7 +329,7 @@ export default function QuestionsPage() {
 
       {/* トースト */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-white border border-gray-200 rounded-xl shadow-lg px-5 py-3 text-sm text-gray-700">
+        <div className="fixed bottom-6 right-6 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium z-50 animate-fade-in">
           {toast}
         </div>
       )}
