@@ -1,6 +1,89 @@
 'use client'
 
 import { useState } from 'react'
+import { Eye as EyeIcon, EyeOff as EyeOffIcon } from 'lucide-react'
+
+// 管理者認証モーダルコンポーネント
+function AdminAuthModal({
+  isOpen,
+  onClose,
+  onConfirm,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  const [adminPassword, setAdminPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = () => {
+    if (!adminPassword.trim()) {
+      setError('パスワードを入力してください')
+      return
+    }
+    // TODO: Phase 4 - Supabaseで管理者認証
+    setError('')
+    onConfirm()
+    setAdminPassword('')
+    onClose()
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden />
+      <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+        <h3 className="text-lg font-bold text-slate-900 mb-2">管理者認証</h3>
+        <p className="text-sm text-slate-600 mb-4">
+          この操作には管理者用パスワードが必要です。
+        </p>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-slate-700 mb-2">
+            管理者用パスワード
+          </label>
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={adminPassword}
+              onChange={(e) => {
+                setAdminPassword(e.target.value)
+                setError('')
+              }}
+              className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              placeholder="管理者用パスワードを入力"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              {showPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
+            </button>
+          </div>
+          {error && <p className="mt-1.5 text-sm text-red-600">{error}</p>}
+        </div>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+          >
+            認証して実行
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // TODO: 実データに差替え
 const CONTRACT_INFO = {
@@ -59,6 +142,8 @@ export default function PlanPage() {
   const [contactEmail, setContactEmail] = useState('info@sample-corp.co.jp') // TODO: 実データに差替え（ログイン中企業メール）
   const [contactMessage, setContactMessage] = useState('')
   const [toast, setToast] = useState<string | null>(null)
+  const [planChangeAuthModalOpen, setPlanChangeAuthModalOpen] = useState(false)
+  const [pendingPlanChange, setPendingPlanChange] = useState<{ key: string; name: string; description: string; price: number } | null>(null)
 
   const currentPlanKey = maxInterviewsToPlanKey(currentPlan.maxInterviews)
   const usagePercent =
@@ -79,16 +164,25 @@ export default function PlanPage() {
     const targetIdx = PLAN_ORDER.indexOf(planKey)
     const isUpgrade = targetIdx > currentIdx
     if (isUpgrade) {
-      setPlanChangeModal({
-        type: 'upgrade',
-        plan: { key: plan.key, name: plan.name, description: plan.description, price: plan.price },
-      })
+      // まず管理者認証モーダルを表示（プラン情報を一時保存）
+      setPendingPlanChange({ key: plan.key, name: plan.name, description: plan.description, price: plan.price })
+      setPlanChangeAuthModalOpen(true)
     } else {
       setDowngradeInfoModal({ targetPlan: { name: plan.name, description: plan.description } })
     }
   }
 
-  const handleConfirmPlanChange = () => {
+  const handleAdminAuthConfirm = () => {
+    // 管理者認証成功後、プラン変更確認モーダルを表示
+    if (!pendingPlanChange) return
+    setPlanChangeAuthModalOpen(false)
+    setPlanChangeModal({
+      type: 'upgrade',
+      plan: pendingPlanChange,
+    })
+  }
+
+  const handleExecutePlanChange = () => {
     if (!planChangeModal) return
     const targetKey = planChangeModal.plan.key
     if (targetKey === 'light') {
@@ -100,6 +194,7 @@ export default function PlanPage() {
     }
     // TODO: Stripe APIでプラン変更を実装
     setPlanChangeModal(null)
+    setPendingPlanChange(null)
     showToast('プランを変更しました')
   }
 
@@ -201,17 +296,7 @@ export default function PlanPage() {
           </div>
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
             <p className="text-sm font-medium text-slate-500 mb-2">残り面接枠</p>
-            <p className="text-2xl font-bold text-slate-900">{remaining}件</p>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-            <p className="text-sm font-medium text-slate-500 mb-2">プラン消化率</p>
-            <p
-              className={`text-2xl font-bold ${
-                usagePercent >= 90 ? 'text-red-600' : usagePercent >= 80 ? 'text-yellow-600' : 'text-blue-600'
-              }`}
-            >
-              {usagePercent}%
-            </p>
+            <p className="text-2xl font-bold text-slate-900">{autoUpgrade ? '制限なし' : `${remaining}件`}</p>
           </div>
         </div>
         <p className="text-xs text-gray-400 mt-2">
@@ -245,12 +330,10 @@ export default function PlanPage() {
                     )}
                   </div>
                   <p className="text-sm text-slate-600 mb-3">{plan.description}</p>
-                  {plan.price !== null ? (
+                  {plan.price !== null && (
                     <p className="text-lg font-bold text-slate-900 mb-2">
                       ¥{plan.price.toLocaleString()}（税別）/ 月
                     </p>
-                  ) : (
-                    <p className="text-lg font-bold text-slate-900 mb-2">要相談</p>
                   )}
                   {plan.key === 'overage' ? (
                     <div className="mb-4 space-y-1">
@@ -325,7 +408,7 @@ export default function PlanPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={handleConfirmPlanChange}
+                  onClick={handleExecutePlanChange}
                   className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   変更する
@@ -473,6 +556,16 @@ export default function PlanPage() {
             {toast}
           </div>
         )}
+
+        {/* プラン変更 管理者認証モーダル */}
+        <AdminAuthModal
+          isOpen={planChangeAuthModalOpen}
+          onClose={() => {
+            setPlanChangeAuthModalOpen(false)
+            setPendingPlanChange(null)
+          }}
+          onConfirm={handleAdminAuthConfirm}
+        />
       </div>
     )
 }

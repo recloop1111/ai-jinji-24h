@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { LayoutGrid as DashboardIcon, Users as UsersIcon, MessageSquare as QuestionsIcon, Mail as MailIcon, FileText as PlanIcon, CircleDollarSign as BillingIcon, Pause as SuspensionIcon, User as PersonIcon, Menu as MenuIcon, X as CloseIcon, Copy as CopyIcon } from 'lucide-react'
+import { LayoutGrid as DashboardIcon, Users as UsersIcon, MessageSquare as QuestionsIcon, Mail as MailIcon, FileText as PlanIcon, CircleDollarSign as BillingIcon, Settings as SettingsIcon, Pause as SuspensionIcon, User as PersonIcon, Menu as MenuIcon, X as CloseIcon, Copy as CopyIcon } from 'lucide-react'
 
 // TODO: 実際の企業URLに差替え
 const INTERVIEW_URL = 'https://ai-jinji-24h.vercel.app/interview/demo-company'
@@ -15,6 +15,7 @@ const navigation = [
   { name: 'メールテンプレート', href: '/client/templates', icon: MailIcon },
   { name: 'プラン・契約', href: '/client/plan', icon: PlanIcon },
   { name: '請求履歴', href: '/client/billing', icon: BillingIcon },
+  { name: '設定', href: '/client/settings', icon: SettingsIcon },
   { name: '停止申請', href: '/client/suspension', icon: SuspensionIcon },
 ]
 

@@ -36,8 +36,87 @@ const STATUS_FILTER_OPTIONS: { value: StatusFilterValue; label: string }[] = [
 ]
 
 
-// TODO: バックエンド実装フェーズでSupabaseのシステム設定テーブルから共通パスワードを取得する
-const CSV_DOWNLOAD_PASSWORD = 'ABC123'
+// 管理者認証モーダルコンポーネント
+function AdminAuthModal({
+  isOpen,
+  onClose,
+  onConfirm,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  const [adminPassword, setAdminPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = () => {
+    if (!adminPassword.trim()) {
+      setError('パスワードを入力してください')
+      return
+    }
+    // TODO: Phase 4 - Supabaseで管理者認証
+    setError('')
+    onConfirm()
+    setAdminPassword('')
+    onClose()
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden />
+      <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+        <h3 className="text-lg font-bold text-slate-900 mb-2">管理者認証</h3>
+        <p className="text-sm text-slate-600 mb-4">
+          この操作には管理者用パスワードが必要です。
+        </p>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-slate-700 mb-2">
+            管理者用パスワード
+          </label>
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={adminPassword}
+              onChange={(e) => {
+                setAdminPassword(e.target.value)
+                setError('')
+              }}
+              className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              placeholder="管理者用パスワードを入力"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              {showPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
+            </button>
+          </div>
+          {error && <p className="mt-1.5 text-sm text-red-600">{error}</p>}
+        </div>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+          >
+            認証して実行
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function ApplicantsPage() {
   // TODO: 実際にはAPIからプラン情報を取得
@@ -58,11 +137,8 @@ export default function ApplicantsPage() {
   const [mailTemplateId, setMailTemplateId] = useState('')
   const [mailBody, setMailBody] = useState('')
   const [mailToast, setMailToast] = useState(false)
-  const [csvModalOpen, setCsvModalOpen] = useState(false)
+  const [csvAdminAuthModalOpen, setCsvAdminAuthModalOpen] = useState(false)
   const [csvInfoModalOpen, setCsvInfoModalOpen] = useState(false)
-  const [csvPassword, setCsvPassword] = useState('')
-  const [csvPasswordError, setCsvPasswordError] = useState('')
-  const [csvShowPassword, setCsvShowPassword] = useState(false)
   const [csvDownloadToast, setCsvDownloadToast] = useState(false)
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -94,22 +170,11 @@ export default function ApplicantsPage() {
     if (currentPlan === 'A') {
       setCsvInfoModalOpen(true)
     } else {
-      setCsvModalOpen(true)
-      setCsvPassword('')
-      setCsvPasswordError('')
+      setCsvAdminAuthModalOpen(true)
     }
   }
 
-  const handleCsvModalDownload = (filteredData: typeof DUMMY_APPLICANTS) => {
-    if (!csvPassword.trim()) {
-      setCsvPasswordError('パスワードを入力してください')
-      return
-    }
-    if (csvPassword !== CSV_DOWNLOAD_PASSWORD) {
-      setCsvPasswordError('パスワードが正しくありません')
-      return
-    }
-    setCsvPasswordError('')
+  const handleCsvDownload = (filteredData: typeof DUMMY_APPLICANTS) => {
 
     const escapeCsvField = (v: string | number | null | undefined): string => {
       const s = v === null || v === undefined ? '' : String(v)
@@ -149,16 +214,8 @@ export default function ApplicantsPage() {
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
 
-    setCsvModalOpen(false)
-    setCsvPassword('')
     setCsvDownloadToast(true)
     setTimeout(() => setCsvDownloadToast(false), 2000)
-  }
-
-  const handleCsvModalCancel = () => {
-    setCsvModalOpen(false)
-    setCsvPassword('')
-    setCsvPasswordError('')
   }
 
   const filtered = useMemo(() => {
@@ -672,58 +729,12 @@ export default function ApplicantsPage() {
         </div>
       )}
 
-      {/* CSVダウンロード パスワードモーダル */}
-      {csvModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={handleCsvModalCancel} aria-hidden />
-          <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold text-slate-900 mb-2">CSVダウンロード認証</h3>
-            <p className="text-sm text-slate-600 mb-4">
-              CSVダウンロードにはパスワードが必要です。パスワードは運営より発行されます。
-            </p>
-            <div className="mb-4">
-              <label htmlFor="csv-download-password" className="block text-sm font-medium text-slate-700 mb-2">パスワード</label>
-              <div className="relative">
-                <input
-                  id="csv-download-password"
-                  name="csv-download-password"
-                  type={csvShowPassword ? 'text' : 'password'}
-                  value={csvPassword}
-                  onChange={(e) => { setCsvPassword(e.target.value); setCsvPasswordError('') }}
-                  autoComplete="new-password"
-                  className="w-full px-4 py-2.5 text-gray-900 bg-white border border-gray-300 rounded-lg text-sm placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 pr-12"
-                  placeholder="パスワードを入力"
-                />
-                <button
-                  type="button"
-                  onClick={() => setCsvShowPassword(!csvShowPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600"
-                  aria-label={csvShowPassword ? 'パスワードを隠す' : 'パスワードを表示'}
-                >
-                  {csvShowPassword ? <EyeOffIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
-                </button>
-              </div>
-              {csvPasswordError && <p className="mt-1.5 text-sm text-red-600">{csvPasswordError}</p>}
-            </div>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={handleCsvModalCancel}
-                className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50"
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                onClick={() => handleCsvModalDownload(filtered)}
-                className="flex-1 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"
-              >
-                ダウンロード
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* CSVダウンロード 管理者認証モーダル */}
+      <AdminAuthModal
+        isOpen={csvAdminAuthModalOpen}
+        onClose={() => setCsvAdminAuthModalOpen(false)}
+        onConfirm={() => handleCsvDownload(filtered)}
+      />
     </div>
   )
 }

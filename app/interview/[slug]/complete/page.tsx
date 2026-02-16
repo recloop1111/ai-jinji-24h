@@ -46,13 +46,13 @@ const STRENGTHS = [
   },
 ]
 
-const EVALUATION_AXES = ['コミュニケーション', '論理的思考', 'カルチャーフィット', '仕事への意欲', '課題対応力', '成長可能性']
+const EVALUATION_AXES = ['コミュニケーション', '論理的思考', 'カルチャーフィット', '仕事意欲', '課題対応力', '成長可能性']
 const EVALUATION_AXES_SHORT = ['コミュ力', '論理思考', '文化適性', '意欲', '課題力', '成長性']
 const RADAR_DATA = [
   { label: 'コミュニケーション', value: 85 },
   { label: '論理的思考', value: 75 },
   { label: 'カルチャーフィット', value: 90 },
-  { label: '仕事への意欲', value: 95 },
+  { label: '仕事意欲', value: 95 },
   { label: '課題対応力', value: 88 },
   { label: '成長可能性', value: 80 },
 ]

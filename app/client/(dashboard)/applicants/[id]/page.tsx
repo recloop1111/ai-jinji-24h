@@ -31,13 +31,14 @@ const DUMMY = {
   totalScore: 78,
   averageScore: 72,
   // 概要タブ: レーダーチャート（6軸）
+  // 軸配置（時計回り）: 上→右上→右下→下→左下→左上
   radarAxis: [
-    { label: 'コミュニケーション', value: 78, comment: '質問意図の理解力が高く、簡潔で的確な回答ができている' },
-    { label: '論理的思考', value: 65, comment: '結論→理由→具体例の構成は概ねできているが、仮説構築にやや弱さがある' },
-    { label: 'カルチャーフィット', value: 80, comment: '企業の価値観・働き方への共感が具体的に語れている' },
-    { label: '仕事への意欲', value: 85, comment: '自発的にプロジェクトを推進した経験を複数語っており、意欲が高い' },
-    { label: '課題対応力', value: 58, comment: '困難な状況の質問でやや回答に詰まる場面があった' },
-    { label: '成長可能性', value: 70, comment: '過去経験からの学びはあるが、自己認識の深さにやや欠ける' },
+    { label: 'コミュニケーション', value: 78, comment: '質問意図の理解力が高く、簡潔で的確な回答ができている' }, // 上（-90度）
+    { label: '論理的思考', value: 65, comment: '結論→理由→具体例の構成は概ねできているが、仮説構築にやや弱さがある' }, // 右上（-30度）
+    { label: '仕事意欲', value: 85, comment: '自発的にプロジェクトを推進した経験を複数語っており、意欲が高い' }, // 右下（30度）
+    { label: 'カルチャーフィット', value: 80, comment: '企業の価値観・働き方への共感が具体的に語れている' }, // 下（90度）
+    { label: '課題対応力', value: 58, comment: '困難な状況の質問でやや回答に詰まる場面があった' }, // 左下（150度）
+    { label: '成長可能性', value: 70, comment: '過去経験からの学びはあるが、自己認識の深さにやや欠ける' }, // 左上（210度）
   ],
   // 概要タブ: 性格タイプ・強み・弱み（旧レポートタブから統合）
   personalityType: '実行型リーダー',
@@ -99,7 +100,7 @@ const DUMMY = {
       ],
     },
     {
-      label: '仕事への意欲',
+      label: '仕事意欲',
       score: 85,
       max: 100,
       comment: '自発的にプロジェクトを推進した経験を複数語っており、意欲が高い',
@@ -531,7 +532,7 @@ export default function ApplicantDetailPage() {
                         y={p.y}
                         textAnchor="middle"
                         fill="#475569"
-                        fontSize="11"
+                        fontSize="10"
                         fontWeight="600"
                       >
                         {d.label}
@@ -734,16 +735,48 @@ export default function ApplicantDetailPage() {
           {/* 動画プレイヤー */}
           <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 overflow-hidden">
             <div className="aspect-video bg-slate-900 flex items-center justify-center relative">
-              {/* TODO: Phase 4 Cloudflare R2 から動画URLを取得して再生 */}
-              <button
-                type="button"
-                className="w-20 h-20 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white transition-all focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-slate-900"
-                aria-label="再生"
-              >
-                <PlayIcon className="w-10 h-10 ml-1" />
-              </button>
+              {/* メイン映像エリア: 応募者の映像（ダミー） */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                {/* TODO: Phase 4 Cloudflare R2 から動画URLを取得して再生 */}
+                <button
+                  type="button"
+                  className="w-20 h-20 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white transition-all focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-slate-900"
+                  aria-label="再生"
+                >
+                  <PlayIcon className="w-10 h-10 ml-1" />
+                </button>
+              </div>
+              
+              {/* 左上の小窓: AI面接官アバター */}
+              <div className="absolute top-4 left-4 z-10 w-40 h-30 rounded-lg border border-white/20 overflow-hidden bg-slate-800">
+                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-700 to-slate-600">
+                  <svg
+                    viewBox="0 0 100 100"
+                    className="w-full h-full"
+                    preserveAspectRatio="xMidYMid meet"
+                  >
+                    {/* 頭部 */}
+                    <circle cx="50" cy="35" r="22" fill="#E8D5B7" />
+                    {/* 胴体 */}
+                    <ellipse cx="50" cy="75" rx="30" ry="25" fill="#334155" />
+                    {/* 左目 */}
+                    <circle cx="42" cy="32" r="2.5" fill="#1E293B" />
+                    {/* 右目 */}
+                    <circle cx="58" cy="32" r="2.5" fill="#1E293B" />
+                    {/* 口（微笑み曲線） */}
+                    <path
+                      d="M 40 42 Q 50 48 60 42"
+                      stroke="#1E293B"
+                      strokeWidth="1.5"
+                      fill="none"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </div>
+              </div>
+              
               {subtitleEnabled && (
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/70 text-white text-sm px-4 py-2 rounded-lg max-w-[80%] text-center">
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/70 text-white text-sm px-4 py-2 rounded-lg max-w-[80%] text-center z-20">
                   これまでのご経歴を簡単に教えてください。
                 </div>
               )}
