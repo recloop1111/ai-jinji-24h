@@ -14,13 +14,13 @@ const USAGE = {
 }
 
 const PLANS = [
-  { key: 'A', name: 'プランA', description: '月1〜10件', price: 60000, isCustom: false },
-  { key: 'B', name: 'プランB（11〜20件）', description: '月11〜20件', price: 120000, isCustom: false },
-  { key: 'C', name: 'プランC', description: '月21〜30件', price: 180000, isCustom: false },
-  { key: 'custom', name: 'カスタムプラン', description: '月31件以上', price: null, isCustom: true },
+  { key: 'light', name: 'ライト', description: '月1〜10件', price: 40000, isCustom: false },
+  { key: 'standard', name: 'スタンダード', description: '月11〜20件', price: 80000, isCustom: false },
+  { key: 'pro', name: 'プロ', description: '月21〜30件', price: 120000, isCustom: false },
+  { key: 'overage', name: '31件目以降', description: '月31件以上', price: null, isCustom: true },
 ]
 
-const PLAN_ORDER = ['A', 'B', 'C']
+const PLAN_ORDER = ['light', 'standard', 'pro']
 
 function getProgressBarColor(percent: number) {
   if (percent >= 90) return 'bg-red-500'
@@ -37,16 +37,16 @@ type PlanChangeModal = {
 const SUPPORT_EMAIL = 'support@ai-jinji-24h.com'
 
 function maxInterviewsToPlanKey(max: number): string {
-  if (max <= 10) return 'A'
-  if (max <= 20) return 'B'
-  return 'C'
+  if (max <= 10) return 'light'
+  if (max <= 20) return 'standard'
+  return 'pro'
 }
 
 export default function PlanPage() {
   const [currentPlan, setCurrentPlan] = useState({
-    name: 'プランB',
+    name: 'スタンダード',
     range: '11〜20件',
-    price: 120000,
+    price: 80000,
     maxInterviews: 20,
   })
   const [autoUpgrade, setAutoUpgrade] = useState(false)
@@ -91,12 +91,12 @@ export default function PlanPage() {
   const handleConfirmPlanChange = () => {
     if (!planChangeModal) return
     const targetKey = planChangeModal.plan.key
-    if (targetKey === 'A') {
-      setCurrentPlan({ name: 'プランA', range: '1〜10件', price: 60000, maxInterviews: 10 })
-    } else if (targetKey === 'B') {
-      setCurrentPlan({ name: 'プランB', range: '11〜20件', price: 120000, maxInterviews: 20 })
-    } else if (targetKey === 'C') {
-      setCurrentPlan({ name: 'プランC', range: '21〜30件', price: 180000, maxInterviews: 30 })
+    if (targetKey === 'light') {
+      setCurrentPlan({ name: 'ライト', range: '1〜10件', price: 40000, maxInterviews: 10 })
+    } else if (targetKey === 'standard') {
+      setCurrentPlan({ name: 'スタンダード', range: '11〜20件', price: 80000, maxInterviews: 20 })
+    } else if (targetKey === 'pro') {
+      setCurrentPlan({ name: 'プロ', range: '21〜30件', price: 120000, maxInterviews: 30 })
     }
     // TODO: Stripe APIでプラン変更を実装
     setPlanChangeModal(null)
@@ -155,20 +155,8 @@ export default function PlanPage() {
           </p>
           <p className="text-sm text-slate-500 mb-2">契約開始日: {CONTRACT_INFO.contractStart}</p>
           <p className="text-sm text-slate-500 mb-2">次回更新日: {CONTRACT_INFO.nextRenewal}</p>
-          {currentPlanKey === 'A' ? (
-            <>
-              <p className="text-sm text-gray-600 mb-1">データ保持期間: 90日（すべてのデータ）</p>
-              <p className="text-sm text-red-500 mb-2">CSVダウンロード: ご利用いただけません</p>
-              <p className="text-xs text-blue-600 mb-4">
-                プランB以上にアップグレードすると、応募者データの無期限保持とCSVダウンロードが利用可能になります。
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-gray-600 mb-1">データ保持期間: 無期限（動画のみ90日で自動削除）</p>
-              <p className="text-sm text-green-600 mb-4">CSVダウンロード: 利用可能</p>
-            </>
-          )}
+          <p className="text-sm text-gray-600 mb-1">データ保持: 無期限（動画のみ180日で自動削除）</p>
+          <p className="text-sm text-green-600 mb-4">CSVダウンロード: 利用可能</p>
 
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -192,7 +180,7 @@ export default function PlanPage() {
           </div>
           <p className="text-sm text-slate-500 mt-3">
             {autoUpgrade
-              ? 'プラン上限を超えた場合、自動的に上位プランに繰り上げます（最大プランC・月30件まで）'
+              ? '最大プロ・月30件まで。31件目以降は¥3,500/件で自動従量課金'
               : 'プラン上限に達した場合、新規面接の受付を停止します'}
           </p>
         </div>
@@ -264,22 +252,17 @@ export default function PlanPage() {
                   ) : (
                     <p className="text-lg font-bold text-slate-900 mb-2">要相談</p>
                   )}
-                  {plan.key === 'A' && (
+                  {plan.key === 'overage' ? (
                     <div className="mb-4 space-y-1">
-                      <p className="text-xs text-red-500">CSVダウンロード: 不可</p>
-                      <p className="text-xs text-gray-500">データ保持: 90日（動画・応募者情報すべて）</p>
+                      <p className="text-lg font-bold text-slate-900 mb-2">¥3,500/件（従量課金）</p>
+                      <p className="text-xs text-gray-500">31件目以降は自動的に¥3,500/件で従量課金されます</p>
+                      <p className="text-xs text-green-600 mt-2">CSVダウンロード: 利用可能</p>
+                      <p className="text-xs text-gray-500">データ保持: 無期限（動画のみ180日で自動削除）</p>
                     </div>
-                  )}
-                  {(plan.key === 'B' || plan.key === 'C') && (
+                  ) : (
                     <div className="mb-4 space-y-1">
-                      <p className="text-xs text-green-600">CSVダウンロード: 可</p>
-                      <p className="text-xs text-gray-500">データ保持: 無期限（動画のみ90日で削除）</p>
-                    </div>
-                  )}
-                  {plan.key === 'custom' && (
-                    <div className="mb-4 space-y-1">
-                      <p className="text-xs text-green-600">CSVダウンロード: 可</p>
-                      <p className="text-xs text-gray-500">データ保持: 無期限（動画のみ90日で削除）</p>
+                      <p className="text-xs text-green-600">CSVダウンロード: 利用可能</p>
+                      <p className="text-xs text-gray-500">データ保持: 無期限（動画のみ180日で自動削除）</p>
                     </div>
                   )}
 
@@ -310,15 +293,7 @@ export default function PlanPage() {
                       お問い合わせ
                     </button>
                   )}
-                  {plan.isCustom && (
-                    <button
-                      type="button"
-                      onClick={handleContactClick}
-                      className="w-full px-4 py-2 text-sm font-medium text-indigo-600 border border-indigo-300 rounded-lg hover:bg-indigo-50 transition-colors"
-                    >
-                      お問い合わせ
-                    </button>
-                  )}
+                  {plan.key === 'overage' && null}
                 </div>
               )
             })}
@@ -373,6 +348,12 @@ export default function PlanPage() {
               <p className="text-sm text-slate-600 mb-4">
                 プランのダウングレードにつきましては、自動でのお手続きを承っておりません。ダウングレードをご希望の場合は、運営事務局までお問い合わせください。
               </p>
+              <p className="text-sm text-slate-600 mb-4">
+                現在のプラン：{currentPlan.name}（{currentPlan.range}）
+              </p>
+              <p className="text-sm text-slate-600 mb-6">
+                ご希望のプラン：{downgradeInfoModal.targetPlan.name}（{downgradeInfoModal.targetPlan.description}）
+              </p>
               <p className="text-sm text-slate-600 mb-6">
                 メール: {SUPPORT_EMAIL}
               </p>
@@ -404,9 +385,9 @@ export default function PlanPage() {
               aria-hidden
             />
             <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
-              <h3 className="text-lg font-bold text-slate-900 mb-4">カスタムプランのお問い合わせ</h3>
+              <h3 className="text-lg font-bold text-slate-900 mb-4">31件目以降の従量課金について</h3>
               <p className="text-sm text-slate-600 mb-4">
-                月31件以上のカスタムプランをご希望の場合、担当者よりご連絡いたします。
+                月31件目以降は自動的に¥3,500/件で従量課金されます。お問い合わせは不要です。
               </p>
               <div className="mb-4">
                 <label htmlFor="contact-email" className="block text-sm font-medium text-slate-700 mb-1">
@@ -464,7 +445,7 @@ export default function PlanPage() {
             <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
               <h3 className="text-lg font-bold text-slate-900 mb-4">自動繰上げプランの有効化</h3>
               <p className="text-sm text-slate-600 mb-6">
-                自動繰上げプランをONにすると、現在のプランの面接件数上限を超えた場合に自動的に上位プランへ繰り上げられます（最大プランC・月30件まで）。これにより月額料金が増加する可能性があります。よろしいですか？
+                自動繰上げプランをONにすると、現在のプランの面接件数上限を超えた場合に自動的に上位プランへ繰り上げられます（最大プロ・月30件まで）。31件目以降は¥3,500/件で自動従量課金されます。これにより月額料金が増加する可能性があります。よろしいですか？
               </p>
               <div className="flex gap-3">
                 <button

@@ -72,9 +72,9 @@ export default function SettingsPage() {
   const [serviceUrl, setServiceUrl] = useState('https://ai-interview.example.com')
   const [operatorName, setOperatorName] = useState('株式会社AIインタビュー')
   const [supportEmail, setSupportEmail] = useState('support@ai-interview.example.com')
-  const [planA, setPlanA] = useState({ name: 'スタータープラン', fee: '50000', limit: '10' })
-  const [planB, setPlanB] = useState({ name: 'スタンダードプラン', fee: '100000', limit: '30' })
-  const [planC, setPlanC] = useState({ name: 'プレミアムプラン', fee: '150000', limit: '50' })
+  const [planLight, setPlanLight] = useState({ name: 'ライト', fee: '40000', limit: '10' })
+  const [planStandard, setPlanStandard] = useState({ name: 'スタンダード', fee: '80000', limit: '20' })
+  const [planPro, setPlanPro] = useState({ name: 'プロ', fee: '120000', limit: '30' })
   const [maintenanceMode, setMaintenanceMode] = useState(false)
   const [maintenanceMessage, setMaintenanceMessage] = useState('現在メンテナンス中です。しばらくお待ちください。')
 
@@ -213,13 +213,13 @@ export default function SettingsPage() {
               <h2 className="text-lg font-semibold text-white mb-4">デフォルトプラン設定</h2>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 space-y-3">
-                  <p className="text-sm font-medium text-gray-400">プランA</p>
+                  <p className="text-sm font-medium text-gray-400">ライト</p>
                   <div>
                     <InputLabel>名前</InputLabel>
                     <input
                       type="text"
-                      value={planA.name}
-                      onChange={(e) => setPlanA((p) => ({ ...p, name: e.target.value }))}
+                      value={planLight.name}
+                      onChange={(e) => setPlanLight((p) => ({ ...p, name: e.target.value }))}
                       className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
                     />
                   </div>
@@ -227,8 +227,8 @@ export default function SettingsPage() {
                     <InputLabel>月額（円）</InputLabel>
                     <input
                       type="text"
-                      value={planA.fee}
-                      onChange={(e) => setPlanA((p) => ({ ...p, fee: e.target.value }))}
+                      value={planLight.fee}
+                      onChange={(e) => setPlanLight((p) => ({ ...p, fee: e.target.value }))}
                       className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
                     />
                   </div>
@@ -236,20 +236,20 @@ export default function SettingsPage() {
                     <InputLabel>面接上限</InputLabel>
                     <input
                       type="text"
-                      value={planA.limit}
-                      onChange={(e) => setPlanA((p) => ({ ...p, limit: e.target.value }))}
+                      value={planLight.limit}
+                      onChange={(e) => setPlanLight((p) => ({ ...p, limit: e.target.value }))}
                       className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
                     />
                   </div>
                 </div>
                 <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 space-y-3">
-                  <p className="text-sm font-medium text-gray-400">プランB</p>
+                  <p className="text-sm font-medium text-gray-400">スタンダード</p>
                   <div>
                     <InputLabel>名前</InputLabel>
                     <input
                       type="text"
-                      value={planB.name}
-                      onChange={(e) => setPlanB((p) => ({ ...p, name: e.target.value }))}
+                      value={planStandard.name}
+                      onChange={(e) => setPlanStandard((p) => ({ ...p, name: e.target.value }))}
                       className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
                     />
                   </div>
@@ -257,8 +257,8 @@ export default function SettingsPage() {
                     <InputLabel>月額（円）</InputLabel>
                     <input
                       type="text"
-                      value={planB.fee}
-                      onChange={(e) => setPlanB((p) => ({ ...p, fee: e.target.value }))}
+                      value={planStandard.fee}
+                      onChange={(e) => setPlanStandard((p) => ({ ...p, fee: e.target.value }))}
                       className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
                     />
                   </div>
@@ -266,20 +266,20 @@ export default function SettingsPage() {
                     <InputLabel>面接上限</InputLabel>
                     <input
                       type="text"
-                      value={planB.limit}
-                      onChange={(e) => setPlanB((p) => ({ ...p, limit: e.target.value }))}
+                      value={planStandard.limit}
+                      onChange={(e) => setPlanStandard((p) => ({ ...p, limit: e.target.value }))}
                       className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
                     />
                   </div>
                 </div>
                 <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 space-y-3">
-                  <p className="text-sm font-medium text-gray-400">プランC</p>
+                  <p className="text-sm font-medium text-gray-400">プロ</p>
                   <div>
                     <InputLabel>名前</InputLabel>
                     <input
                       type="text"
-                      value={planC.name}
-                      onChange={(e) => setPlanC((p) => ({ ...p, name: e.target.value }))}
+                      value={planPro.name}
+                      onChange={(e) => setPlanPro((p) => ({ ...p, name: e.target.value }))}
                       className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
                     />
                   </div>
@@ -287,8 +287,8 @@ export default function SettingsPage() {
                     <InputLabel>月額（円）</InputLabel>
                     <input
                       type="text"
-                      value={planC.fee}
-                      onChange={(e) => setPlanC((p) => ({ ...p, fee: e.target.value }))}
+                      value={planPro.fee}
+                      onChange={(e) => setPlanPro((p) => ({ ...p, fee: e.target.value }))}
                       className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
                     />
                   </div>
@@ -296,13 +296,16 @@ export default function SettingsPage() {
                     <InputLabel>面接上限</InputLabel>
                     <input
                       type="text"
-                      value={planC.limit}
-                      onChange={(e) => setPlanC((p) => ({ ...p, limit: e.target.value }))}
+                      value={planPro.limit}
+                      onChange={(e) => setPlanPro((p) => ({ ...p, limit: e.target.value }))}
                       className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
                     />
                   </div>
                 </div>
               </div>
+              <p className="mt-4 text-sm text-gray-400 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3">
+                31件目以降: ¥3,500/件（従量課金・自動適用）
+              </p>
               <button
                 type="button"
                 onClick={() => showToast('設定を保存しました')}
