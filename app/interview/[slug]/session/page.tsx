@@ -3,6 +3,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 
+const LANGUAGES = [
+  { code: 'ja', label: '日本語' },
+  { code: 'en', label: 'English' },
+  { code: 'vi', label: 'Tiếng Việt' },
+  { code: 'zh', label: '中文' },
+  { code: 'ne', label: 'नेपाली' },
+  { code: 'pt', label: 'Português' },
+]
+
 export default function SessionPage() {
   const params = useParams()
   const router = useRouter()
@@ -16,6 +25,7 @@ export default function SessionPage() {
   const [demoMode] = useState(false)
   const [hasStream, setHasStream] = useState(false)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [selectedLanguage, setSelectedLanguage] = useState('ja')
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const timeoutRefs = useRef<NodeJS.Timeout[]>([])
@@ -235,6 +245,22 @@ export default function SessionPage() {
         }
       `}</style>
       <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center relative">
+        {/* 言語選択ドロップダウン（右上） */}
+        <div className="fixed top-4 right-4 z-30">
+          <select
+            value={selectedLanguage}
+            onChange={(e) => setSelectedLanguage(e.target.value)}
+            className="bg-slate-800/80 text-white text-sm px-3 py-2 rounded-lg border border-white/20 hover:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+          >
+            {LANGUAGES.map((lang) => (
+              <option key={lang.code} value={lang.code} className="bg-slate-800">
+                {lang.label}
+              </option>
+            ))}
+          </select>
+          {/* TODO: Phase 4 - 言語切替で面接AIの応答言語・UIテキストを変更 */}
+        </div>
+
         {/* 面接経過時間（上部中央） */}
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-30 text-sm text-gray-500">
           {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:

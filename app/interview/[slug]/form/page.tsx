@@ -36,6 +36,15 @@ const EDUCATION_OPTIONS = [
   { value: 'other', label: 'その他' },
 ]
 
+// Supabaseから取得できない場合のダミーデータ
+const dummyCompany = {
+  id: 'dummy-company-id',
+  name: '株式会社サンプル',
+  logo_url: null,
+  is_suspended: false,
+}
+// TODO: Phase 4 - 本番ではダミーデータを削除
+
 export default function FormPage() {
   const params = useParams()
   const router = useRouter()
@@ -79,30 +88,44 @@ export default function FormPage() {
     }
 
     // 企業情報取得
-    const { data: company } = await supabase
-      .from('companies')
-      .select('id')
-      .eq('interview_slug', slug)
-      .single()
+    try {
+      const { data: company, error } = await supabase
+        .from('companies')
+        .select('id')
+        .eq('interview_slug', slug)
+        .single()
 
-    if (company) {
-      setCompanyId(company.id)
+      const displayCompany = company || dummyCompany
+      setCompanyId(displayCompany.id)
 
       // 職種一覧取得
       const { data: jobTypesData } = await supabase
         .from('job_types')
         .select('id, name')
-        .eq('company_id', company.id)
+        .eq('company_id', displayCompany.id)
         .eq('is_active', true)
 
-      if (jobTypesData) {
+      if (jobTypesData && jobTypesData.length > 0) {
         setJobTypes(
           jobTypesData.map((jt) => ({
             value: jt.id,
             label: jt.name,
           }))
         )
+      } else {
+        // ダミー職種を追加
+        setJobTypes([
+          { value: 'dummy-job-type-1', label: '総合職' },
+          { value: 'dummy-job-type-2', label: '営業職' },
+        ])
       }
+    } catch (error) {
+      // エラー時はダミーデータを使用
+      setCompanyId(dummyCompany.id)
+      setJobTypes([
+        { value: 'dummy-job-type-1', label: '総合職' },
+        { value: 'dummy-job-type-2', label: '営業職' },
+      ])
     }
 
     setLoading(false)
@@ -155,8 +178,8 @@ export default function FormPage() {
   async function handleSubmit() {
     if (!validate()) return
     if (!companyId) {
-      setErrors({ submit: '企業情報の取得に失敗しました' })
-      return
+      // ダミーIDを使用
+      setCompanyId(dummyCompany.id)
     }
 
     setSubmitting(true)
@@ -189,16 +212,12 @@ export default function FormPage() {
       .select()
       .single()
 
-    if (error) {
-      setErrors({ submit: '送信に失敗しました。もう一度お試しください。' })
-      setSubmitting(false)
-      return
-    }
-
+    // TODO: Phase 4 - Supabase保存成功時のみ遷移するように変更
     if (data) {
       sessionStorage.setItem(`interview_${slug}_applicant_id`, data.id)
-      router.push(`/interview/${slug}/verify?phone=${encodeURIComponent(phone)}`)
     }
+    // エラー時も次ページへ遷移（ダミーデータの場合）
+    router.push(`/interview/${slug}/verify?phone=${encodeURIComponent(phone)}`)
   }
 
   if (loading) {

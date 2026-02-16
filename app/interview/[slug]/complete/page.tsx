@@ -1,15 +1,24 @@
 'use client'
 
 import { useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+
+// Supabaseから取得できない場合のダミーデータ
+const dummyCompany = {
+  id: 'dummy-company-id',
+  name: '株式会社サンプル',
+  logo_url: null,
+  is_suspended: false,
+}
+// TODO: Phase 4 - 本番ではダミーデータを削除
 
 // TODO: AIの分析結果からタイプを判定
 const PERSONALITY_TYPE = {
-  name: '論理型リーダー',
-  catchphrase: '冷静な分析力で周囲を導く、信頼のリーダー',
+  name: 'ライオン型リーダー',
+  catchphrase: '決断力と行動力でチームを導くカリスマ',
   description:
-    'あなたは物事を論理的に整理し、根拠に基づいた判断ができるタイプです。チームの中では自然とまとめ役になることが多く、周囲からの信頼も厚い傾向があります。一方で、感情的な場面では慎重になりすぎることもあるかもしれません。',
+    'あなたは外向的で主導型のタイプ。自ら先頭に立ってチームを引っ張り、周囲を巻き込む力があります。決断のスピードが強みで、困難な状況でも冷静に判断できるリーダー。プレッシャーに強く、大きな目標に向かって突き進むことにやりがいを感じます。',
 }
 
 // TODO: 実際のデータに差替え
@@ -21,28 +30,31 @@ const SUMMARY = {
   speakingRate: 65,
 }
 
-// TODO: AIの分析結果から生成
+// TODO: AIの分析結果から生成（新6軸に合わせた内容）
 const STRENGTHS = [
   {
-    title: '自己表現力',
+    title: 'コミュニケーション',
     description: '自身の経験や考えを、具体的なエピソードを交えながら分かりやすく伝えることができています。',
   },
   {
-    title: '傾聴力',
-    description: '質問の意図を正確に把握し、的確に回答する力が見られます。',
+    title: '仕事への意欲',
+    description: '質問の意図を正確に把握し、積極的に回答する姿勢が見られます。',
   },
   {
-    title: '論理的思考',
-    description: '回答に一貫性があり、筋道を立てて話を展開する力があります。',
+    title: '課題対応力',
+    description: '困難な状況でも冷静に判断し、適切に対応する力があります。',
   },
 ]
 
+const EVALUATION_AXES = ['コミュニケーション', '論理的思考', 'カルチャーフィット', '仕事への意欲', '課題対応力', '成長可能性']
+const EVALUATION_AXES_SHORT = ['コミュ力', '論理思考', '文化適性', '意欲', '課題力', '成長性']
 const RADAR_DATA = [
-  { label: '行動力', value: 4 },
-  { label: '協調性', value: 3 },
-  { label: '分析力', value: 5 },
-  { label: '創造性', value: 3 },
-  { label: '安定性', value: 4 },
+  { label: 'コミュニケーション', value: 85 },
+  { label: '論理的思考', value: 75 },
+  { label: 'カルチャーフィット', value: 90 },
+  { label: '仕事への意欲', value: 95 },
+  { label: '課題対応力', value: 88 },
+  { label: '成長可能性', value: 80 },
 ]
 
 function LightbulbIcon({ className }: { className?: string }) {
@@ -91,6 +103,7 @@ function StarIcon({ className, filled }: { className?: string; filled?: boolean 
 
 export default function CompletePage() {
   const params = useParams()
+  const router = useRouter()
   const slug = params.slug as string
   const supabase = createClient()
 
@@ -102,7 +115,12 @@ export default function CompletePage() {
     if (rating === 0) return
     const applicantId = sessionStorage.getItem(`interview_${slug}_applicant_id`)
     if (!applicantId) return
-    await supabase.from('applicants').update({ satisfaction_rating: rating }).eq('id', applicantId)
+    try {
+      await supabase.from('applicants').update({ satisfaction_rating: rating }).eq('id', applicantId)
+    } catch (error) {
+      // エラー時も送信完了として扱う（ダミーデータの場合）
+      // TODO: Phase 4 - Supabase保存成功時のみ送信完了とするように変更
+    }
     setSubmitted(true)
   }
 
@@ -110,166 +128,154 @@ export default function CompletePage() {
   const cy = 100
   const maxR = 72
   const getPoint = (i: number, r: number) => {
-    const angle = (-90 + i * 72) * (Math.PI / 180)
+    const angle = (-90 + i * 60) * (Math.PI / 180) // 6軸なので60度ずつ
     return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) }
   }
-  const dataPoints = RADAR_DATA.map((d, i) => getPoint(i, (d.value / 5) * maxR))
+  const dataPoints = RADAR_DATA.map((d, i) => getPoint(i, (d.value / 100) * maxR)) // 100点満点
   const dataPath = dataPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
 
   return (
-    <div className="min-h-screen h-screen max-h-screen flex flex-col overflow-hidden bg-[#0a0a0f]">
-      {/* 背景: グラデーションオーブ + ドットパターン */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-cyan-500/10 blur-3xl" />
-        <div className="absolute top-1/2 -left-40 w-80 h-80 rounded-full bg-violet-500/10 blur-3xl" />
-        <div className="absolute inset-0 opacity-30">
-          <svg className="w-full h-full" preserveAspectRatio="none">
-            <defs>
-              <pattern id="dotGrid" width="24" height="24" patternUnits="userSpaceOnUse">
-                <circle cx="12" cy="12" r="0.5" fill="white" fillOpacity="0.15" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#dotGrid)" />
-          </svg>
-        </div>
-      </div>
-
-      <div className="relative flex-1 flex flex-col max-w-5xl mx-auto w-full px-3 sm:px-6 py-4 sm:py-5 min-h-0">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 flex flex-col">
+      <div className="flex-1 flex flex-col max-w-5xl mx-auto w-full px-4 sm:px-6 py-6 sm:py-8">
         {/* ヘッダー */}
-        <header className="flex items-center justify-between shrink-0 mb-4 sm:mb-5">
-          <span className="text-xs sm:text-sm font-bold tracking-wide text-cyan-400">AI人事24h</span>
-          <h1 className="text-sm sm:text-base font-semibold text-white/90 tracking-tight">面接完了レポート</h1>
+        <header className="flex items-center justify-between shrink-0 mb-6">
+          <span className="text-sm font-bold tracking-wide text-blue-600">AI人事24h</span>
+          <h1 className="text-lg sm:text-xl font-semibold text-gray-900 tracking-tight">面接完了レポート</h1>
         </header>
 
         {/* メイン: 2×2 グリッド */}
-        <main className="flex-1 grid grid-cols-2 gap-2 sm:gap-4 min-h-0 overflow-hidden">
+        <main className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 min-h-0 overflow-y-auto">
           {/* 性格タイプカード */}
-          <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-violet-600 via-indigo-600 to-cyan-600 p-3 sm:p-5 flex flex-col shadow-xl shadow-violet-500/20 border border-gray-700/50">
-            <div className="absolute inset-0 bg-[linear-gradient(135deg,transparent_40%,rgba(255,255,255,0.05)_100%)]" />
-            <div className="relative flex items-center gap-2 mb-2 sm:mb-3">
-              <div className="p-1.5 rounded-lg bg-white/10">
-                <LightbulbIcon className="w-4 h-4 sm:w-5 sm:h-5 text-cyan-200" />
+          <div className="rounded-xl bg-white shadow-sm border border-gray-200 p-4 sm:p-6 flex flex-col">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="p-2 rounded-lg bg-orange-100">
+                <LightbulbIcon className="w-5 h-5 text-orange-600" />
               </div>
-              <span className="text-[10px] sm:text-xs font-medium text-white/80 uppercase tracking-wider">性格タイプ診断</span>
+              <span className="text-xs font-medium text-gray-700 uppercase tracking-wider">性格タイプ診断</span>
             </div>
-            <p className="relative text-base sm:text-xl lg:text-2xl font-bold text-white mb-1 sm:mb-2 leading-tight drop-shadow-sm">
+            <p className="text-xl sm:text-2xl font-bold text-gray-900 mb-2 leading-tight">
               あなたは「{PERSONALITY_TYPE.name}」タイプ
             </p>
-            <p className="relative text-sm sm:text-base text-white/95 mb-2 sm:mb-3 leading-snug drop-shadow-sm">{PERSONALITY_TYPE.catchphrase}</p>
+            <p className="text-sm sm:text-base text-gray-600 mb-3 leading-snug">{PERSONALITY_TYPE.catchphrase}</p>
             {/* TODO: AIの分析結果から生成 */}
-            <p className="relative text-xs sm:text-sm text-white/90 leading-relaxed flex-1 line-clamp-4 sm:line-clamp-5 drop-shadow-sm">
+            <p className="text-xs sm:text-sm text-gray-600 leading-relaxed flex-1 line-clamp-4 sm:line-clamp-5 mb-4">
               {PERSONALITY_TYPE.description}
             </p>
+            <button
+              onClick={() => router.push(`/interview/${slug}/diagnosis`)}
+              className="mt-auto w-full px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold rounded-lg transition-colors shadow-sm"
+            >
+              詳しい診断結果を見る
+            </button>
           </div>
 
           {/* 面接サマリーカード */}
-          <div className="rounded-2xl bg-white/[0.03] border border-white/10 border-gray-700/50 backdrop-blur-sm p-3 sm:p-5 flex flex-col">
-            <div className="flex items-center gap-2 mb-3 sm:mb-4">
-              <ClockIcon className="w-4 h-4 text-cyan-400/80 shrink-0" />
-              <h3 className="text-[10px] sm:text-xs font-bold text-gray-300 uppercase tracking-wider">面接サマリー</h3>
+          <div className="rounded-xl bg-white shadow-sm border border-gray-200 p-4 sm:p-6 flex flex-col">
+            <div className="flex items-center gap-2 mb-4">
+              <ClockIcon className="w-5 h-5 text-blue-600 shrink-0" />
+              <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider">面接サマリー</h3>
             </div>
-            <div className="flex gap-4 sm:gap-6 mb-3 sm:mb-4">
+            <div className="flex gap-6 mb-4">
               <div>
-                <p className="text-2xl sm:text-4xl font-bold text-white tabular-nums">{SUMMARY.minutes}</p>
-                <p className="text-[10px] sm:text-xs text-gray-300 mt-0.5">分</p>
+                <p className="text-3xl sm:text-4xl font-bold text-gray-900 tabular-nums">{SUMMARY.minutes}</p>
+                <p className="text-xs text-gray-600 mt-1">分</p>
               </div>
               <div>
-                <p className="text-2xl sm:text-4xl font-bold text-white tabular-nums">{SUMMARY.questions}</p>
-                <p className="text-[10px] sm:text-xs text-gray-300 mt-0.5">問</p>
+                <p className="text-3xl sm:text-4xl font-bold text-gray-900 tabular-nums">{SUMMARY.questions}</p>
+                <p className="text-xs text-gray-600 mt-1">問</p>
               </div>
             </div>
-            <div className="space-y-1.5 sm:space-y-2 text-[10px] sm:text-xs text-gray-300">
+            <div className="space-y-2 text-xs text-gray-600">
               <div className="flex items-center gap-2">
-                <ClockIcon className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-gray-400 shrink-0" />
+                <ClockIcon className="w-4 h-4 text-gray-400 shrink-0" />
                 <span>平均応答 {SUMMARY.avgResponseSeconds}秒</span>
               </div>
               <div className="flex items-center gap-2">
-                <MicIcon className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-gray-400 shrink-0" />
+                <MicIcon className="w-4 h-4 text-gray-400 shrink-0" />
                 <span>総発話 {SUMMARY.totalSpeakingTime}</span>
               </div>
               <div className="flex items-center gap-2">
-                <BarChartIcon className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-gray-400 shrink-0" />
+                <BarChartIcon className="w-4 h-4 text-gray-400 shrink-0" />
                 <span>発話率 {SUMMARY.speakingRate}%</span>
               </div>
             </div>
           </div>
 
           {/* 能力プロファイルカード */}
-          <div className="rounded-2xl bg-white/[0.03] border border-white/10 border-gray-700/50 backdrop-blur-sm p-3 sm:p-5 flex flex-col min-h-0">
-            <div className="flex items-center gap-2 mb-2 sm:mb-3">
-              <BarChartIcon className="w-4 h-4 text-violet-400/80 shrink-0" />
-              <h3 className="text-[10px] sm:text-xs font-bold text-gray-300 uppercase tracking-wider">能力プロファイル</h3>
+          <div className="rounded-xl bg-white shadow-sm border border-gray-200 p-4 sm:p-6 flex flex-col min-h-0">
+            <div className="flex items-center gap-2 mb-3">
+              <BarChartIcon className="w-5 h-5 text-purple-600 shrink-0" />
+              <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider">能力プロファイル</h3>
             </div>
-            <div className="flex-1 min-h-[120px] sm:min-h-[160px] flex items-center justify-center">
-              <svg viewBox="0 0 200 200" className="w-[120px] h-[120px] sm:w-[180px] sm:h-[180px] lg:w-[200px] lg:h-[200px] mx-auto">
+            <div className="flex-1 min-h-[200px] flex items-center justify-center">
+              <svg viewBox="0 0 200 200" className="w-[200px] h-[200px] mx-auto">
                 <defs>
                   <linearGradient id="radarGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.5" />
-                    <stop offset="50%" stopColor="#8b5cf6" stopOpacity="0.55" />
-                    <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.5" />
+                    <stop offset="0%" stopColor="#FFD89B" stopOpacity="0.6" />
+                    <stop offset="50%" stopColor="#FFA500" stopOpacity="0.7" />
+                    <stop offset="100%" stopColor="#FFD89B" stopOpacity="0.6" />
                   </linearGradient>
-                  <filter id="radarGlow">
-                    <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#60a5fa" floodOpacity="0.8" />
-                  </filter>
                 </defs>
-                {/* 外枠 */}
-                <path
-                  d={[0, 1, 2, 3, 4].map((i) => getPoint(i, maxR)).map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'}
-                  fill="none"
-                  stroke="rgba(96,165,250,0.6)"
-                  strokeWidth="1.5"
-                />
+                {/* グリッド */}
                 {[1, 2, 3, 4, 5].map((l) => {
                   const r = (l / 5) * maxR
-                  const pts = [0, 1, 2, 3, 4].map((i) => getPoint(i, r))
+                  const pts = [0, 1, 2, 3, 4, 5].map((i) => getPoint(i, r))
                   const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
-                  return <path key={l} d={path} fill="none" stroke="rgba(107,114,128,0.4)" strokeWidth="1" />
+                  return <path key={l} d={path} fill="none" stroke="#D1D5DB" strokeWidth="1" />
                 })}
-                {[0, 1, 2, 3, 4].map((i) => {
+                {/* 軸線 */}
+                {[0, 1, 2, 3, 4, 5].map((i) => {
                   const p = getPoint(i, maxR)
-                  return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="rgba(107,114,128,0.4)" strokeWidth="1" />
+                  return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="#D1D5DB" strokeWidth="1" />
                 })}
+                {/* データエリア */}
                 <path
                   d={dataPath}
                   fill="url(#radarGrad)"
-                  stroke="rgba(139,92,246,0.6)"
-                  strokeWidth="1.5"
-                  style={{ animation: 'radarGrow 0.8s ease-out forwards', transformOrigin: '100px 100px' }}
+                  stroke="#FF8C42"
+                  strokeWidth="2"
                 />
+                {/* データポイント */}
                 {dataPoints.map((p, i) => (
-                  <circle key={i} cx={p.x} cy={p.y} r="5" fill="#60a5fa" filter="url(#radarGlow)" />
+                  <circle key={i} cx={p.x} cy={p.y} r="4" fill="#FF8C42" />
                 ))}
-                {RADAR_DATA.map((d, i) => {
-                  const p = getPoint(i, maxR + 14)
+                {/* 軸ラベルとスコア */}
+                {EVALUATION_AXES_SHORT.map((axis, i) => {
+                  const p = getPoint(i, maxR + 16)
                   return (
-                    <text key={i} x={p.x} y={p.y} textAnchor="middle" fill="#e2e8f0" fontSize="12" fontWeight="500">
-                      {d.label}
-                    </text>
+                    <g key={i}>
+                      <text x={p.x} y={p.y} textAnchor="middle" fill="#333" fontSize="10" fontWeight="500">
+                        {axis}
+                      </text>
+                      <text x={p.x} y={p.y + 12} textAnchor="middle" fill="#333" fontSize="9" fontWeight="bold">
+                        {RADAR_DATA[i].value}
+                      </text>
+                    </g>
                   )
                 })}
               </svg>
             </div>
-            <div className="flex flex-wrap gap-x-2 sm:gap-x-3 gap-y-0.5 justify-center text-[9px] sm:text-[10px] text-gray-300">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 justify-center text-xs text-gray-600 mt-2">
               {RADAR_DATA.map((d, i) => (
-                <span key={i}>{d.label} {d.value}/5</span>
+                <span key={i}>{d.label}: {d.value}点</span>
               ))}
             </div>
           </div>
 
           {/* あなたの強みカード */}
-          <div className="rounded-2xl bg-white/[0.03] border border-white/10 border-gray-700/50 backdrop-blur-sm p-3 sm:p-5 flex flex-col min-h-0 overflow-hidden">
-            <div className="flex items-center gap-2 mb-2 sm:mb-3">
-              <StarIcon className="w-4 h-4 text-amber-400 shrink-0" filled />
-              <h3 className="text-[10px] sm:text-xs font-bold text-gray-300 uppercase tracking-wider">あなたの強み</h3>
+          <div className="rounded-xl bg-white shadow-sm border border-gray-200 p-4 sm:p-6 flex flex-col min-h-0 overflow-hidden">
+            <div className="flex items-center gap-2 mb-3">
+              <StarIcon className="w-5 h-5 text-amber-500 shrink-0" filled />
+              <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider">あなたの強み</h3>
             </div>
             {/* TODO: AIの分析結果から生成 */}
-            <ul className="space-y-2 sm:space-y-3 flex-1 min-h-0 overflow-y-auto">
+            <ul className="space-y-3 flex-1 min-h-0 overflow-y-auto">
               {STRENGTHS.map((s, i) => (
-                <li key={i} className="flex gap-2">
-                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-amber-400/80 shrink-0" />
+                <li key={i} className="flex gap-3">
+                  <span className="mt-1.5 w-2 h-2 rounded-full bg-amber-500 shrink-0" />
                   <div>
-                    <p className="text-xs sm:text-sm font-semibold text-white">{s.title}</p>
-                    <p className="text-[10px] sm:text-xs text-gray-200 leading-relaxed mt-0.5">{s.description}</p>
+                    <p className="text-sm font-semibold text-gray-900">{s.title}</p>
+                    <p className="text-xs text-gray-600 leading-relaxed mt-1">{s.description}</p>
                   </div>
                 </li>
               ))}
@@ -278,11 +284,11 @@ export default function CompletePage() {
         </main>
 
         {/* フッター */}
-        <footer className="shrink-0 mt-4 sm:mt-5 pt-4 sm:pt-5 border-t border-white/10">
+        <footer className="shrink-0 mt-6 pt-6 border-t border-gray-200">
           {!submitted ? (
-            <div className="flex flex-col items-center gap-2 sm:gap-3">
-              <p className="text-[10px] sm:text-xs font-medium text-gray-300">面接の体験はいかがでしたか？</p>
-              <div className="flex gap-0.5 sm:gap-1">
+            <div className="flex flex-col items-center gap-3">
+              <p className="text-sm font-medium text-gray-700">面接の体験はいかがでしたか？</p>
+              <div className="flex gap-1">
                 {[1, 2, 3, 4, 5].map((s) => (
                   <button
                     key={s}
@@ -290,11 +296,11 @@ export default function CompletePage() {
                     onClick={() => setRating(s)}
                     onMouseEnter={() => setHoverRating(s)}
                     onMouseLeave={() => setHoverRating(0)}
-                    className="p-0.5 sm:p-1 rounded-lg transition-all duration-200 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                    className="p-1 rounded-lg transition-all duration-200 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <StarIcon
-                      className={`w-5 h-5 sm:w-6 sm:h-6 transition-colors ${
-                        s <= (hoverRating || rating) ? 'text-amber-400' : 'text-slate-600'
+                      className={`w-6 h-6 transition-colors ${
+                        s <= (hoverRating || rating) ? 'text-amber-500' : 'text-gray-300'
                       }`}
                       filled={s <= (hoverRating || rating)}
                     />
@@ -304,21 +310,22 @@ export default function CompletePage() {
               <button
                 onClick={handleSubmitRating}
                 disabled={rating === 0}
-                className={`px-5 sm:px-6 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+                className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all ${
                   rating > 0
-                    ? 'bg-gradient-to-r from-cyan-500 to-violet-500 text-white hover:opacity-90'
-                    : 'bg-white/5 text-slate-600 cursor-not-allowed border border-white/10'
+                    ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 }`}
               >
                 送信する
               </button>
             </div>
           ) : (
-            <p className="text-center text-gray-300 text-xs sm:text-sm">ご協力ありがとうございます</p>
+            <p className="text-center text-gray-600 text-sm">ご協力ありがとうございます</p>
           )}
-          <p className="text-center text-[9px] sm:text-[10px] text-gray-400 mt-3 sm:mt-4">Powered by AI人事24h</p>
+          <p className="text-center text-xs text-gray-400 mt-4">Powered by AI人事24h</p>
         </footer>
       </div>
+      {/* TODO: Phase 4 - 実際の面接結果からスコア・タイプを算出 */}
     </div>
   )
 }

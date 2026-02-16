@@ -8,6 +8,23 @@ import { createClient } from '@/lib/supabase/client'
 import InterviewLayout from '@/components/interview/InterviewLayout'
 import { PrimaryButton, Checkbox, TextLink } from '@/components/interview/FormComponents'
 
+const LANGUAGES = [
+  { code: 'ja', label: '日本語' },
+  { code: 'en', label: 'English' },
+  { code: 'vi', label: 'Tiếng Việt' },
+  { code: 'zh', label: '中文' },
+  { code: 'ne', label: 'नेपाली' },
+  { code: 'pt', label: 'Português' },
+]
+
+// Supabaseから取得できない場合のダミーデータ
+const dummyCompany = {
+  id: 'dummy-company-id',
+  name: '株式会社サンプル',
+  logo_url: null,
+  is_suspended: false,
+}
+
 export default function InterviewPage() {
   const params = useParams()
   const router = useRouter()
@@ -23,6 +40,7 @@ export default function InterviewPage() {
   const [loading, setLoading] = useState(true)
   const [consent1, setConsent1] = useState(false)
   const [consent2, setConsent2] = useState(false)
+  const [selectedLanguage, setSelectedLanguage] = useState('ja')
 
   useEffect(() => {
     fetchCompany()
@@ -30,16 +48,22 @@ export default function InterviewPage() {
 
   async function fetchCompany() {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('companies')
-      .select('id, name, logo_url, is_suspended')
-      .eq('interview_slug', slug)
-      .single()
+    try {
+      const { data, error } = await supabase
+        .from('companies')
+        .select('id, name, logo_url, is_suspended')
+        .eq('interview_slug', slug)
+        .single()
 
-    if (error || !data) {
-      setCompany(null)
-    } else {
-      setCompany(data)
+      if (error || !data) {
+        // Supabaseから取得できない場合はダミーデータを使用
+        setCompany(dummyCompany)
+      } else {
+        setCompany(data)
+      }
+    } catch (error) {
+      // エラーが発生した場合もダミーデータを使用
+      setCompany(dummyCompany)
     }
     setLoading(false)
   }
@@ -79,31 +103,13 @@ export default function InterviewPage() {
     )
   }
 
-  if (!company) {
-    return (
-      <InterviewLayout>
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8 text-center">
-          <div className="flex justify-center mb-4">
-            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-500">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="15" y1="9" x2="9" y2="15"/>
-              <line x1="9" y1="9" x2="15" y2="15"/>
-            </svg>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">
-            この面接URLは無効です
-          </h1>
-          <p className="text-gray-600">
-            企業の担当者にお問い合わせください。
-          </p>
-        </div>
-      </InterviewLayout>
-    )
-  }
+  // companyがnullの場合はダミーデータを使用（エラー画面は表示しない）
+  const displayCompany = company || dummyCompany
+  // TODO: Phase 4 - 本番ではダミーデータを削除し、無効なURLは正しくエラー表示する
 
-  if (company.is_suspended) {
+  if (displayCompany.is_suspended) {
     return (
-      <InterviewLayout companyName={company.name} companyLogo={company.logo_url || undefined}>
+      <InterviewLayout companyName={displayCompany.name} companyLogo={displayCompany.logo_url || undefined}>
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8 text-center">
           <div className="flex justify-center mb-4">
             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500">
@@ -121,8 +127,25 @@ export default function InterviewPage() {
   }
 
   return (
-    <InterviewLayout companyName={company.name} companyLogo={company.logo_url || undefined}>
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
+    <>
+      {/* 言語選択ドロップダウン（上部右端） */}
+      <div className="fixed top-4 right-4 z-50">
+        <select
+          value={selectedLanguage}
+          onChange={(e) => setSelectedLanguage(e.target.value)}
+          className="bg-white text-gray-900 text-sm px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-sm"
+        >
+          {LANGUAGES.map((lang) => (
+            <option key={lang.code} value={lang.code}>
+              {lang.label}
+            </option>
+          ))}
+        </select>
+        {/* TODO: Phase 4 - 選択した言語をURLパラメータまたはstateで引き継ぎ、全画面のUIテキストを切り替え */}
+      </div>
+
+      <InterviewLayout companyName={displayCompany.name} companyLogo={displayCompany.logo_url || undefined}>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
         <div className="bg-blue-50 rounded-xl p-4 mb-6 flex items-start gap-3">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-600 flex-shrink-0">
             <circle cx="12" cy="12" r="10"/>
@@ -165,6 +188,7 @@ export default function InterviewPage() {
           </a>
         </p>
       </div>
-    </InterviewLayout>
+      </InterviewLayout>
+    </>
   )
 }

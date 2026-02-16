@@ -253,7 +253,8 @@ export default function PreparePage() {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
     }
-    router.push(`/interview/${slug}/session`)
+    // 練習パートへ遷移
+    router.push(`/interview/${slug}/practice`)
   }
 
   function getStatusIcon(status: CheckStatus) {
@@ -508,7 +509,7 @@ export default function PreparePage() {
           )}
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-3 mb-20 pb-8">
           {checks.some((c) => c.status === 'fail') && (
             <SecondaryButton
               onClick={runChecks}
@@ -518,12 +519,12 @@ export default function PreparePage() {
             </SecondaryButton>
           )}
 
-          <p className="text-sm text-red-500">面接を開始すると録画が始まります。</p>
+          <p className="text-sm text-red-500">環境確認完了後、練習パートに進みます。</p>
           <PrimaryButton
             onClick={handleStartInterview}
             disabled={!allPassed || checking}
           >
-            面接を開始する
+            練習パートへ進む
           </PrimaryButton>
 
           <div className="text-center pt-4">
