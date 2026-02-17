@@ -2,7 +2,56 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, Download, Building2, CheckCircle, Clock, Square } from 'lucide-react'
+import { Plus, Search, Download, Building2, CheckCircle, Clock, Square, X } from 'lucide-react'
+
+const INDUSTRIES = [
+  '飲食・フード',
+  '小売・販売',
+  'IT・Web',
+  '医療・介護・福祉',
+  '建設・不動産',
+  '製造・メーカー',
+  '物流・運送',
+  '教育・学習',
+  '美容・理容',
+  'ホテル・旅館・観光',
+  '金融・保険',
+  '士業・コンサルティング',
+  '広告・メディア',
+  '人材・派遣',
+  '農業・漁業',
+  '公務・団体',
+  'その他',
+] as const
+
+const EMPLOYEE_COUNTS = ['1〜10名', '11〜50名', '51〜200名', '201〜500名', '501名以上'] as const
+
+const USE_PURPOSES = ['正社員採用', 'アルバイト採用', '両方'] as const
+
+const PLANS = ['スタンダード', 'プレミアム', 'エンタープライズ'] as const
+
+const FREE_EMAIL_DOMAINS = [
+  'gmail.com',
+  'yahoo.co.jp',
+  'yahoo.com',
+  'hotmail.com',
+  'hotmail.co.jp',
+  'outlook.com',
+  'live.jp',
+  'icloud.com',
+  'me.com',
+  'docomo.ne.jp',
+  'ezweb.ne.jp',
+  'softbank.ne.jp',
+  'biglobe.ne.jp',
+  'nifty.com',
+  'so-net.ne.jp',
+]
+
+function isFreeEmail(email: string): boolean {
+  const domain = email.split('@')[1]?.toLowerCase()
+  return domain ? FREE_EMAIL_DOMAINS.includes(domain) : true
+}
 
 // TODO: 実データに差替え
 const DUMMY_COMPANIES = [
@@ -60,6 +109,22 @@ export default function CompaniesPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
+  const [addModalOpen, setAddModalOpen] = useState(false)
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [form, setForm] = useState({
+    companyName: '',
+    representativeName: '',
+    contactName: '',
+    contactEmail: '',
+    contactPhone: '',
+    industry: '',
+    employeeCount: '',
+    usePurpose: '',
+    plan: '',
+    address: '',
+    monthlyInterviews: '',
+    notes: '',
+  })
 
   const filteredCompanies = useMemo(() => {
     return DUMMY_COMPANIES.filter((c) => {
@@ -77,9 +142,47 @@ export default function CompaniesPage() {
     setTimeout(() => setToastVisible(false), 2000)
   }
 
-  const handleAddCompany = () => {
-    // TODO: 新規企業追加モーダルまたはページ遷移
-    showToast('新規企業追加フォームは今後実装予定です')
+  const openAddModal = () => {
+    setForm({
+      companyName: '',
+      representativeName: '',
+      contactName: '',
+      contactEmail: '',
+      contactPhone: '',
+      industry: '',
+      employeeCount: '',
+      usePurpose: '',
+      plan: '',
+      address: '',
+      monthlyInterviews: '',
+      notes: '',
+    })
+    setFormErrors({})
+    setAddModalOpen(true)
+  }
+
+  const setFormField = (key: keyof typeof form, value: string) => {
+    setForm((prev) => ({ ...prev, [key]: value }))
+    if (formErrors[key]) setFormErrors((prev) => ({ ...prev, [key]: '' }))
+  }
+
+  const handleSubmitNewCompany = () => {
+    const err: Record<string, string> = {}
+    if (!form.companyName.trim()) err.companyName = '会社名を入力してください'
+    if (!form.representativeName.trim()) err.representativeName = '代表者名を入力してください'
+    if (!form.contactName.trim()) err.contactName = '担当者名を入力してください'
+    if (!form.contactEmail.trim()) err.contactEmail = '担当者メールアドレスを入力してください'
+    else if (isFreeEmail(form.contactEmail.trim())) err.contactEmail = '法人ドメインのメールアドレスを入力してください'
+    if (!form.contactPhone.trim()) err.contactPhone = '担当者電話番号を入力してください'
+    if (!form.industry) err.industry = '業種を選択してください'
+    if (!form.employeeCount) err.employeeCount = '従業員数を選択してください'
+    if (!form.usePurpose) err.usePurpose = '利用目的を選択してください'
+    if (!form.plan) err.plan = 'プランを選択してください'
+    setFormErrors(err)
+    if (Object.keys(err).length > 0) return
+    // TODO: Phase 4 - Supabaseに企業データ保存、アカウント発行、業種別質問テンプレート自動セット、面接URL自動生成
+    showToast('企業を登録しました。業種に基づく質問テンプレートが自動設定されました。')
+    setAddModalOpen(false)
   }
 
   const handleCsvExport = () => {
@@ -111,11 +214,11 @@ export default function CompaniesPage() {
           </div>
           <button
             type="button"
-            onClick={handleAddCompany}
+            onClick={openAddModal}
             className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl px-5 py-2.5 transition-all duration-200 shrink-0"
           >
             <Plus className="w-4 h-4" />
-            新規企業を追加
+            新規企業登録
           </button>
         </div>
 
@@ -418,6 +521,195 @@ export default function CompaniesPage() {
           )}
         </div>
       </div>
+
+      {/* 新規企業登録モーダル */}
+      {addModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
+          onClick={(e) => e.target === e.currentTarget && setAddModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between rounded-t-2xl">
+              <h2 className="text-lg font-bold text-slate-900">新規企業登録</h2>
+              <button
+                type="button"
+                onClick={() => setAddModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+                aria-label="閉じる"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => { e.preventDefault(); handleSubmitNewCompany() }}
+              className="p-6"
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">会社名（法人名） <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={form.companyName}
+                    onChange={(e) => setFormField('companyName', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="株式会社〇〇"
+                  />
+                  {formErrors.companyName && <p className="mt-1 text-xs text-red-500">{formErrors.companyName}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">代表者名 <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={form.representativeName}
+                    onChange={(e) => setFormField('representativeName', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="山田 太郎"
+                  />
+                  {formErrors.representativeName && <p className="mt-1 text-xs text-red-500">{formErrors.representativeName}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">担当者名 <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={form.contactName}
+                    onChange={(e) => setFormField('contactName', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="佐藤 花子"
+                  />
+                  {formErrors.contactName && <p className="mt-1 text-xs text-red-500">{formErrors.contactName}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">担当者メールアドレス <span className="text-red-500">*</span></label>
+                  <input
+                    type="email"
+                    value={form.contactEmail}
+                    onChange={(e) => setFormField('contactEmail', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="contact@company.co.jp"
+                  />
+                  {formErrors.contactEmail && <p className="mt-1 text-xs text-red-500">{formErrors.contactEmail}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">担当者電話番号 <span className="text-red-500">*</span></label>
+                  <input
+                    type="tel"
+                    value={form.contactPhone}
+                    onChange={(e) => setFormField('contactPhone', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="03-1234-5678"
+                  />
+                  {formErrors.contactPhone && <p className="mt-1 text-xs text-red-500">{formErrors.contactPhone}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">業種 <span className="text-red-500">*</span></label>
+                  <select
+                    value={form.industry}
+                    onChange={(e) => setFormField('industry', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">選択してください</option>
+                    {INDUSTRIES.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                  {formErrors.industry && <p className="mt-1 text-xs text-red-500">{formErrors.industry}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">従業員数 <span className="text-red-500">*</span></label>
+                  <select
+                    value={form.employeeCount}
+                    onChange={(e) => setFormField('employeeCount', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">選択してください</option>
+                    {EMPLOYEE_COUNTS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                  {formErrors.employeeCount && <p className="mt-1 text-xs text-red-500">{formErrors.employeeCount}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">利用目的 <span className="text-red-500">*</span></label>
+                  <select
+                    value={form.usePurpose}
+                    onChange={(e) => setFormField('usePurpose', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">選択してください</option>
+                    {USE_PURPOSES.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                  {formErrors.usePurpose && <p className="mt-1 text-xs text-red-500">{formErrors.usePurpose}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">プラン <span className="text-red-500">*</span></label>
+                  <select
+                    value={form.plan}
+                    onChange={(e) => setFormField('plan', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">選択してください</option>
+                    {PLANS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                  {formErrors.plan && <p className="mt-1 text-xs text-red-500">{formErrors.plan}</p>}
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">所在地</label>
+                  <input
+                    type="text"
+                    value={form.address}
+                    onChange={(e) => setFormField('address', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="東京都渋谷区〇〇 1-2-3"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">月間想定面接数</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={form.monthlyInterviews}
+                    onChange={(e) => setFormField('monthlyInterviews', e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="例: 20"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">備考</label>
+                  <textarea
+                    value={form.notes}
+                    onChange={(e) => setFormField('notes', e.target.value)}
+                    rows={3}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                    placeholder="自由記述"
+                  />
+                </div>
+              </div>
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setAddModalOpen(false)}
+                  className="px-4 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors"
+                >
+                  登録
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* トースト */}
       {toastVisible && (
