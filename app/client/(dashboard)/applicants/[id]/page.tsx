@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronLeft as ChevronLeftIcon, Play as PlayIcon, Download, Mail, LinkIcon, Copy, Check } from 'lucide-react'
+import { ChevronLeft as ChevronLeftIcon, ChevronDown as ChevronDownIcon, Play as PlayIcon, Download, Mail, LinkIcon, Copy, Check } from 'lucide-react'
 
 // TODO: Phase 4 実データに差替え
+// TODO: Phase 4 - 面接完了時にステータスを自動で「未対応」に設定
 const DUMMY = {
   name: '山田 太郎',
   email: 'yamada@example.com',
@@ -56,6 +57,7 @@ const DUMMY = {
     { title: 'チームワークの具体性不足', desc: '協調性をアピールしているが、具体的なエピソードが少ない' },
   ],
   // 詳細評価タブ: 各軸スコア＋関連Q&A
+  // TODO: Phase 4 - 企業が設定した質問数に合わせて動的に生成
   axisDetails: [
     {
       label: 'コミュニケーション',
@@ -149,6 +151,7 @@ const DUMMY = {
     },
   ],
   // TODO: Phase 4 - Supabaseから会話ログを取得
+  // TODO: Phase 4 - 企業が設定した質問数に合わせて動的に生成
   conversationLog: [
     {
       number: 1,
@@ -216,6 +219,7 @@ const DUMMY = {
 }
 
 const STATUS_OPTIONS = [
+  { value: 'pending', label: '未対応' },
   { value: 'considering', label: '検討中' },
   { value: 'second_pass', label: '二次通過' },
   { value: 'rejected', label: '不採用' },
@@ -237,16 +241,19 @@ const ANSWER_QUALITY_LEGEND = [
 
 type TabKey = 'summary' | 'detail' | 'conversation' | 'recording' | 'share'
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status }: { status: string | null }) {
   const classes: Record<string, string> = {
+    pending: 'bg-gray-100 text-gray-600 border border-gray-200/80 shadow-sm',
     considering: 'bg-amber-50 text-amber-700 border border-amber-200/80 shadow-sm',
     second_pass: 'bg-sky-50 text-sky-700 border border-sky-200/80 shadow-sm',
     rejected: 'bg-rose-50 text-rose-700 border border-rose-200/80 shadow-sm',
   }
-  const label = STATUS_OPTIONS.find((o) => o.value === status)?.label || status
+  // statusがnull/pending＝面接完了・結果未設定時の初期値→未対応表示
+  const label = status == null || status === 'pending' ? '未対応' : STATUS_OPTIONS.find((o) => o.value === status)?.label || status
+  const key = status == null ? 'pending' : status
   return (
     <span
-      className={`inline-flex px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide ${classes[status] || 'bg-slate-100 text-slate-600 border border-slate-200'}`}
+      className={`inline-flex px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide ${classes[key] || 'bg-slate-100 text-slate-600 border border-slate-200'}`}
     >
       {label}
     </span>
@@ -322,7 +329,20 @@ export default function ApplicantDetailPage() {
   const params = useParams()
   const id = params.id as string // TODO: Phase 4 実データに差替え
   const [activeTab, setActiveTab] = useState<TabKey>('summary')
-  const [selectedStatus, setSelectedStatus] = useState(DUMMY.status)
+  const [selectedStatus, setSelectedStatus] = useState<string | null>(DUMMY.status)
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
+  const statusDropdownRef = useRef<HTMLDivElement>(null)
+  const [statusToast, setStatusToast] = useState(false)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
+        setStatusDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
   const [selectionMemo, setSelectionMemo] = useState(DUMMY.memo)
   const [toast, setToast] = useState('')
   // 録画再生タブ用
@@ -368,7 +388,77 @@ export default function ApplicantDetailPage() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
                   <h1 className="text-xl sm:text-2xl font-bold text-slate-900 truncate tracking-tight">{DUMMY.name}</h1>
-                  <StatusBadge status={DUMMY.status} />
+                  <div ref={statusDropdownRef} className="relative inline-block">
+                    <button
+                      type="button"
+                      onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+                      className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer hover:opacity-90 transition-opacity ${
+                        selectedStatus == null || selectedStatus === 'pending' ? 'bg-gray-100 text-gray-600' :
+                        selectedStatus === 'considering' ? 'bg-amber-50 text-amber-700 border border-amber-200/80' :
+                        selectedStatus === 'second_pass' ? 'bg-sky-50 text-sky-700 border border-sky-200/80' :
+                        'bg-rose-50 text-rose-700 border border-rose-200/80'
+                      }`}
+                    >
+                      {selectedStatus == null || selectedStatus === 'pending' ? '未対応' : selectedStatus === 'considering' ? '検討中' : selectedStatus === 'second_pass' ? '二次通過' : '不採用'}
+                      <ChevronDownIcon className="w-3.5 h-3.5" />
+                    </button>
+                    {statusDropdownOpen && (
+                      <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 min-w-[120px] py-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // TODO: Phase 4 - Supabaseでステータス更新
+                            setSelectedStatus(null)
+                            setStatusDropdownOpen(false)
+                            setStatusToast(true)
+                            setTimeout(() => setStatusToast(false), 2000)
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                        >
+                          未対応
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // TODO: Phase 4 - Supabaseでステータス更新
+                            setSelectedStatus('considering')
+                            setStatusDropdownOpen(false)
+                            setStatusToast(true)
+                            setTimeout(() => setStatusToast(false), 2000)
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                        >
+                          検討中
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // TODO: Phase 4 - Supabaseでステータス更新
+                            setSelectedStatus('second_pass')
+                            setStatusDropdownOpen(false)
+                            setStatusToast(true)
+                            setTimeout(() => setStatusToast(false), 2000)
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                        >
+                          二次通過
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // TODO: Phase 4 - Supabaseでステータス更新
+                            setSelectedStatus('rejected')
+                            setStatusDropdownOpen(false)
+                            setStatusToast(true)
+                            setTimeout(() => setStatusToast(false), 2000)
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                        >
+                          不採用
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <dl className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-slate-600">
                   <div className="flex gap-2 min-w-0">
@@ -383,11 +473,11 @@ export default function ApplicantDetailPage() {
               </div>
               {/* 選考ステータス（常時表示） */}
               <div className="w-full sm:w-72 shrink-0 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-md shadow-slate-200/50">
-                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">選考ステータス</h3>
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">選考結果</h3>
                 <div className="space-y-3">
                   <select
-                    value={selectedStatus}
-                    onChange={(e) => setSelectedStatus(e.target.value)}
+                    value={selectedStatus ?? 'pending'}
+                    onChange={(e) => setSelectedStatus(e.target.value === 'pending' ? null : e.target.value)}
                     className="w-full px-3 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all"
                   >
                     {STATUS_OPTIONS.map((o) => (
@@ -418,6 +508,12 @@ export default function ApplicantDetailPage() {
               </div>
             </div>
           </div>
+
+          {statusToast && (
+            <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-6 py-3 bg-gray-900 text-white text-sm font-medium rounded-xl shadow-lg">
+              結果を更新しました
+            </div>
+          )}
 
           {/* タブバー */}
           <div className="rounded-2xl bg-white/80 border border-slate-200/80 p-1.5 shadow-sm overflow-x-auto">

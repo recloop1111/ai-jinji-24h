@@ -3,18 +3,19 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useTemplates, type Template } from '../../contexts/TemplatesContext'
-import { Download as DownloadIcon, Eye as EyeIcon, EyeOff as EyeOffIcon, Search as SearchEmptyIcon, Phone as PhoneIcon, Mail as MailIcon, Filter as FilterIcon } from 'lucide-react'
+import { Download as DownloadIcon, Eye as EyeIcon, EyeOff as EyeOffIcon, Search as SearchEmptyIcon, Phone as PhoneIcon, Mail as MailIcon, Filter as FilterIcon, ChevronDown as ChevronDownIcon } from 'lucide-react'
 
 // currentStatus: preparing=準備中(システム), completed=完了(システム)
-// status: considering=検討中, second_pass=二次通過, rejected=不採用(企業担当者が手動管理)
+// status: null=未対応(面接完了後・結果未設定時の初期値), considering=検討中, second_pass=二次通過, rejected=不採用(企業担当者が手動管理)
 // TODO: 実データに差替え
+// TODO: Phase 4 - 面接完了時にステータスを自動で「未対応」に設定
 const DUMMY_APPLICANTS = [
   { id: '1', name: '山田 太郎', email: 'yamada@example.com', phone: '090-1234-5678', interviewAt: '2025-02-14 14:30', currentStatus: 'completed', status: 'second_pass', score: 85 },
   { id: '2', name: '佐藤 花子', email: 'sato@example.com', phone: '080-2345-6789', interviewAt: '2025-02-14 11:00', currentStatus: 'preparing', status: null, score: null },
   { id: '3', name: '鈴木 一郎', email: 'suzuki@example.com', phone: '070-3456-7890', interviewAt: '2025-02-13 16:00', currentStatus: 'completed', status: 'considering', score: 78 },
   { id: '4', name: '田中 美咲', email: 'tanaka@example.com', phone: '090-4567-8901', interviewAt: '2025-02-13 10:30', currentStatus: 'preparing', status: null, score: null },
   { id: '5', name: '高橋 健太', email: 'takahashi@example.com', phone: '080-5678-9012', interviewAt: '2025-02-12 15:00', currentStatus: 'completed', status: 'rejected', score: 92 },
-  { id: '6', name: '伊藤 彩', email: 'ito@example.com', phone: '070-6789-0123', interviewAt: '2025-02-12 09:00', currentStatus: 'completed', status: 'considering', score: 45 },
+  { id: '6', name: '伊藤 彩', email: 'ito@example.com', phone: '070-6789-0123', interviewAt: '2025-02-12 09:00', currentStatus: 'completed', status: null, score: 45 }, // 面接完了・結果未設定→未対応表示
   { id: '7', name: '渡辺 翔太', email: 'watanabe@example.com', phone: '090-7890-1234', interviewAt: '2025-02-11 14:00', currentStatus: 'completed', status: 'second_pass', score: 88 },
   { id: '8', name: '中村 理子', email: 'nakamura@example.com', phone: '080-8901-2345', interviewAt: '2025-02-11 11:30', currentStatus: 'preparing', status: null, score: null },
   { id: '9', name: '小林 大輔', email: 'kobayashi@example.com', phone: '070-9012-3456', interviewAt: '2025-02-10 16:30', currentStatus: 'completed', status: 'rejected', score: 72 },
@@ -26,14 +27,33 @@ const DUMMY_APPLICANTS = [
   { id: '15', name: '木村 由美', email: 'kimura@example.com', phone: '070-5678-9012', interviewAt: '2025-02-07 16:00', currentStatus: 'completed', status: 'second_pass', score: 76 },
 ]
 
-type StatusFilterValue = 'all' | 'considering' | 'second_pass' | 'rejected'
+type StatusFilterValue = 'all' | 'pending' | 'considering' | 'second_pass' | 'rejected'
+
+type Applicant = {
+  id: string
+  name: string
+  email: string
+  phone: string
+  interviewAt: string
+  currentStatus: string
+  status: 'considering' | 'second_pass' | 'rejected' | null
+  score: number | null
+}
 
 const STATUS_FILTER_OPTIONS: { value: StatusFilterValue; label: string }[] = [
   { value: 'all', label: 'すべて' },
+  { value: 'pending', label: '未対応' },
   { value: 'considering', label: '検討中' },
   { value: 'second_pass', label: '二次通過' },
   { value: 'rejected', label: '不採用' },
 ]
+
+function scoreToGrade(score: number): string {
+  if (score >= 85) return 'A'
+  if (score >= 70) return 'B'
+  if (score >= 55) return 'C'
+  return 'D'
+}
 
 
 // 管理者認証モーダルコンポーネント
@@ -126,7 +146,7 @@ export default function ApplicantsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('pending')
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false)
   const filterDropdownRef = useRef<HTMLDivElement>(null)
   const sendListRef = useRef<HTMLDivElement>(null)
@@ -140,11 +160,18 @@ export default function ApplicantsPage() {
   const [csvAdminAuthModalOpen, setCsvAdminAuthModalOpen] = useState(false)
   const [csvInfoModalOpen, setCsvInfoModalOpen] = useState(false)
   const [csvDownloadToast, setCsvDownloadToast] = useState(false)
+  const [applicants, setApplicants] = useState<Applicant[]>(DUMMY_APPLICANTS as Applicant[])
+  const [statusDropdownApplicantId, setStatusDropdownApplicantId] = useState<string | null>(null)
+  const statusDropdownRef = useRef<HTMLDivElement>(null)
+  const [statusToast, setStatusToast] = useState(false)
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node
       if (filterDropdownRef.current && !filterDropdownRef.current.contains(target)) {
         setFilterDropdownOpen(false)
+      }
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(target)) {
+        setStatusDropdownApplicantId(null)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -174,7 +201,7 @@ export default function ApplicantsPage() {
     }
   }
 
-  const handleCsvDownload = (filteredData: typeof DUMMY_APPLICANTS) => {
+  const handleCsvDownload = (filteredData: Applicant[]) => {
 
     const escapeCsvField = (v: string | number | null | undefined): string => {
       const s = v === null || v === undefined ? '' : String(v)
@@ -186,9 +213,9 @@ export default function ApplicantsPage() {
 
     const currentStatusLabel = (s: string | null) => (s === 'preparing' ? '準備中' : s === 'completed' ? '完了' : '')
     const statusLabel = (s: string | null) =>
-      s === 'considering' ? '検討中' : s === 'second_pass' ? '二次通過' : s === 'rejected' ? '不採用' : '-'
+      s === 'considering' ? '検討中' : s === 'second_pass' ? '二次通過' : s === 'rejected' ? '不採用' : '未対応'
 
-    const header = '応募者名,メールアドレス,電話番号,面接日時,現在状況,スコア,ステータス'
+    const header = '応募者名,メールアドレス,電話番号,面接日時,現在状況,点数,結果'
     const rows = filteredData.map((a) =>
       [
         a.name,
@@ -196,7 +223,7 @@ export default function ApplicantsPage() {
         a.phone,
         a.interviewAt ?? '',
         currentStatusLabel(a.currentStatus),
-        a.score ?? '',
+        a.score != null ? `${a.score}点` : '',
         statusLabel(a.status),
       ].map(escapeCsvField).join(',')
     )
@@ -219,7 +246,7 @@ export default function ApplicantsPage() {
   }
 
   const filtered = useMemo(() => {
-    return DUMMY_APPLICANTS.filter((a) => {
+    return applicants.filter((a) => {
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase()
         if (!a.name.toLowerCase().includes(q)) return false
@@ -230,12 +257,15 @@ export default function ApplicantsPage() {
         if (dateTo && at > new Date(dateTo).setHours(23, 59, 59, 999)) return false
       }
       if (statusFilter !== 'all') {
-        if (a.status === null) return false
-        if (a.status !== statusFilter) return false
+        if (statusFilter === 'pending') {
+          if (a.status != null) return false
+        } else if (a.status !== statusFilter) {
+          return false
+        }
       }
       return true
     })
-  }, [searchQuery, dateFrom, dateTo, statusFilter])
+  }, [applicants, searchQuery, dateFrom, dateTo, statusFilter])
 
   const handleStatusFilterSelect = (value: StatusFilterValue) => {
     setStatusFilter(value)
@@ -308,8 +338,20 @@ export default function ApplicantsPage() {
   }
 
   const mailSelectedApplicants = useMemo(() => {
-    return DUMMY_APPLICANTS.filter((a) => mailSelectedIds.has(a.id))
-  }, [mailSelectedIds])
+    return applicants.filter((a) => mailSelectedIds.has(a.id))
+  }, [applicants, mailSelectedIds])
+
+  // TODO: Phase 4 - Supabaseでステータス更新
+  const handleStatusUpdate = (applicantId: string, newStatus: 'considering' | 'second_pass' | 'rejected' | null) => {
+    setApplicants((prev) =>
+      prev.map((a) =>
+        a.id === applicantId ? { ...a, status: newStatus } : a
+      )
+    )
+    setStatusDropdownApplicantId(null)
+    setStatusToast(true)
+    setTimeout(() => setStatusToast(false), 2000)
+  }
 
   const selectedTemplate = templates.find((t: Template) => t.id === mailTemplateId)
 
@@ -367,7 +409,7 @@ export default function ApplicantsPage() {
             </button>
             {filterDropdownOpen && (
               <div className="absolute right-0 top-full mt-2 bg-white border border-gray-200 rounded-xl shadow-lg p-4 z-50 min-w-[200px]">
-                <p className="text-sm font-semibold text-gray-700 mb-2">ステータスで絞り込み</p>
+                <p className="text-sm font-semibold text-gray-700 mb-2">結果で絞り込み</p>
                 <div className="space-y-2">
                   {STATUS_FILTER_OPTIONS.map((o) => (
                     <label key={o.value} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 rounded px-2 py-1 -mx-2 -my-1">
@@ -412,7 +454,8 @@ export default function ApplicantsPage() {
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* デスクトップ: テーブル */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full min-w-[800px] text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
@@ -429,8 +472,8 @@ export default function ApplicantsPage() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">電話番号</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">面接日時</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">現在状況</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">スコア</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">ステータス</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">点数・推薦度</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">結果</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">操作</th>
                 </tr>
               </thead>
@@ -459,27 +502,51 @@ export default function ApplicantsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-slate-600">
-                      {a.currentStatus === 'preparing' ? '' : a.score}
+                      {a.currentStatus === 'preparing' ? (
+                        ''
+                      ) : a.score != null ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          {a.score}点
+                          <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+                            scoreToGrade(a.score) === 'A' ? 'bg-emerald-500 text-white' :
+                            scoreToGrade(a.score) === 'B' ? 'bg-sky-500 text-white' :
+                            scoreToGrade(a.score) === 'C' ? 'bg-amber-500 text-white' : 'bg-rose-500 text-white'
+                          }`}>
+                            {scoreToGrade(a.score)}
+                          </span>
+                        </span>
+                      ) : ''}
                     </td>
                     <td className="px-4 py-3">
                       {a.currentStatus === 'preparing' ? (
                         <span className="text-slate-400">-</span>
                       ) : (
-                        <span
-                          className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${
-                            a.status === 'considering'
-                              ? 'bg-orange-100 text-orange-600'
-                              : a.status === 'second_pass'
-                                ? 'bg-blue-100 text-blue-600'
-                                : 'bg-red-100 text-red-600'
-                          }`}
-                        >
-                          {a.status === 'considering' ? '検討中' : a.status === 'second_pass' ? '二次通過' : '不採用'}
-                        </span>
+                        <div ref={statusDropdownApplicantId === a.id ? statusDropdownRef : undefined} className="relative inline-block">
+                          <button
+                            type="button"
+                            onClick={() => setStatusDropdownApplicantId(statusDropdownApplicantId === a.id ? null : a.id)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 ${
+                              a.status == null ? 'bg-gray-100 text-gray-600' :
+                              a.status === 'considering' ? 'bg-orange-100 text-orange-600' :
+                              a.status === 'second_pass' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'
+                            }`}
+                          >
+                            {a.status == null ? '未対応' : a.status === 'considering' ? '検討中' : a.status === 'second_pass' ? '二次通過' : '不採用'}
+                            <ChevronDownIcon className="w-3.5 h-3.5" />
+                          </button>
+                          {statusDropdownApplicantId === a.id && (
+                            <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 min-w-[120px] py-1">
+                              <button type="button" onClick={() => handleStatusUpdate(a.id, null)} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">未対応</button>
+                              <button type="button" onClick={() => handleStatusUpdate(a.id, 'considering')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">検討中</button>
+                              <button type="button" onClick={() => handleStatusUpdate(a.id, 'second_pass')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">二次通過</button>
+                              <button type="button" onClick={() => handleStatusUpdate(a.id, 'rejected')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">不採用</button>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
+                      <div className="flex items-center justify-end gap-1 flex-wrap">
                         <a
                           href={`tel:${a.phone}`}
                           className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
@@ -509,9 +576,91 @@ export default function ApplicantsPage() {
             </table>
           </div>
 
+          {/* モバイル: カード表示 */}
+          <div className="md:hidden divide-y divide-slate-100">
+            {filtered.map((a) => (
+              <div key={a.id} className="p-3 sm:p-4 space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-900 truncate">{a.name}</p>
+                    <p className="text-xs text-slate-500 truncate">{a.email}</p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(a.id)}
+                      onChange={() => toggleSelect(a.id)}
+                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span className="text-slate-500">{a.interviewAt}</span>
+                  <span
+                    className={`inline-flex px-2 py-0.5 rounded-full font-medium ${
+                      a.currentStatus === 'preparing' ? 'bg-gray-100 text-gray-600' : 'bg-green-100 text-green-600'
+                    }`}
+                  >
+                    {a.currentStatus === 'preparing' ? '準備中' : '完了'}
+                  </span>
+                  {a.currentStatus === 'completed' && a.score != null && (
+                    <span className="inline-flex items-center gap-1">
+                      {a.score}点
+                      <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold ${
+                        scoreToGrade(a.score) === 'A' ? 'bg-emerald-500 text-white' :
+                        scoreToGrade(a.score) === 'B' ? 'bg-sky-500 text-white' :
+                        scoreToGrade(a.score) === 'C' ? 'bg-amber-500 text-white' : 'bg-rose-500 text-white'
+                      }`}>
+                        {scoreToGrade(a.score)}
+                      </span>
+                    </span>
+                  )}
+                  {a.currentStatus === 'completed' && (
+                    <div ref={statusDropdownApplicantId === a.id ? statusDropdownRef : undefined} className="relative inline-block">
+                      <button
+                        type="button"
+                        onClick={() => setStatusDropdownApplicantId(statusDropdownApplicantId === a.id ? null : a.id)}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium text-xs cursor-pointer hover:opacity-90 ${
+                          a.status == null ? 'bg-gray-100 text-gray-600' :
+                          a.status === 'considering' ? 'bg-orange-100 text-orange-600' :
+                          a.status === 'second_pass' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'
+                        }`}
+                      >
+                        {a.status == null ? '未対応' : a.status === 'considering' ? '検討中' : a.status === 'second_pass' ? '二次通過' : '不採用'}
+                        <ChevronDownIcon className="w-3.5 h-3.5" />
+                      </button>
+                      {statusDropdownApplicantId === a.id && (
+                        <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 min-w-[120px] py-1">
+                          <button type="button" onClick={() => handleStatusUpdate(a.id, null)} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">未対応</button>
+                          <button type="button" onClick={() => handleStatusUpdate(a.id, 'considering')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">検討中</button>
+                          <button type="button" onClick={() => handleStatusUpdate(a.id, 'second_pass')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">二次通過</button>
+                          <button type="button" onClick={() => handleStatusUpdate(a.id, 'rejected')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">不採用</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-1 pt-1">
+                  <a href={`tel:${a.phone}`} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                    <PhoneIcon className="w-4 h-4" />
+                  </a>
+                  <button type="button" onClick={() => openMailModal(new Set([a.id]))} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                    <MailIcon className="w-4 h-4" />
+                  </button>
+                  <Link
+                    href={`/client/applicants/${a.id}`}
+                    className="inline-flex items-center px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium rounded-lg"
+                  >
+                    詳細
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+
           {/* ページネーション（見た目のみ） */}
           {/* TODO: ページネーション実装 */}
-          <div className="px-4 py-3 border-t border-slate-200 flex items-center justify-between">
+          <div className="px-3 sm:px-4 py-3 border-t border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 text-sm">
             <p className="text-sm text-slate-500">
               全{filtered.length}件
             </p>
@@ -726,6 +875,13 @@ export default function ApplicantsPage() {
               </Link>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 結果更新トースト */}
+      {statusToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-6 py-3 bg-gray-900 text-white text-sm font-medium rounded-xl shadow-lg">
+          結果を更新しました
         </div>
       )}
 

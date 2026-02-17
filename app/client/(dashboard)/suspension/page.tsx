@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Pause as PauseIcon, AlertTriangle as AlertIcon, ChevronDown as ChevronDownIcon, ChevronUp as ChevronUpIcon } from 'lucide-react'
+import { Pause as PauseIcon, AlertTriangle as AlertIcon, ChevronDown as ChevronDownIcon, ChevronUp as ChevronUpIcon, Eye as EyeIcon, EyeOff as EyeOffIcon } from 'lucide-react'
 
 // TODO: 実データに差替え
 const FAQ_ITEMS = [
@@ -33,6 +33,10 @@ export default function SuspensionPage() {
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [suspensionModal, setSuspensionModal] = useState({ isOpen: false })
+  const [adminAuthModalOpen, setAdminAuthModalOpen] = useState(false)
+  const [adminPassword, setAdminPassword] = useState('')
+  const [adminAuthError, setAdminAuthError] = useState('')
+  const [showAdminPassword, setShowAdminPassword] = useState(false)
   const [cancelModal, setCancelModal] = useState({ isOpen: false })
   const [emergencyModal, setEmergencyModal] = useState({ isOpen: false, reason: '' })
   const [faqOpen, setFaqOpen] = useState<Record<number, boolean>>({})
@@ -52,11 +56,24 @@ export default function SuspensionPage() {
     setFaqOpen((prev) => ({ ...prev, [id]: !prev[id] }))
   }
 
-  const handleSuspensionConfirm = () => {
-    setCurrentStatus('pending_suspension')
-    showToast('一時停止申請を送信しました')
+  const handleSuspensionApplyClick = () => {
     setSuspensionModal({ isOpen: false })
-    // TODO: Supabaseに保存, // TODO: 運営に通知
+    setAdminAuthModalOpen(true)
+    setAdminPassword('')
+    setAdminAuthError('')
+  }
+
+  const handleAdminAuthConfirm = () => {
+    if (!adminPassword.trim()) {
+      setAdminAuthError('パスワードを入力してください')
+      return
+    }
+    // TODO: Phase 4 - Supabaseで管理者認証・一時停止処理
+    setCurrentStatus('pending_suspension')
+    setAdminAuthModalOpen(false)
+    setAdminPassword('')
+    setAdminAuthError('')
+    showToast('一時停止を申請しました')
   }
 
   const handleCancelConfirm = () => {
@@ -258,7 +275,7 @@ export default function SuspensionPage() {
             <div className="flex gap-3 mt-6">
               <button
                 type="button"
-                onClick={handleSuspensionConfirm}
+                onClick={handleSuspensionApplyClick}
                 className="bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
               >
                 申請する
@@ -269,6 +286,61 @@ export default function SuspensionPage() {
                 className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
               >
                 キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 管理者認証モーダル */}
+      {adminAuthModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900">管理者認証</h3>
+            <p className="text-sm text-gray-600 mt-2">
+              一時停止の申請には管理者用パスワードが必要です。
+            </p>
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">パスワード</label>
+              <div className="relative">
+                <input
+                  type={showAdminPassword ? 'text' : 'password'}
+                  value={adminPassword}
+                  onChange={(e) => {
+                    setAdminPassword(e.target.value)
+                    setAdminAuthError('')
+                  }}
+                  placeholder="管理者用パスワードを入力"
+                  className="w-full px-4 py-2.5 pr-10 border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAdminPassword(!showAdminPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showAdminPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
+                </button>
+              </div>
+              {adminAuthError && <p className="mt-1.5 text-sm text-red-600">{adminAuthError}</p>}
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminAuthModalOpen(false)
+                  setAdminPassword('')
+                  setAdminAuthError('')
+                }}
+                className="flex-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handleAdminAuthConfirm}
+                className="flex-1 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
+              >
+                認証して申請
               </button>
             </div>
           </div>

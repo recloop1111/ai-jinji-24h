@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Trash2, GripVertical, FileText, HelpCircle } from 'lucide-react'
+import { Plus, Trash2, GripVertical, FileText, HelpCircle, Check, ChevronRight } from 'lucide-react'
 
 const EVALUATION_AXES = [
   'コミュニケーション',
@@ -25,51 +25,51 @@ const TEMPLATES = {
   general: {
     name: '総合職向け',
     questions: [
-      { text: '自己紹介をお願いします。大学での専攻や、学生時代に力を入れてきたことを中心に教えてください。', axis: 'コミュニケーション' },
-      { text: 'この業界や職種に興味を持ったきっかけと、志望された理由を教えてください。', axis: 'カルチャーフィット' },
-      { text: '学生時代に最も力を入れたことについて、目標・取り組み・結果を具体的に教えてください。', axis: '仕事への意欲' },
-      { text: 'これまでに困難や壁にぶつかった経験と、それをどのように乗り越えたか教えてください。', axis: '課題対応力' },
-      { text: '入社後、3年後・5年後にどのように成長していきたいですか？目指す姿を教えてください。', axis: '成長可能性' },
+      { text: 'これまでのご経歴を簡単に教えてください', axis: 'コミュニケーション' },
+      { text: '志望動機を教えてください', axis: 'カルチャーフィット' },
+      { text: 'あなたの強みと弱みを教えてください', axis: 'コミュニケーション' },
+      { text: 'チームで働いた経験を教えてください', axis: 'コミュニケーション' },
+      { text: '5年後のキャリアプランを教えてください', axis: '成長可能性' },
     ],
   },
   engineer: {
     name: 'エンジニア向け',
     questions: [
-      { text: 'これまでの開発経験や、得意な技術領域について教えてください。', axis: '論理的思考' },
-      { text: 'なぜエンジニアを志望されたのですか？技術への興味やきっかけを教えてください。', axis: '仕事への意欲' },
-      { text: 'これまでに最も難しかった技術的な課題と、それをどのように解決したか教えてください。', axis: '課題対応力' },
-      { text: 'チーム開発での経験があれば教えてください。どのような役割を担いましたか？', axis: 'コミュニケーション' },
-      { text: '今後、どのような技術を学び、どのように成長していきたいですか？', axis: '成長可能性' },
+      { text: 'これまでの開発経験を教えてください', axis: '論理的思考' },
+      { text: '最も技術的に挑戦した経験を教えてください', axis: '課題対応力' },
+      { text: 'チーム開発での役割を教えてください', axis: 'コミュニケーション' },
+      { text: '新しい技術をどのように学んでいますか', axis: '成長可能性' },
+      { text: 'コードレビューで意識していることを教えてください', axis: '論理的思考' },
     ],
   },
   sales: {
     name: '営業職向け',
     questions: [
-      { text: 'これまでの営業経験や、実績について教えてください。', axis: 'コミュニケーション' },
-      { text: '営業職に興味を持ったきっかけと、この職種を志望する理由を教えてください。', axis: '仕事への意欲' },
-      { text: 'これまでに最も困難だった商談や、断られた経験をどのように乗り越えたか教えてください。', axis: '課題対応力' },
-      { text: 'お客様との信頼関係を築くために、どのようなことを心がけていますか？', axis: 'コミュニケーション' },
-      { text: '営業として、3年後・5年後にどのような姿を目指していますか？', axis: '成長可能性' },
+      { text: 'これまでの営業経験を教えてください', axis: 'コミュニケーション' },
+      { text: '最も大きな成果を上げた経験を教えてください', axis: '仕事への意欲' },
+      { text: '顧客との信頼関係をどう築きますか', axis: 'コミュニケーション' },
+      { text: '目標未達時にどう対応しますか', axis: '課題対応力' },
+      { text: '新規開拓で工夫していることを教えてください', axis: '仕事への意欲' },
     ],
   },
   support: {
     name: 'カスタマーサポート向け',
     questions: [
-      { text: 'これまでの接客やサポート経験について教えてください。', axis: 'コミュニケーション' },
-      { text: 'カスタマーサポート職に興味を持ったきっかけを教えてください。', axis: 'カルチャーフィット' },
-      { text: 'お客様からのクレームや難しい問い合わせがあった場合、どのように対応しますか？', axis: '課題対応力' },
-      { text: 'チームで協力して業務を進める際に、どのようなことを意識していますか？', axis: 'コミュニケーション' },
-      { text: 'サポート業務を通じて、どのように成長していきたいですか？', axis: '成長可能性' },
+      { text: 'これまでの顧客対応経験を教えてください', axis: 'コミュニケーション' },
+      { text: 'クレーム対応で心がけていることを教えてください', axis: '課題対応力' },
+      { text: '難しい要望にどう対応しますか', axis: '課題対応力' },
+      { text: 'チームでの情報共有で工夫していることを教えてください', axis: 'コミュニケーション' },
+      { text: 'ストレス管理の方法を教えてください', axis: '成長可能性' },
     ],
   },
   manager: {
     name: 'マネージャー向け',
     questions: [
-      { text: 'これまでのマネジメント経験や、チームを率いた経験について教えてください。', axis: 'コミュニケーション' },
-      { text: 'マネージャーとして、どのような組織やチームを作りたいと考えていますか？', axis: 'カルチャーフィット' },
-      { text: 'これまでに最も困難だったマネジメント上の課題と、それをどのように解決したか教えてください。', axis: '課題対応力' },
-      { text: 'チームメンバーのモチベーションを高めるために、どのような取り組みをしてきましたか？', axis: '仕事への意欲' },
-      { text: 'マネージャーとして、今後どのように成長していきたいですか？', axis: '成長可能性' },
+      { text: 'これまでのマネジメント経験を教えてください', axis: 'コミュニケーション' },
+      { text: 'チームのモチベーション管理で工夫していることを教えてください', axis: '仕事への意欲' },
+      { text: '部下の育成で意識していることを教えてください', axis: '成長可能性' },
+      { text: '困難なプロジェクトをどう乗り越えましたか', axis: '課題対応力' },
+      { text: '組織の課題をどう改善しましたか', axis: '論理的思考' },
     ],
   },
 }
@@ -85,6 +85,10 @@ export default function QuestionsPage() {
     }))
   })
   const [templateModalOpen, setTemplateModalOpen] = useState(false)
+  const [templateStep, setTemplateStep] = useState<'category' | 'questions'>('category')
+  const [selectedCategory, setSelectedCategory] = useState<keyof typeof TEMPLATES | null>(null)
+  const [selectedTemplateQuestionIds, setSelectedTemplateQuestionIds] = useState<Set<number>>(new Set())
+  const [insertAt, setInsertAt] = useState<number>(0)
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [toast, setToast] = useState('')
 
@@ -136,12 +140,55 @@ export default function QuestionsPage() {
     }
   }
 
-  const handleLoadTemplate = (templateKey: keyof typeof TEMPLATES, confirmOverwrite: boolean) => {
-    if (!confirmOverwrite) {
-      const confirmed = window.confirm('現在の質問を上書きしますか？')
-      if (!confirmed) return
-    }
-    const template = TEMPLATES[templateKey]
+  const openTemplateModal = () => {
+    setTemplateModalOpen(true)
+    setTemplateStep('category')
+    setSelectedCategory(null)
+    setSelectedTemplateQuestionIds(new Set())
+  }
+
+  const handleSelectCategory = (key: keyof typeof TEMPLATES) => {
+    setSelectedCategory(key)
+    setTemplateStep('questions')
+  }
+
+  const toggleTemplateQuestion = (idx: number) => {
+    setSelectedTemplateQuestionIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
+  }
+
+  const handleAddSelectedQuestions = () => {
+    if (!selectedCategory) return
+    const template = TEMPLATES[selectedCategory]
+    const toAdd = template.questions.filter((_, i) => selectedTemplateQuestionIds.has(i))
+    if (toAdd.length === 0) return
+    const insertIdx = Math.min(Math.max(0, insertAt), questions.length)
+    const newQs = toAdd.map((q, i) => ({
+      id: `q-${Date.now()}-${i}`,
+      number: insertIdx + i + 1,
+      text: q.text,
+      axis: q.axis,
+    }))
+    const before = questions.slice(0, insertIdx).map((q, i) => ({ ...q, number: i + 1 }))
+    const after = questions.slice(insertIdx).map((q, i) => ({ ...q, number: insertIdx + toAdd.length + i + 1 }))
+    const renumbered = [...before, ...newQs, ...after].map((q, i) => ({ ...q, number: i + 1 }))
+    setQuestions(renumbered)
+    setTemplateModalOpen(false)
+    setTemplateStep('category')
+    setSelectedCategory(null)
+    setSelectedTemplateQuestionIds(new Set())
+    showToast(`${toAdd.length}件の質問を追加しました`)
+  }
+
+  const handleReplaceAllWithTemplate = () => {
+    if (!selectedCategory) return
+    const confirmed = window.confirm('現在の質問を全てテンプレートに置き換えますか？')
+    if (!confirmed) return
+    const template = TEMPLATES[selectedCategory]
     const newQuestions = template.questions.map((q, i) => ({
       id: `q-${Date.now()}-${i}`,
       number: i + 1,
@@ -150,7 +197,9 @@ export default function QuestionsPage() {
     }))
     setQuestions(newQuestions)
     setTemplateModalOpen(false)
-    showToast(`${template.name}テンプレートを読み込みました`)
+    setTemplateStep('category')
+    setSelectedCategory(null)
+    showToast(`${template.name}テンプレートで全て置き換えました`)
   }
 
   const handleSave = () => {
@@ -193,7 +242,7 @@ export default function QuestionsPage() {
         </div>
         <button
           type="button"
-          onClick={() => setTemplateModalOpen(true)}
+          onClick={openTemplateModal}
           className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 text-sm font-medium rounded-xl hover:bg-slate-50 transition-colors shadow-sm"
         >
           <FileText className="w-4 h-4" />
@@ -294,30 +343,101 @@ export default function QuestionsPage() {
       {templateModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-          onClick={(e) => e.target === e.currentTarget && setTemplateModalOpen(false)}
+          onClick={(e) => e.target === e.currentTarget && (setTemplateModalOpen(false), setTemplateStep('category'), setSelectedCategory(null))}
         >
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-slate-900 mb-4">テンプレートから読み込み</h3>
-            <p className="text-sm text-slate-600 mb-6">
-              以下のテンプレートから選択してください。現在の質問は上書きされます。
-            </p>
-            <div className="space-y-2">
-              {Object.entries(TEMPLATES).map(([key, template]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => handleLoadTemplate(key as keyof typeof TEMPLATES, false)}
-                  className="w-full text-left px-4 py-3 bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 rounded-xl transition-colors"
-                >
-                  <p className="text-sm font-medium text-slate-900">{template.name}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">{template.questions.length}問</p>
-                </button>
-              ))}
-            </div>
+
+            {templateStep === 'category' ? (
+              <>
+                <p className="text-sm text-slate-600 mb-4">カテゴリを選択してください</p>
+                <div className="space-y-2">
+                  {Object.entries(TEMPLATES).map(([key, template]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => handleSelectCategory(key as keyof typeof TEMPLATES)}
+                      className="w-full flex items-center justify-between text-left px-4 py-3 bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 rounded-xl transition-colors"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">{template.name}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{template.questions.length}問</p>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-slate-400" />
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : selectedCategory ? (
+              <>
+                <div className="flex items-center gap-2 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => (setTemplateStep('category'), setSelectedCategory(null), setSelectedTemplateQuestionIds(new Set()))}
+                    className="text-sm text-slate-600 hover:text-indigo-600"
+                  >
+                    ← 戻る
+                  </button>
+                  <span className="text-sm text-slate-500">/</span>
+                  <span className="text-sm font-medium text-slate-700">{TEMPLATES[selectedCategory].name}</span>
+                </div>
+                <p className="text-sm text-slate-600 mb-3">質問を選択してください（複数選択可）</p>
+                <div className="space-y-2 mb-6 max-h-64 overflow-y-auto">
+                  {TEMPLATES[selectedCategory].questions.map((q, idx) => (
+                    <label
+                      key={idx}
+                      className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedTemplateQuestionIds.has(idx)}
+                        onChange={() => toggleTemplateQuestion(idx)}
+                        className="mt-1 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm text-slate-700">{q.text}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="space-y-2 mb-4">
+                  <label className="block text-sm font-medium text-slate-700">
+                    挿入位置（現在の質問リストの何番目に追加するか）
+                  </label>
+                  <select
+                    value={insertAt}
+                    onChange={(e) => setInsertAt(Number(e.target.value))}
+                    className="w-full px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-800"
+                  >
+                    <option value={0}>先頭</option>
+                    {questions.map((_, i) => (
+                      <option key={i} value={i + 1}>{`${i + 1}番目の後`}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleAddSelectedQuestions}
+                    disabled={selectedTemplateQuestionIds.size === 0}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Check className="w-4 h-4" />
+                    選択した質問を追加（{selectedTemplateQuestionIds.size}件）
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleReplaceAllWithTemplate}
+                    className="inline-flex items-center px-4 py-2 border border-amber-300 text-amber-700 text-sm font-medium rounded-xl hover:bg-amber-50"
+                  >
+                    全て変更
+                  </button>
+                </div>
+              </>
+            ) : null}
+
             <div className="mt-6 flex justify-end">
               <button
                 type="button"
-                onClick={() => setTemplateModalOpen(false)}
+                onClick={() => (setTemplateModalOpen(false), setTemplateStep('category'), setSelectedCategory(null))}
                 className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
               >
                 キャンセル

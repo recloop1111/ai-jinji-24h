@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useTemplates, type Template } from '../../contexts/TemplatesContext'
-import { ChevronRight as ChevronRightIcon, Phone as PhoneIcon, Mail as MailIcon } from 'lucide-react'
+import { ChevronRight as ChevronRightIcon, ChevronDown as ChevronDownIcon, Phone as PhoneIcon, Mail as MailIcon } from 'lucide-react'
 
 // TODO: 実データに差替え
 const KPIS = [
@@ -14,26 +14,61 @@ const KPIS = [
 ]
 
 // currentStatus: preparing=準備中(システム), completed=完了(システム)
-// status: considering=検討中, second_pass=二次通過, rejected=不採用(企業担当者が手動管理)
+// status: null=未対応(面接完了後・結果未設定時の初期値), considering=検討中, second_pass=二次通過, rejected=不採用(企業担当者が手動管理)
 // TODO: Phase 4 - Supabaseから応募者の連絡先を取得
+// TODO: Phase 4 - 面接完了時にステータスを自動で「未対応」に設定
 const RECENT_APPLICANTS = [
-  { id: '1', name: '山田 太郎', email: 'yamada@example.com', phone: '090-1234-5678', date: '2025-02-14 14:30', currentStatus: 'completed', status: 'second_pass', score: 85 },
+  { id: '1', name: '山田 太郎', email: 'yamada@example.com', phone: '090-1234-5678', date: '2025-02-14 14:30', currentStatus: 'completed', status: 'second_pass' as const, score: 85 },
   { id: '2', name: '佐藤 花子', email: 'sato@example.com', phone: '080-2345-6789', date: '2025-02-14 11:00', currentStatus: 'preparing', status: null, score: null },
-  { id: '3', name: '鈴木 一郎', email: 'suzuki@example.com', phone: '070-3456-7890', date: '2025-02-13 16:00', currentStatus: 'completed', status: 'considering', score: 78 },
+  { id: '3', name: '鈴木 一郎', email: 'suzuki@example.com', phone: '070-3456-7890', date: '2025-02-13 16:00', currentStatus: 'completed', status: null, score: 72 }, // 面接完了・結果未設定→未対応表示
   { id: '4', name: '田中 美咲', email: 'tanaka@example.com', phone: '090-4567-8901', date: '2025-02-13 10:30', currentStatus: 'preparing', status: null, score: null },
-  { id: '5', name: '高橋 健太', email: 'takahashi@example.com', phone: '080-5678-9012', date: '2025-02-12 15:00', currentStatus: 'completed', status: 'rejected', score: 92 },
+  { id: '5', name: '高橋 健太', email: 'takahashi@example.com', phone: '080-5678-9012', date: '2025-02-12 15:00', currentStatus: 'completed', status: 'rejected' as const, score: 92 },
 ]
 
+function scoreToGrade(score: number): string {
+  if (score >= 85) return 'A'
+  if (score >= 70) return 'B'
+  if (score >= 55) return 'C'
+  return 'D'
+}
+
+
+type ApplicantStatus = 'considering' | 'second_pass' | 'rejected' | null
+
+type DashboardApplicant = {
+  id: string
+  name: string
+  email: string
+  phone: string
+  date: string
+  currentStatus: string
+  status: ApplicantStatus
+  score: number | null
+}
 
 export default function ClientDashboardPage() {
   const { templates } = useTemplates()
+  const [applicants, setApplicants] = useState<DashboardApplicant[]>(RECENT_APPLICANTS as DashboardApplicant[])
   const [mailModalOpen, setMailModalOpen] = useState(false)
+  const [statusDropdownApplicantId, setStatusDropdownApplicantId] = useState<string | null>(null)
+  const statusDropdownRef = useRef<HTMLDivElement>(null)
+  const [statusToast, setStatusToast] = useState(false)
   const [mailSelectedIds, setMailSelectedIds] = useState<Set<string>>(new Set())
   const [mailTemplateId, setMailTemplateId] = useState('')
   const [mailBody, setMailBody] = useState('')
   const [mailToast, setMailToast] = useState(false)
   const sendListRef = useRef<HTMLDivElement>(null)
   const [sendListShowFade, setSendListShowFade] = useState(false)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
+        setStatusDropdownApplicantId(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   useEffect(() => {
     if (!mailModalOpen) return
@@ -77,8 +112,18 @@ export default function ClientDashboardPage() {
   }
 
   const mailSelectedApplicants = useMemo(() => {
-    return RECENT_APPLICANTS.filter((a) => mailSelectedIds.has(a.id))
-  }, [mailSelectedIds])
+    return applicants.filter((a) => mailSelectedIds.has(a.id))
+  }, [mailSelectedIds, applicants])
+
+  const handleStatusUpdate = (applicantId: string, newStatus: ApplicantStatus) => {
+    // TODO: Phase 4 - Supabaseでステータス更新
+    setApplicants((prev) =>
+      prev.map((a) => (a.id === applicantId ? { ...a, status: newStatus } : a))
+    )
+    setStatusDropdownApplicantId(null)
+    setStatusToast(true)
+    setTimeout(() => setStatusToast(false), 2000)
+  }
 
   const selectedTemplate = templates.find((t: Template) => t.id === mailTemplateId)
 
@@ -125,20 +170,21 @@ export default function ClientDashboardPage() {
               <ChevronRightIcon className="w-4 h-4" />
             </Link>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px]">
+          {/* デスクトップ: テーブル */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full min-w-[600px] text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">応募者名</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">面接日時</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">現在状況</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">スコア</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">ステータス</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">点数・推薦度</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">結果</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {RECENT_APPLICANTS.map((a) => (
+                {applicants.map((a) => (
                   <tr key={a.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-4 py-3 text-sm font-medium text-slate-900">{a.name}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{a.date}</td>
@@ -152,23 +198,47 @@ export default function ClientDashboardPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">
-                      {a.currentStatus === 'preparing' ? '' : a.score}
+                      {a.currentStatus === 'preparing' ? (
+                        ''
+                      ) : a.score != null ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          {a.score}点
+                          <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+                            scoreToGrade(a.score) === 'A' ? 'bg-emerald-500 text-white' :
+                            scoreToGrade(a.score) === 'B' ? 'bg-sky-500 text-white' :
+                            scoreToGrade(a.score) === 'C' ? 'bg-amber-500 text-white' : 'bg-rose-500 text-white'
+                          }`}>
+                            {scoreToGrade(a.score)}
+                          </span>
+                        </span>
+                      ) : ''}
                     </td>
                     <td className="px-4 py-3">
                       {a.currentStatus === 'preparing' ? (
                         <span className="text-slate-400">-</span>
                       ) : (
-                        <span
-                          className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${
-                            a.status === 'considering'
-                              ? 'bg-orange-100 text-orange-600'
-                              : a.status === 'second_pass'
-                                ? 'bg-blue-100 text-blue-600'
-                                : 'bg-red-100 text-red-600'
-                          }`}
-                        >
-                          {a.status === 'considering' ? '検討中' : a.status === 'second_pass' ? '二次通過' : '不採用'}
-                        </span>
+                        <div ref={statusDropdownApplicantId === a.id ? statusDropdownRef : undefined} className="relative inline-block">
+                          <button
+                            type="button"
+                            onClick={() => setStatusDropdownApplicantId(statusDropdownApplicantId === a.id ? null : a.id)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer hover:opacity-90 transition-opacity ${
+                              a.status == null ? 'bg-gray-100 text-gray-600' :
+                              a.status === 'considering' ? 'bg-orange-100 text-orange-600' :
+                              a.status === 'second_pass' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'
+                            }`}
+                          >
+                            {a.status == null ? '未対応' : a.status === 'considering' ? '検討中' : a.status === 'second_pass' ? '二次通過' : '不採用'}
+                            <ChevronDownIcon className="w-3.5 h-3.5" />
+                          </button>
+                          {statusDropdownApplicantId === a.id && (
+                            <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 min-w-[120px] py-1">
+                              <button type="button" onClick={() => handleStatusUpdate(a.id, null)} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">未対応</button>
+                              <button type="button" onClick={() => handleStatusUpdate(a.id, 'considering')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">検討中</button>
+                              <button type="button" onClick={() => handleStatusUpdate(a.id, 'second_pass')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">二次通過</button>
+                              <button type="button" onClick={() => handleStatusUpdate(a.id, 'rejected')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">不採用</button>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -201,9 +271,72 @@ export default function ClientDashboardPage() {
               </tbody>
             </table>
           </div>
+          {/* モバイル: カード表示 */}
+          <div className="md:hidden divide-y divide-slate-100">
+            {applicants.map((a) => (
+              <div key={a.id} className="p-3 sm:p-4 space-y-2">
+                <p className="text-sm font-medium text-slate-900">{a.name}</p>
+                <p className="text-xs text-slate-500">{a.date}</p>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span className={`inline-flex px-2 py-0.5 rounded-full font-medium ${
+                    a.currentStatus === 'preparing' ? 'bg-gray-100 text-gray-600' : 'bg-green-100 text-green-600'
+                  }`}>
+                    {a.currentStatus === 'preparing' ? '準備中' : '完了'}
+                  </span>
+                  {a.currentStatus === 'completed' && a.score != null && (
+                    <span className="inline-flex items-center gap-1">
+                      {a.score}点
+                      <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold ${
+                        scoreToGrade(a.score) === 'A' ? 'bg-emerald-500 text-white' :
+                        scoreToGrade(a.score) === 'B' ? 'bg-sky-500 text-white' :
+                        scoreToGrade(a.score) === 'C' ? 'bg-amber-500 text-white' : 'bg-rose-500 text-white'
+                      }`}>
+                        {scoreToGrade(a.score)}
+                      </span>
+                    </span>
+                  )}
+                  {a.currentStatus === 'completed' && (
+                    <div ref={statusDropdownApplicantId === a.id ? statusDropdownRef : undefined} className="relative inline-block">
+                      <button
+                        type="button"
+                        onClick={() => setStatusDropdownApplicantId(statusDropdownApplicantId === a.id ? null : a.id)}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium text-xs cursor-pointer hover:opacity-90 ${
+                          a.status == null ? 'bg-gray-100 text-gray-600' :
+                          a.status === 'considering' ? 'bg-orange-100 text-orange-600' :
+                          a.status === 'second_pass' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'
+                        }`}
+                      >
+                        {a.status == null ? '未対応' : a.status === 'considering' ? '検討中' : a.status === 'second_pass' ? '二次通過' : '不採用'}
+                        <ChevronDownIcon className="w-3.5 h-3.5" />
+                      </button>
+                      {statusDropdownApplicantId === a.id && (
+                        <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 min-w-[120px] py-1">
+                          <button type="button" onClick={() => handleStatusUpdate(a.id, null)} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">未対応</button>
+                          <button type="button" onClick={() => handleStatusUpdate(a.id, 'considering')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">検討中</button>
+                          <button type="button" onClick={() => handleStatusUpdate(a.id, 'second_pass')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">二次通過</button>
+                          <button type="button" onClick={() => handleStatusUpdate(a.id, 'rejected')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">不採用</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-1 pt-1">
+                  <a href={`tel:${a.phone}`} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                    <PhoneIcon className="w-4 h-4" />
+                  </a>
+                  <button type="button" onClick={() => openMailModal(new Set([a.id]))} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                    <MailIcon className="w-4 h-4" />
+                  </button>
+                  <Link href={`/client/applicants/${a.id}`} className="inline-flex items-center px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium rounded-lg">
+                    詳細
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
-      {/* メール送信モーダル */}
+        {/* メール送信モーダル */}
       {mailModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={closeMailModal} aria-hidden />
@@ -333,6 +466,13 @@ export default function ClientDashboardPage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 結果更新トースト */}
+      {statusToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-6 py-3 bg-gray-900 text-white text-sm font-medium rounded-xl shadow-lg">
+          結果を更新しました
         </div>
       )}
 
