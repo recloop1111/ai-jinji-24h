@@ -4,10 +4,11 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 
 const STEPS = [
-  { id: 1, label: '音声データを解析中...' },
-  { id: 2, label: '回答内容を評価中...' },
-  { id: 3, label: 'パーソナリティを分析中...' },
-  { id: 4, label: 'レポートを生成中...' },
+  { id: 1, label: '動画を保存中...', completedLabel: '動画を保存しました' },
+  { id: 2, label: '音声を確認中...', completedLabel: '音声を確認しました' },
+  { id: 3, label: '回答内容を確認中...', completedLabel: '回答内容を確認しました' },
+  { id: 4, label: 'あなたの個性を分析中...', completedLabel: 'あなたの個性を分析しました' },
+  { id: 5, label: 'レポートを作成中...', completedLabel: 'レポートを作成しました' },
 ]
 
 // 光の粒パーティクル（complete画面とトーン統一: cyan / violet）
@@ -51,7 +52,7 @@ export default function UploadingPage() {
   // TODO: 実際のアップロード進捗に差替え
   useEffect(() => {
     const stepInterval = setInterval(() => {
-      setCurrentStep((prev) => Math.min(prev + 1, 4))
+      setCurrentStep((prev) => Math.min(prev + 1, 5))
     }, 3000)
     return () => clearInterval(stepInterval)
   }, [])
@@ -218,15 +219,7 @@ export default function UploadingPage() {
                 </linearGradient>
               </defs>
             </svg>
-            {!showComplete ? (
-              <div className="absolute flex flex-col items-center gap-1.5">
-                <div
-                  className="w-4 h-4 rounded-full bg-cyan-400"
-                  style={{ animation: 'glow-pulse 1.5s ease-in-out infinite' }}
-                />
-                <span className="text-xs text-cyan-300/90 font-medium tracking-wide">解析中</span>
-              </div>
-            ) : (
+            {showComplete ? (
               <div className="absolute flex flex-col items-center gap-2" style={{ animation: 'upload-zoom-in 0.4s ease-out forwards' }}>
                 <div className="w-16 h-16 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/50">
                   <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
@@ -235,6 +228,22 @@ export default function UploadingPage() {
                 </div>
                 <span className="text-sm font-bold text-emerald-400">分析完了</span>
               </div>
+            ) : currentStep === 0 ? (
+              <div className="absolute flex flex-col items-center gap-1.5">
+                <div
+                  className="w-4 h-4 rounded-full bg-cyan-400"
+                  style={{ animation: 'glow-pulse 1.5s ease-in-out infinite' }}
+                />
+                <span className="text-xs text-white/70 font-medium tracking-wide">お疲れ様でした</span>
+              </div>
+            ) : (
+              <div className="absolute flex flex-col items-center gap-1.5">
+                <div
+                  className="w-4 h-4 rounded-full bg-cyan-400"
+                  style={{ animation: 'glow-pulse 1.5s ease-in-out infinite' }}
+                />
+                <span className="text-xs text-cyan-300/90 font-medium tracking-wide">解析中</span>
+              </div>
             )}
           </div>
         </div>
@@ -242,8 +251,10 @@ export default function UploadingPage() {
         {/* ステップ表示 */}
         <div className="space-y-3 w-full max-w-xs mb-8">
           {STEPS.map((step, i) => {
-            const done = i < currentStep
-            const active = i === currentStep && !showComplete
+            const stepIndex = i + 1 // ステップIDは1から始まる
+            const done = stepIndex < currentStep
+            const active = stepIndex === currentStep && !showComplete
+            const displayLabel = done && step.completedLabel ? step.completedLabel : step.label
             return (
               <div
                 key={step.id}
@@ -269,14 +280,22 @@ export default function UploadingPage() {
                     done ? 'text-emerald-300' : active ? 'text-white' : 'text-slate-500'
                   }`}
                 >
-                  {step.label}
+                  {displayLabel}
                 </span>
               </div>
             )
           })}
         </div>
 
-        <p className="text-slate-500 text-sm">画面を閉じないでください</p>
+        <div className="text-center mb-2">
+          {showComplete ? (
+            <p className="text-green-400 font-medium text-base text-center">レポートが完成しました！</p>
+          ) : (
+            <>
+              <p className="text-white/50 text-sm text-center">⚠ すべての処理が完了するまで画面を閉じないでください</p>
+            </>
+          )}
+        </div>
       </div>
 
       {/* 完了時のフラッシュ */}

@@ -28,6 +28,7 @@ const PREFECTURES = [
 ]
 
 const EDUCATION_OPTIONS = [
+  { value: 'junior_high', label: '中学卒' },
   { value: 'high_school', label: '高校卒' },
   { value: 'vocational', label: '専門学校卒' },
   { value: 'junior_college', label: '短大卒' },
@@ -68,7 +69,6 @@ export default function FormPage() {
   const [employmentType, setEmploymentType] = useState('')
   const [industryExperience, setIndustryExperience] = useState('')
   const [jobTypeId, setJobTypeId] = useState('')
-  const [desiredEmploymentForm, setDesiredEmploymentForm] = useState('')
   const [workHistory, setWorkHistory] = useState('')
   const [qualifications, setQualifications] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -113,18 +113,22 @@ export default function FormPage() {
           }))
         )
       } else {
-        // ダミー職種を追加
+        // ダミー職種を追加（求人管理のダミーデータに合わせる）
         setJobTypes([
-          { value: 'dummy-job-type-1', label: '総合職' },
-          { value: 'dummy-job-type-2', label: '営業職' },
+          { value: 'dummy-job-type-1', label: '営業（正社員）' },
+          { value: 'dummy-job-type-2', label: '事務（アルバイト）' },
+          { value: 'dummy-job-type-3', label: 'エンジニア・技術職（正社員）' },
         ])
       }
     } catch (error) {
+      // TODO: 段階4 - Supabase接続を本実装する
+      console.warn('Supabase取得スキップ（段階3デモ）:', error)
       // エラー時はダミーデータを使用
       setCompanyId(dummyCompany.id)
       setJobTypes([
-        { value: 'dummy-job-type-1', label: '総合職' },
-        { value: 'dummy-job-type-2', label: '営業職' },
+        { value: 'dummy-job-type-1', label: '営業（正社員）' },
+        { value: 'dummy-job-type-2', label: '事務（アルバイト）' },
+        { value: 'dummy-job-type-3', label: 'エンジニア・技術職（正社員）' },
       ])
     }
 
@@ -168,8 +172,7 @@ export default function FormPage() {
     if (!education) newErrors.education = '最終学歴を選択してください'
     if (!employmentType) newErrors.employmentType = '就業形態を選択してください'
     if (!industryExperience) newErrors.industryExperience = '業界経験を選択してください'
-    if (jobTypes.length > 0 && !jobTypeId) newErrors.jobTypeId = '希望職種を選択してください'
-    if (!desiredEmploymentForm) newErrors.desiredEmploymentForm = '希望の雇用形態を選択してください'
+    if (jobTypes.length > 0 && !jobTypeId) newErrors.jobTypeId = '応募職種を選択してください'
 
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -184,39 +187,45 @@ export default function FormPage() {
 
     setSubmitting(true)
 
-    const { data, error } = await supabase
-      .from('applicants')
-      .insert({
-        company_id: companyId,
-        last_name: lastName.trim(),
-        first_name: firstName.trim(),
-        last_name_kana: lastNameKana.trim(),
-        first_name_kana: firstNameKana.trim(),
-        birth_date: '2000-01-01',
-        age: parseInt(age, 10),
-        gender: gender,
-        phone_number: phone,
-        email: email.trim(),
-        prefecture: prefecture,
-        education: education,
-        employment_type: employmentType,
-        industry_experience: industryExperience,
-        job_type_id: jobTypeId || null,
-        // TODO: desired_employment_form カラム追加後にinsertに含める
-        work_history: workHistory.trim() || null,
-        qualifications: qualifications.trim() || null,
-        selection_status: 'pending',
-        duplicate_flag: false,
-        inappropriate_flag: false,
-      })
-      .select()
-      .single()
+    try {
+      const { data, error } = await supabase
+        .from('applicants')
+        .insert({
+          company_id: companyId,
+          last_name: lastName.trim(),
+          first_name: firstName.trim(),
+          last_name_kana: lastNameKana.trim(),
+          first_name_kana: firstNameKana.trim(),
+          birth_date: '2000-01-01',
+          age: parseInt(age, 10),
+          gender: gender,
+          phone_number: phone,
+          email: email.trim(),
+          prefecture: prefecture,
+          education: education,
+          employment_type: employmentType,
+          industry_experience: industryExperience,
+          job_type_id: jobTypeId || null,
+          // TODO: desired_employment_form カラム追加後にinsertに含める
+          work_history: workHistory.trim() || null,
+          qualifications: qualifications.trim() || null,
+          selection_status: 'pending',
+          duplicate_flag: false,
+          inappropriate_flag: false,
+        })
+        .select()
+        .single()
 
-    // TODO: Phase 4 - Supabase保存成功時のみ遷移するように変更
-    if (data) {
-      sessionStorage.setItem(`interview_${slug}_applicant_id`, data.id)
+      // TODO: Phase 4 - Supabaseから企業の求人データを取得し、募集中の求人のみ選択肢に表示する
+      if (data) {
+        sessionStorage.setItem(`interview_${slug}_applicant_id`, data.id)
+      }
+    } catch (error) {
+      // TODO: 段階4 - Supabase接続を本実装する
+      console.warn('Supabase保存スキップ（段階3デモ）:', error)
     }
-    // エラー時も次ページへ遷移（ダミーデータの場合）
+
+    // Supabase保存の成否に関わらず、次の画面に遷移
     router.push(`/interview/${slug}/verify?phone=${encodeURIComponent(phone)}`)
   }
 
@@ -320,7 +329,6 @@ export default function FormPage() {
                 { value: 'male', label: '男性' },
                 { value: 'female', label: '女性' },
                 { value: 'other', label: 'その他' },
-                { value: 'no_answer', label: '回答しない' },
               ]}
               placeholder="選択してください"
             />
@@ -384,7 +392,7 @@ export default function FormPage() {
             />
           </InputField>
 
-          <InputField label="希望職種" required error={errors.jobTypeId}>
+          <InputField label="応募職種" required error={errors.jobTypeId}>
             {jobTypes.length > 0 ? (
               <SelectField
                 value={jobTypeId}
@@ -395,18 +403,6 @@ export default function FormPage() {
             ) : (
               <p className="text-sm text-gray-500">職種が登録されていません</p>
             )}
-          </InputField>
-
-          <InputField label="希望の雇用形態" required error={errors.desiredEmploymentForm}>
-            <SelectField
-              value={desiredEmploymentForm}
-              onChange={setDesiredEmploymentForm}
-              options={[
-                { value: 'parttime', label: 'アルバイト' },
-                { value: 'fulltime', label: '正社員' },
-              ]}
-              placeholder="選択してください"
-            />
           </InputField>
 
           <InputField label="職歴・業種" error={errors.workHistory}>

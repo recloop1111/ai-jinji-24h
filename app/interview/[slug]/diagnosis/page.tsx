@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { useParams } from 'next/navigation'
-import { Twitter, MessageCircle, Instagram, Download } from 'lucide-react'
+import { useParams, useRouter } from 'next/navigation'
+import { ChevronLeft } from 'lucide-react'
 
 // 動物キャラクターSVGアイコンコンポーネント（ゆるキャラ・LINEスタンプ風）
 function LionIcon({ className }: { className?: string }) {
@@ -580,6 +580,7 @@ const TAG_STYLES: Record<string, string> = {
 // TODO: Phase 4 - OGP画像生成・シェアURL生成
 export default function DiagnosisPage() {
   const params = useParams()
+  const router = useRouter()
   const slug = params.slug as string
   const [toast, setToast] = useState('')
 
@@ -591,14 +592,6 @@ export default function DiagnosisPage() {
   const showToast = (message: string) => {
     setToast(message)
     setTimeout(() => setToast(''), 3000)
-  }
-
-  const handleShare = (platform: string) => {
-    showToast('シェア機能は今後実装予定です')
-  }
-
-  const handleDownloadImage = () => {
-    showToast('シェア機能は今後実装予定です')
   }
 
   // レーダーチャート用の計算
@@ -615,6 +608,15 @@ export default function DiagnosisPage() {
 
   return (
     <>
+      {/* 戻るボタン */}
+      <button
+        onClick={() => router.back()}
+        className="fixed top-4 left-4 z-50 flex items-center gap-1 bg-white/90 backdrop-blur-sm rounded-full px-4 py-2 shadow-md text-gray-700 text-sm font-medium hover:bg-white transition-all"
+      >
+        <ChevronLeft className="w-4 h-4" />
+        <span>戻る</span>
+      </button>
+
       {/* モバイル表示 */}
       <div className={`md:hidden min-h-screen overflow-y-auto bg-gradient-to-br ${currentType.bgGradient}`}>
         <div className="max-w-[430px] mx-auto flex flex-col items-center px-4 py-4 gap-3">
@@ -701,7 +703,7 @@ export default function DiagnosisPage() {
         </div>
 
         {/* 12タイプ一覧グリッド（モバイル） */}
-        <div className="max-w-[430px] mx-auto px-4 py-6 bg-white">
+        <div className="max-w-[430px] mx-auto px-4 py-6 pb-12 bg-white">
           <div className="bg-white rounded-3xl p-6 shadow-xl border-2 border-slate-200">
             <h3 className="text-lg font-bold text-[#333] mb-4 text-center">全12タイプ</h3>
             <div className="grid grid-cols-4 gap-3">
@@ -723,42 +725,6 @@ export default function DiagnosisPage() {
                 )
               })}
             </div>
-          </div>
-        </div>
-
-        {/* SNSシェアセクション（ページ最下部） */}
-        <div className="max-w-[430px] mx-auto px-4 py-8 pb-12 bg-white">
-          <h2 className="text-lg font-bold text-[#333] text-center mb-2">診断結果をシェアしよう！</h2>
-          <p className="text-sm text-gray-500 text-center mb-6">友達にも教えてあげよう！</p>
-          <div className="flex items-center justify-center gap-4">
-            <button
-              type="button"
-              onClick={() => handleShare('twitter')}
-              className="w-11 h-11 rounded-full bg-slate-900 hover:bg-slate-800 text-white flex items-center justify-center transition-all shadow-md"
-            >
-              <Twitter className="w-5 h-5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handleShare('line')}
-              className="w-11 h-11 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center justify-center transition-all shadow-md"
-            >
-              <MessageCircle className="w-5 h-5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handleShare('instagram')}
-              className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 hover:opacity-90 text-white flex items-center justify-center transition-all shadow-md"
-            >
-              <Instagram className="w-5 h-5" />
-            </button>
-            <button
-              type="button"
-              onClick={handleDownloadImage}
-              className="w-11 h-11 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition-all shadow-md"
-            >
-              <Download className="w-5 h-5" />
-            </button>
           </div>
         </div>
       </div>
@@ -871,42 +837,6 @@ export default function DiagnosisPage() {
                   </div>
                 )
               })}
-            </div>
-          </div>
-
-          {/* SNSシェアセクション（ページ最下部） */}
-          <div className="pb-12">
-            <h2 className="text-lg font-bold text-[#333] text-center mb-2">診断結果をシェアしよう！</h2>
-            <p className="text-sm text-gray-500 text-center mb-6">友達にも教えてあげよう！</p>
-            <div className="flex items-center justify-center gap-4">
-              <button
-                type="button"
-                onClick={() => handleShare('twitter')}
-                className="w-11 h-11 rounded-full bg-slate-900 hover:bg-slate-800 text-white flex items-center justify-center transition-all shadow-md"
-              >
-                <Twitter className="w-5 h-5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleShare('line')}
-                className="w-11 h-11 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center justify-center transition-all shadow-md"
-              >
-                <MessageCircle className="w-5 h-5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleShare('instagram')}
-                className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 hover:opacity-90 text-white flex items-center justify-center transition-all shadow-md"
-              >
-                <Instagram className="w-5 h-5" />
-              </button>
-              <button
-                type="button"
-                onClick={handleDownloadImage}
-                className="w-11 h-11 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition-all shadow-md"
-              >
-                <Download className="w-5 h-5" />
-              </button>
             </div>
           </div>
         </div>

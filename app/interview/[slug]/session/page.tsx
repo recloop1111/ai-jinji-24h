@@ -140,6 +140,7 @@ export default function SessionPage() {
   }, [showConnectionBanner])
 
   // TODO: OpenAI Realtime API接続後に実データへ差替え
+  // TODO: 段階4 - Supabase接続を本実装する
   useEffect(() => {
     const t1 = setTimeout(() => {
       setAiSpeechText('本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？')
@@ -268,7 +269,7 @@ export default function SessionPage() {
         </div>
 
         {/* 応募者カメラ小窓（左上固定） */}
-        <div className="fixed top-4 left-4 z-10 w-40 h-30 rounded-lg border border-white/20 overflow-hidden bg-slate-800">
+        <div className="fixed top-3 left-3 z-10 w-24 h-18 sm:w-32 sm:h-24 md:w-36 md:h-28 rounded-xl overflow-hidden shadow-lg border-2 border-white/30 bg-slate-800">
           {hasStream ? (
             <video
               ref={videoRef}
@@ -307,51 +308,16 @@ export default function SessionPage() {
 
         {/* AIアバターエリア（画面中央） */}
         <div className="flex flex-col items-center">
-          <div
-            className="w-[220px] h-[220px] md:w-[300px] md:h-[300px] rounded-full overflow-hidden border-4 border-white/20 bg-gradient-to-br from-slate-700 to-slate-600 relative"
-            style={getAvatarShadowStyle()}
-          >
-            <svg
-              viewBox="0 0 100 100"
-              className="w-full h-full"
-              preserveAspectRatio="xMidYMid meet"
-            >
-              {/* 頭部 */}
-              <circle cx="50" cy="35" r="22" fill="#E8D5B7" />
-              
-              {/* 胴体 */}
-              <ellipse cx="50" cy="75" rx="30" ry="25" fill="#334155" />
-              
-              {/* 左目 */}
-              <circle cx="42" cy="32" r="2.5" fill="#1E293B" />
-              
-              {/* 右目 */}
-              <circle cx="58" cy="32" r="2.5" fill="#1E293B" />
-              
-              {/* 口（微笑み曲線） */}
-              <path
-                d="M 40 42 Q 50 48 60 42"
-                stroke="#1E293B"
-                strokeWidth="1.5"
-                fill="none"
-                strokeLinecap="round"
-              />
-              
-              {/* まばたき用オーバーレイ */}
-              <rect
-                x="35"
-                y="28"
-                width="30"
-                height="8"
-                fill="#E8D5B7"
-                opacity={blinking ? 1 : 0}
-                style={{ transition: 'opacity 0.08s ease' }}
-              />
-            </svg>
+          <div className="rounded-full ring-4 ring-blue-500/20 shadow-2xl">
+            <img
+              src="/images/ai-interviewer.jpg"
+              alt="AI面接官"
+              className="w-[220px] h-[220px] md:w-[300px] md:h-[300px] rounded-full object-cover border-4 border-white/20"
+            />
           </div>
 
           {/* AI面接官テキスト */}
-          <p className="text-white text-base mt-3">AI面接官</p>
+          <p className="text-sm sm:text-base text-white/90 mt-3">AI面接官</p>
 
           {/* 発話状態テキスト（聞いています…/考えています…） */}
           <div
@@ -362,16 +328,16 @@ export default function SessionPage() {
             }`}
           >
             {interviewState === 'listen' && (
-              <p className="text-green-400 text-sm">聞いています...</p>
+              <p className="text-green-400 text-xs sm:text-sm">聞いています...</p>
             )}
             {interviewState === 'think' && (
-              <p className="text-blue-400 text-sm">考えています...</p>
+              <p className="text-blue-400 text-xs sm:text-sm">考えています...</p>
             )}
           </div>
 
           {/* AI発話テキスト表示エリア */}
           <div
-            className={`max-w-lg mx-auto mt-6 bg-white/10 backdrop-blur-sm rounded-2xl px-6 py-4 text-white text-base leading-relaxed text-center line-clamp-3 transition-opacity duration-500 ${
+            className={`max-w-lg mx-6 sm:mx-auto mt-6 bg-white/10 backdrop-blur-sm rounded-2xl px-6 py-4 text-white text-sm sm:text-base leading-relaxed text-center line-clamp-3 transition-opacity duration-500 ${
               aiSpeechText ? 'opacity-100' : 'opacity-0'
             }`}
           >

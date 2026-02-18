@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, Download, Building2, CheckCircle, Clock, Square, X } from 'lucide-react'
+import { Plus, Search, Download, Building2, CheckCircle, Square, X } from 'lucide-react'
 
 const INDUSTRIES = [
   '飲食・フード',
@@ -59,13 +59,13 @@ const DUMMY_COMPANIES = [
   { id: '2', name: '株式会社テックフロンティア', industry: 'IT・通信', plan: 'プランC', planKey: 'C', status: 'active', interviewsThisMonth: 25, interviewLimit: 30, contractStart: '2024-08-01', contactName: '鈴木 太郎', contactEmail: 'suzuki@techfrontier.co.jp' },
   { id: '3', name: '山田商事株式会社', industry: '商社・卸売', plan: 'プランA', planKey: 'A', status: 'active', interviewsThisMonth: 7, interviewLimit: 10, contractStart: '2024-11-20', contactName: '山田 花子', contactEmail: 'yamada@yamada-shoji.co.jp' },
   { id: '4', name: '株式会社グローバルHR', industry: '人材サービス', plan: 'カスタム', planKey: 'custom', status: 'active', interviewsThisMonth: 45, interviewLimit: 50, contractStart: '2024-06-01', contactName: '田中 健一', contactEmail: 'tanaka@globalhr.co.jp' },
-  { id: '5', name: '株式会社スタートアップラボ', industry: 'IT・スタートアップ', plan: 'プランA', planKey: 'A', status: 'trial', interviewsThisMonth: 3, interviewLimit: 10, contractStart: '2025-01-10', contactName: '高橋 直人', contactEmail: 'takahashi@startuplab.co.jp' },
-  { id: '6', name: '東京建設株式会社', industry: '建設・不動産', plan: 'プランB', planKey: 'B', status: 'trial', interviewsThisMonth: 5, interviewLimit: 20, contractStart: '2025-01-15', contactName: '伊藤 真理', contactEmail: 'ito@tokyo-kensetsu.co.jp' },
+  { id: '5', name: '株式会社スタートアップラボ', industry: 'IT・スタートアップ', plan: 'プランA', planKey: 'A', status: 'active', interviewsThisMonth: 3, interviewLimit: 10, contractStart: '2025-01-10', contactName: '高橋 直人', contactEmail: 'takahashi@startuplab.co.jp' },
+  { id: '6', name: '東京建設株式会社', industry: '建設・不動産', plan: 'プランB', planKey: 'B', status: 'active', interviewsThisMonth: 5, interviewLimit: 20, contractStart: '2025-01-15', contactName: '伊藤 真理', contactEmail: 'ito@tokyo-kensetsu.co.jp' },
   { id: '7', name: '株式会社フードネクスト', industry: '飲食・フード', plan: 'プランA', planKey: 'A', status: 'suspended', interviewsThisMonth: 0, interviewLimit: 10, contractStart: '2024-09-01', contactName: '中村 優子', contactEmail: 'nakamura@foodnext.co.jp' },
   { id: '8', name: '関西メディカル株式会社', industry: '医療・ヘルスケア', plan: 'プランB', planKey: 'B', status: 'cancelled', interviewsThisMonth: 0, interviewLimit: 20, contractStart: '2024-07-01', contactName: '小林 誠', contactEmail: 'kobayashi@kansai-medical.co.jp' },
 ]
 
-type StatusFilter = 'all' | 'active' | 'trial' | 'suspended' | 'cancelled'
+type StatusFilter = 'all' | 'active' | 'suspended' | 'cancelled'
 type PlanFilter = 'all' | 'A' | 'B' | 'C' | 'custom'
 
 function getPlanBadgeClass(planKey: string): string {
@@ -81,7 +81,6 @@ function getPlanBadgeClass(planKey: string): string {
 function getStatusConfig(status: string): { dotClass: string; textClass: string; label: string } {
   const map: Record<string, { dotClass: string; textClass: string; label: string }> = {
     active: { dotClass: 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]', textClass: 'text-emerald-400', label: 'アクティブ' },
-    trial: { dotClass: 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.5)]', textClass: 'text-amber-400', label: 'トライアル' },
     suspended: { dotClass: 'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.5)]', textClass: 'text-red-400', label: '停止中' },
     cancelled: { dotClass: 'bg-gray-500', textClass: 'text-gray-500', label: '解約済み' },
   }
@@ -93,8 +92,6 @@ const SUMMARY = {
   total: 24,
   active: 18,
   activePercent: 75,
-  trial: 4,
-  trialNearExpiry: 2,
   suspended: 2,
 }
 
@@ -222,8 +219,8 @@ export default function CompaniesPage() {
           </button>
         </div>
 
-        {/* セクション2: サマリーカード4枚 */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        {/* セクション2: サマリーカード3枚 */}
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
             <Building2 className="absolute top-4 right-4 w-8 h-8 text-blue-400/50" />
             <p className="text-3xl font-bold text-white">{SUMMARY.total}</p>
@@ -234,12 +231,6 @@ export default function CompaniesPage() {
             <p className="text-3xl font-bold text-white">{SUMMARY.active}</p>
             <p className="text-sm text-gray-400 mt-0.5">アクティブ</p>
             <p className="text-xs text-emerald-400 mt-1">全体の{SUMMARY.activePercent}%</p>
-          </div>
-          <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
-            <Clock className="absolute top-4 right-4 w-8 h-8 text-amber-400/50" />
-            <p className="text-3xl font-bold text-white">{SUMMARY.trial}</p>
-            <p className="text-sm text-gray-400 mt-0.5">トライアル中</p>
-            <p className="text-xs text-amber-400 mt-1">残り期間7日以内: {SUMMARY.trialNearExpiry}社</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
             <Square className="absolute top-4 right-4 w-8 h-8 text-red-400/50" />
@@ -268,7 +259,6 @@ export default function CompaniesPage() {
             >
               <option value="all">すべてのステータス</option>
               <option value="active">アクティブ</option>
-              <option value="trial">トライアル</option>
               <option value="suspended">停止中</option>
               <option value="cancelled">解約済み</option>
             </select>
