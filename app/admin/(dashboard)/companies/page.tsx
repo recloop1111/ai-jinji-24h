@@ -113,7 +113,7 @@ export default function CompaniesPage() {
   async function fetchCompanies() {
     setLoading(true)
     const supabase = createClient()
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('companies')
       .select('*')
       .order('created_at', { ascending: false })
@@ -124,7 +124,7 @@ export default function CompaniesPage() {
         name: c.name,
         industry: c.industry || '未設定',
         plan: c.plan || '未設定',
-        planKey: c.plan === 'スタンダード' ? 'A' : c.plan === 'プレミアム' ? 'B' : c.plan === 'エンタープライズ' ? 'C' : c.plan || 'A',
+        planKey: c.plan === 'スタンダード' ? 'A' : c.plan === 'プレミアム' ? 'B' : c.plan === 'エンタープライズ' ? 'C' : 'A',
         status: c.is_suspended ? 'suspended' : c.is_active === false ? 'cancelled' : (c.status || 'active'),
         interviewsThisMonth: c.monthly_interview_count || 0,
         interviewLimit: c.monthly_interview_limit || 0,
@@ -139,7 +139,7 @@ export default function CompaniesPage() {
       setSummary({
         total: mapped.length,
         active,
-        activePercent: mapped.length > 0 ? Math.round((active / mapped.length) * 100) : 0,
+        activePercent: mapped.length ? Math.round((active / mapped.length) * 100) : 0,
         suspended,
       })
     }

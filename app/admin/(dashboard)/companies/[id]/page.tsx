@@ -36,6 +36,7 @@ export default function CompanyDetailPage() {
   const companyId = params.id as string
   const [company, setCompany] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>('基本情報')
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
@@ -57,26 +58,21 @@ export default function CompanyDetailPage() {
   const totalWeight = axes.reduce((sum, a) => sum + a.weight, 0)
 
   useEffect(() => {
-    fetchCompany()
-  }, [companyId])
-
-  async function fetchCompany() {
-    if (!companyId) return
-    setLoading(true)
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('companies')
-      .select('*')
-      .eq('id', companyId)
-      .single()
-
-    if (data) {
-      setCompany(data)
-      setDisplayName(data.name || '')
-      setBrandColor(data.brand_color || '#2563EB')
+    async function fetchCompany() {
+      const supabase = createClient()
+      const { data } = await supabase.from('companies').select('*').eq('id', companyId).single()
+      if (data) {
+        setCompany(data)
+        setDisplayName(data.name || '')
+        setBrandColor(data.brand_color || '#2563EB')
+      }
+      setLoading(false)
     }
-    setLoading(false)
-  }
+    if (companyId) {
+      setLoading(true)
+      fetchCompany()
+    }
+  }, [companyId, refreshTrigger])
 
   const showToast = (msg: string) => {
     setToastMessage(msg)
@@ -85,7 +81,7 @@ export default function CompanyDetailPage() {
   }
 
   const interviewUrl = company?.interview_slug
-    ? (typeof window !== 'undefined' ? `${window.location.origin}/interview/${company.interview_slug}` : '')
+    ? `${window.location.origin}/interview/${company.interview_slug}`
     : ''
 
   const copyInterviewUrl = async () => {
@@ -139,7 +135,7 @@ export default function CompanyDetailPage() {
       .eq('id', companyId)
     setStopModalOpen(false)
     showToast('契約を停止しました')
-    fetchCompany()
+    setRefreshTrigger((t) => t + 1)
   }
 
   if (loading) {
