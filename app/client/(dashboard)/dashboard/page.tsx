@@ -2,28 +2,10 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/client'
 import { useTemplates, type Template } from '../../contexts/TemplatesContext'
 import { ChevronRight as ChevronRightIcon, ChevronDown as ChevronDownIcon, Phone as PhoneIcon, Mail as MailIcon } from 'lucide-react'
 
-// TODO: 実データに差替え
-const KPIS = [
-  { label: '今月の面接数', value: '24', unit: '件' },
-  { label: '平均面接時間', value: '22', unit: '分' },
-  { label: '今月の応募者数', value: '35', unit: '名' },
-  { label: 'プラン利用状況', value: '24/30', unit: '件' },
-]
-
-// currentStatus: preparing=準備中(システム), completed=完了(システム)
-// status: null=未対応(面接完了後・結果未設定時の初期値), considering=検討中, second_pass=二次通過, rejected=不採用(企業担当者が手動管理)
-// TODO: Phase 4 - Supabaseから応募者の連絡先を取得
-// TODO: Phase 4 - 面接完了時にステータスを自動で「未対応」に設定
-const RECENT_APPLICANTS = [
-  { id: '1', name: '山田 太郎', email: 'yamada@example.com', phone: '090-1234-5678', date: '2025-02-14 14:30', currentStatus: 'completed', status: 'second_pass' as const, score: 85 },
-  { id: '2', name: '佐藤 花子', email: 'sato@example.com', phone: '080-2345-6789', date: '2025-02-14 11:00', currentStatus: 'preparing', status: null, score: null },
-  { id: '3', name: '鈴木 一郎', email: 'suzuki@example.com', phone: '070-3456-7890', date: '2025-02-13 16:00', currentStatus: 'completed', status: null, score: 72 }, // 面接完了・結果未設定→未対応表示
-  { id: '4', name: '田中 美咲', email: 'tanaka@example.com', phone: '090-4567-8901', date: '2025-02-13 10:30', currentStatus: 'preparing', status: null, score: null },
-  { id: '5', name: '高橋 健太', email: 'takahashi@example.com', phone: '080-5678-9012', date: '2025-02-12 15:00', currentStatus: 'completed', status: 'rejected' as const, score: 92 },
-]
 
 function scoreToGrade(score: number): string {
   if (score >= 85) return 'A'
@@ -47,8 +29,83 @@ type DashboardApplicant = {
 }
 
 export default function ClientDashboardPage() {
+  const CURRENT_COMPANY_ID = '7a58cc1b-9f81-4da5-ae2c-fd3abea05c33' // TODO: 認証実装後に動的取得
+  const supabase = createClient()
+
+  const [kpis, setKpis] = useState({ interviews: 0, avgDuration: 0, applicants: 0, used: 0, limit: 0 })
+  const [recentApplicants, setRecentApplicants] = useState<DashboardApplicant[]>([])
+  const [dataLoading, setDataLoading] = useState(true)
+
+  useEffect(() => {
+    async function fetchDashboardData() {
+      setDataLoading(true)
+      try {
+        // 企業情報取得（面接枠）
+        const { data: company } = await supabase
+          .from('companies')
+          .select('monthly_interview_count, monthly_interview_limit')
+          .eq('id', CURRENT_COMPANY_ID)
+          .single()
+
+        // 今月の応募者数取得
+        const now = new Date()
+        const firstDayOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+        const { data: monthlyApplicants, count: applicantCount } = await supabase
+          .from('applicants')
+          .select('id', { count: 'exact', head: true })
+          .eq('company_id', CURRENT_COMPANY_ID)
+          .gte('created_at', firstDayOfMonth)
+
+        // 直近の応募者5件取得
+        const { data: recent } = await supabase
+          .from('applicants')
+          .select('id, last_name, first_name, email, phone_number, created_at, selection_status, interview_score')
+          .eq('company_id', CURRENT_COMPANY_ID)
+          .order('created_at', { ascending: false })
+          .limit(5)
+
+        setKpis({
+          interviews: company?.monthly_interview_count || 0,
+          avgDuration: 22, // TODO: 面接実装後に実データから算出
+          applicants: applicantCount || 0,
+          used: company?.monthly_interview_count || 0,
+          limit: company?.monthly_interview_limit || 0,
+        })
+
+        if (recent && recent.length > 0) {
+          setRecentApplicants(recent.map((a: any) => ({
+            id: a.id,
+            name: `${a.last_name || ''} ${a.first_name || ''}`.trim() || '名前未設定',
+            email: a.email || '',
+            phone: a.phone_number || '',
+            date: a.created_at ? new Date(a.created_at).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '',
+            currentStatus: a.selection_status === 'pending' ? 'preparing' : 'completed',
+            status: a.selection_status === 'considering' ? 'considering' as const
+              : a.selection_status === 'second_pass' ? 'second_pass' as const
+              : a.selection_status === 'rejected' ? 'rejected' as const
+              : null,
+            score: a.interview_score || null,
+          })))
+        } else {
+          // デモ用サンプルデータ（実際の応募者が登録されると自動的に実データに切り替わります）
+          setRecentApplicants([
+            { id: 'demo-1', name: '山田 太郎', email: 'yamada@example.com', phone: '090-1234-5678', date: '2025-02-14 14:30', currentStatus: 'completed', status: 'second_pass', score: 85 },
+            { id: 'demo-2', name: '佐藤 花子', email: 'sato@example.com', phone: '080-2345-6789', date: '2025-02-14 11:00', currentStatus: 'preparing', status: null, score: null },
+            { id: 'demo-3', name: '鈴木 一郎', email: 'suzuki@example.com', phone: '070-3456-7890', date: '2025-02-13 16:00', currentStatus: 'completed', status: null, score: 72 },
+            { id: 'demo-4', name: '田中 美咲', email: 'tanaka@example.com', phone: '090-4567-8901', date: '2025-02-13 10:30', currentStatus: 'preparing', status: null, score: null },
+            { id: 'demo-5', name: '高橋 健太', email: 'takahashi@example.com', phone: '080-5678-9012', date: '2025-02-12 15:00', currentStatus: 'completed', status: 'rejected', score: 92 },
+          ])
+        }
+      } catch (err) {
+        console.error('ダッシュボードデータ取得エラー:', err)
+      }
+      setDataLoading(false)
+    }
+    fetchDashboardData()
+  }, [])
+
   const { templates } = useTemplates()
-  const [applicants, setApplicants] = useState<DashboardApplicant[]>(RECENT_APPLICANTS as DashboardApplicant[])
+  const [applicants, setApplicants] = useState<DashboardApplicant[]>([])
   const [mailModalOpen, setMailModalOpen] = useState(false)
   const [statusDropdownApplicantId, setStatusDropdownApplicantId] = useState<string | null>(null)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
@@ -59,6 +116,10 @@ export default function ClientDashboardPage() {
   const [mailToast, setMailToast] = useState(false)
   const sendListRef = useRef<HTMLDivElement>(null)
   const [sendListShowFade, setSendListShowFade] = useState(false)
+
+  useEffect(() => {
+    setApplicants(recentApplicants)
+  }, [recentApplicants])
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -115,8 +176,16 @@ export default function ClientDashboardPage() {
     return applicants.filter((a) => mailSelectedIds.has(a.id))
   }, [mailSelectedIds, applicants])
 
-  const handleStatusUpdate = (applicantId: string, newStatus: ApplicantStatus) => {
-    // TODO: Phase 4 - Supabaseでステータス更新
+  const handleStatusUpdate = async (applicantId: string, newStatus: ApplicantStatus) => {
+    const dbStatus = newStatus === null ? 'pending' : newStatus
+    try {
+      await supabase
+        .from('applicants')
+        .update({ selection_status: dbStatus, updated_at: new Date().toISOString() })
+        .eq('id', applicantId)
+    } catch (err) {
+      console.error('ステータス更新エラー:', err)
+    }
     setApplicants((prev) =>
       prev.map((a) => (a.id === applicantId ? { ...a, status: newStatus } : a))
     )
@@ -144,18 +213,31 @@ export default function ClientDashboardPage() {
 
         {/* KPIカード */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {KPIS.map((kpi, i) => (
-            <div
-              key={i}
-              className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition-shadow"
-            >
-              <p className="text-xs font-medium text-slate-500 mb-1">{kpi.label}</p>
-              <p className="text-2xl font-bold text-slate-900">
-                {kpi.value}
-                <span className="text-base font-normal text-slate-500 ml-1">{kpi.unit}</span>
-              </p>
-            </div>
-          ))}
+          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition-shadow">
+            <p className="text-xs font-medium text-slate-500 mb-1">今月の面接数</p>
+            <p className="text-2xl font-bold text-slate-900">
+              {dataLoading ? '...' : kpis.interviews}<span className="text-base font-normal text-slate-500 ml-1">件</span>
+            </p>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition-shadow">
+            <p className="text-xs font-medium text-slate-500 mb-1">平均面接時間</p>
+            <p className="text-2xl font-bold text-slate-900">
+              {dataLoading ? '...' : kpis.avgDuration}<span className="text-base font-normal text-slate-500 ml-1">分</span>
+            </p>
+            <p className="text-xs text-slate-400 mt-0.5">※ 面接機能実装後に実データ反映</p>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition-shadow">
+            <p className="text-xs font-medium text-slate-500 mb-1">今月の応募者数</p>
+            <p className="text-2xl font-bold text-slate-900">
+              {dataLoading ? '...' : kpis.applicants}<span className="text-base font-normal text-slate-500 ml-1">名</span>
+            </p>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition-shadow">
+            <p className="text-xs font-medium text-slate-500 mb-1">プラン利用状況</p>
+            <p className="text-2xl font-bold text-slate-900">
+              {dataLoading ? '...' : `${kpis.used}/${kpis.limit}`}<span className="text-base font-normal text-slate-500 ml-1">件</span>
+            </p>
+          </div>
         </div>
 
         {/* 直近の応募者 */}
