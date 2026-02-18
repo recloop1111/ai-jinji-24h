@@ -53,7 +53,7 @@ export default function FormPage() {
   const supabase = createClient()
 
   const [companyId, setCompanyId] = useState<string | null>(null)
-  const [jobTypes, setJobTypes] = useState<{ value: string; label: string }[]>([])
+  const [jobTypes, setJobTypes] = useState<{ value: string; label: string; employmentType: string }[]>([])
   const [loading, setLoading] = useState(true)
 
   const [lastName, setLastName] = useState('')
@@ -68,7 +68,7 @@ export default function FormPage() {
   const [education, setEducation] = useState('')
   const [employmentType, setEmploymentType] = useState('')
   const [industryExperience, setIndustryExperience] = useState('')
-  const [jobTypeId, setJobTypeId] = useState('')
+  const [jobId, setJobId] = useState('')
   const [workHistory, setWorkHistory] = useState('')
   const [qualifications, setQualifications] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -98,26 +98,27 @@ export default function FormPage() {
       const displayCompany = company || dummyCompany
       setCompanyId(displayCompany.id)
 
-      // 職種一覧取得
-      const { data: jobTypesData } = await supabase
-        .from('job_types')
-        .select('id, name')
+      // 求人一覧取得（jobsテーブル）
+      const { data: jobsData } = await supabase
+        .from('jobs')
+        .select('id, title, employment_type')
         .eq('company_id', displayCompany.id)
         .eq('is_active', true)
 
-      if (jobTypesData && jobTypesData.length > 0) {
+      if (jobsData && jobsData.length > 0) {
         setJobTypes(
-          jobTypesData.map((jt) => ({
-            value: jt.id,
-            label: jt.name,
+          jobsData.map((j) => ({
+            value: j.id,
+            label: `${j.title} × ${j.employment_type === 'fulltime' ? '正社員' : j.employment_type === 'parttime' ? 'アルバイト' : j.employment_type}`,
+            employmentType: j.employment_type || '',
           }))
         )
       } else {
-        // ダミー職種を追加（求人管理のダミーデータに合わせる）
+        // ダミー求人を追加
         setJobTypes([
-          { value: 'dummy-job-type-1', label: '営業（正社員）' },
-          { value: 'dummy-job-type-2', label: '事務（アルバイト）' },
-          { value: 'dummy-job-type-3', label: 'エンジニア・技術職（正社員）' },
+          { value: 'dummy-job-1', label: '営業 × 正社員', employmentType: 'fulltime' },
+          { value: 'dummy-job-2', label: '事務 × アルバイト', employmentType: 'parttime' },
+          { value: 'dummy-job-3', label: 'エンジニア・技術職 × 正社員', employmentType: 'fulltime' },
         ])
       }
     } catch (error) {
@@ -126,9 +127,9 @@ export default function FormPage() {
       // エラー時はダミーデータを使用
       setCompanyId(dummyCompany.id)
       setJobTypes([
-        { value: 'dummy-job-type-1', label: '営業（正社員）' },
-        { value: 'dummy-job-type-2', label: '事務（アルバイト）' },
-        { value: 'dummy-job-type-3', label: 'エンジニア・技術職（正社員）' },
+        { value: 'dummy-job-1', label: '営業 × 正社員', employmentType: 'fulltime' },
+        { value: 'dummy-job-2', label: '事務 × アルバイト', employmentType: 'parttime' },
+        { value: 'dummy-job-3', label: 'エンジニア・技術職 × 正社員', employmentType: 'fulltime' },
       ])
     }
 
@@ -170,9 +171,12 @@ export default function FormPage() {
 
     if (!prefecture) newErrors.prefecture = '都道府県を選択してください'
     if (!education) newErrors.education = '最終学歴を選択してください'
-    if (!employmentType) newErrors.employmentType = '就業形態を選択してください'
-    if (!industryExperience) newErrors.industryExperience = '業界経験を選択してください'
-    if (jobTypes.length > 0 && !jobTypeId) newErrors.jobTypeId = '応募職種を選択してください'
+    const selectedJob = jobTypes.find((j) => j.value === jobId)
+    if (selectedJob?.employmentType === 'fulltime' && !employmentType) {
+      newErrors.employmentType = '就業形態を選択してください'
+    }
+    if (jobId && !industryExperience) newErrors.industryExperience = '業界経験を選択してください'
+    if (jobTypes.length > 0 && !jobId) newErrors.jobId = '応募職種を選択してください'
 
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -186,6 +190,7 @@ export default function FormPage() {
     }
 
     setSubmitting(true)
+    const selectedJob = jobTypes.find((j) => j.value === jobId)
 
     try {
       const { data, error } = await supabase
@@ -203,9 +208,9 @@ export default function FormPage() {
           email: email.trim(),
           prefecture: prefecture,
           education: education,
-          employment_type: employmentType,
+          employment_type: selectedJob?.employmentType === 'fulltime' ? employmentType : null,
           industry_experience: industryExperience,
-          job_type_id: jobTypeId || null,
+          job_id: jobId || null,
           // TODO: desired_employment_form カラム追加後にinsertに含める
           work_history: workHistory.trim() || null,
           qualifications: qualifications.trim() || null,
@@ -370,40 +375,48 @@ export default function FormPage() {
             />
           </InputField>
 
-          <InputField label="就業形態" required error={errors.employmentType}>
-            <RadioGroup
-              value={employmentType}
-              onChange={setEmploymentType}
-              options={[
-                { value: 'new_graduate', label: '新卒' },
-                { value: 'mid_career', label: '中途' },
-              ]}
-            />
-          </InputField>
-
-          <InputField label="業界経験" required error={errors.industryExperience}>
-            <RadioGroup
-              value={industryExperience}
-              onChange={setIndustryExperience}
-              options={[
-                { value: 'experienced', label: '経験あり' },
-                { value: 'inexperienced', label: '未経験' },
-              ]}
-            />
-          </InputField>
-
-          <InputField label="応募職種" required error={errors.jobTypeId}>
+          <InputField label="応募職種" required error={errors.jobId}>
             {jobTypes.length > 0 ? (
               <SelectField
-                value={jobTypeId}
-                onChange={setJobTypeId}
+                value={jobId}
+                onChange={(v) => {
+                  setJobId(v)
+                  const job = jobTypes.find((j) => j.value === v)
+                  if (job?.employmentType === 'parttime') setEmploymentType('')
+                }}
                 options={jobTypes}
                 placeholder="選択してください"
               />
             ) : (
-              <p className="text-sm text-gray-500">職種が登録されていません</p>
+              <p className="text-sm text-gray-500">求人が登録されていません</p>
             )}
           </InputField>
+
+          {jobId && jobTypes.find((j) => j.value === jobId)?.employmentType === 'fulltime' && (
+            <InputField label="就業形態（新卒/中途）" required error={errors.employmentType}>
+              <RadioGroup
+                value={employmentType}
+                onChange={setEmploymentType}
+                options={[
+                  { value: 'new_graduate', label: '新卒' },
+                  { value: 'mid_career', label: '中途' },
+                ]}
+              />
+            </InputField>
+          )}
+
+          {jobId && (
+            <InputField label="業界経験（経験あり/未経験）" required error={errors.industryExperience}>
+              <RadioGroup
+                value={industryExperience}
+                onChange={setIndustryExperience}
+                options={[
+                  { value: 'experienced', label: '経験あり' },
+                  { value: 'inexperienced', label: '未経験' },
+                ]}
+              />
+            </InputField>
+          )}
 
           <InputField label="職歴・業種" error={errors.workHistory}>
             <TextArea

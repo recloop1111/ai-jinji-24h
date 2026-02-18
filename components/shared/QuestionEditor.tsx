@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
-import { Plus, Trash2, FileText, Check, ChevronUp, ChevronDown, Pencil } from 'lucide-react'
+import { useSearchParams } from 'next/navigation'
+import { Plus, FileText, Check, ChevronUp, ChevronDown, Pencil, X } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
-// TODO: 段階4 - Supabase経由でcompanyIdに紐づく質問データを読み書き
+const CURRENT_COMPANY_ID = '7a58cc1b-9f81-4da5-ae2c-fd3abea05c33'
 
 type Question = {
   id: string
@@ -13,7 +15,7 @@ type Question = {
 
 type CommonQuestionItem = { id: string; label: string; category: string; question: string }
 
-const COMMON_QUESTIONS: { icebreakers: CommonQuestionItem[]; closing: CommonQuestionItem[] } = {
+const DEFAULT_COMMON_QUESTIONS: { icebreakers: CommonQuestionItem[]; closing: CommonQuestionItem[] } = {
   icebreakers: [
     { id: 'ice-1', label: '冒頭1', category: 'アイスブレイク', question: '本日はお時間をいただきありがとうございます。これから約30〜40分の面接を行います。途中で聞き取りにくい点があれば遠慮なくお知らせください。本日の体調は問題ありませんか？' },
     { id: 'ice-2', label: '冒頭2', category: 'アイスブレイク', question: 'ありがとうございます。面接を始める前に、最近あった嬉しかったことや、ちょっとした楽しみにしていることがあれば気軽に教えてください。' },
@@ -23,80 +25,70 @@ const COMMON_QUESTIONS: { icebreakers: CommonQuestionItem[]; closing: CommonQues
   ],
 }
 
-type Job = {
-  id: string
-  jobType: string
-  employmentType: string
+const EMPLOYMENT_TYPE_LABELS: Record<string, string> = {
+  fulltime: '正社員',
+  contract: '契約社員',
+  temporary: '派遣社員',
+  parttime: 'パート・アルバイト',
+  freelance: '業務委託',
+  intern: 'インターン',
+  other: 'その他',
 }
 
-type QuestionOption = {
+function getPatternTabs(employmentType: string): { label: string; patternKey: string }[] {
+  const prefix = employmentType || 'other'
+  switch (prefix) {
+    case 'fulltime':
+      return [
+        { label: '新卒', patternKey: 'fulltime-new-graduate' },
+        { label: '中途（経験者）', patternKey: 'fulltime-mid-career-experienced' },
+        { label: '中途（未経験）', patternKey: 'fulltime-mid-career-inexperienced' },
+      ]
+    case 'parttime':
+      return [
+        { label: '経験者', patternKey: 'parttime-experienced' },
+        { label: '未経験', patternKey: 'parttime-inexperienced' },
+      ]
+    case 'contract':
+      return [
+        { label: '新卒', patternKey: 'contract-new-graduate' },
+        { label: '中途（経験者）', patternKey: 'contract-mid-career-experienced' },
+        { label: '中途（未経験）', patternKey: 'contract-mid-career-inexperienced' },
+      ]
+    case 'temporary':
+      return [
+        { label: '新卒', patternKey: 'temporary-new-graduate' },
+        { label: '中途（経験者）', patternKey: 'temporary-mid-career-experienced' },
+        { label: '中途（未経験）', patternKey: 'temporary-mid-career-inexperienced' },
+      ]
+    case 'freelance':
+      return [
+        { label: '経験者', patternKey: 'freelance-experienced' },
+        { label: '未経験', patternKey: 'freelance-inexperienced' },
+      ]
+    case 'intern':
+      return [
+        { label: '経験者', patternKey: 'intern-experienced' },
+        { label: '未経験', patternKey: 'intern-inexperienced' },
+      ]
+    case 'other':
+    default:
+      return [
+        { label: '経験者', patternKey: 'other-experienced' },
+        { label: '未経験', patternKey: 'other-inexperienced' },
+      ]
+  }
+}
+
+type Job = {
   id: string
-  label: string
-  jobId: string
-  jobType: string
-  employmentType: string
-  pattern?: '新卒' | '中途'
+  title: string
+  employment_type: string
+  employmentTypeLabel: string
 }
 
 const JOB_TYPES = ['営業', '事務', '経理・財務', '人事・総務', '企画・マーケティング', 'エンジニア・技術職', 'デザイナー', '販売・接客', '製造・工場', '物流・配送', '医療・介護', '教育・講師', '飲食・調理', '建設・施工管理', 'カスタマーサポート', 'その他'] as const
 type JobTypeKey = (typeof JOB_TYPES)[number]
-
-const DUMMY_JOBS: Job[] = [
-  { id: '1', jobType: '営業', employmentType: '正社員' },
-  { id: '2', jobType: '事務', employmentType: 'アルバイト' },
-  { id: '3', jobType: 'エンジニア・技術職', employmentType: '正社員' },
-]
-
-function generateQuestionOptions(jobs: Job[]): QuestionOption[] {
-  const options: QuestionOption[] = []
-  for (const job of jobs) {
-    if (job.employmentType === '正社員') {
-      options.push({ id: `${job.id}-新卒`, label: `${job.jobType} × 正社員 × 新卒`, jobId: job.id, jobType: job.jobType, employmentType: job.employmentType, pattern: '新卒' })
-      options.push({ id: `${job.id}-中途`, label: `${job.jobType} × 正社員 × 中途`, jobId: job.id, jobType: job.jobType, employmentType: job.employmentType, pattern: '中途' })
-    } else {
-      options.push({ id: job.id, label: `${job.jobType} × ${job.employmentType}`, jobId: job.id, jobType: job.jobType, employmentType: job.employmentType })
-    }
-  }
-  return options
-}
-
-const QUESTIONS_BY_OPTION: Record<string, Question[]> = {
-  '1-新卒': [
-    { id: 'q1-new-1', question: '営業の仕事に興味を持ったきっかけを教えてください。' },
-    { id: 'q1-new-2', question: '学生時代に目標を立てて達成した経験があれば教えてください。' },
-    { id: 'q1-new-3', question: 'チームで取り組んだ経験を教えてください。その中であなたはどのような役割を担いましたか？' },
-    { id: 'q1-new-4', question: 'お客様とのコミュニケーションで大切にしていることは何ですか？' },
-    { id: 'q1-new-5', question: '当社の営業職に応募された理由と、入社後にどのような営業パーソンになりたいか教えてください。' },
-  ],
-  '1-中途': [
-    { id: 'q1-mid-1', question: 'これまでの営業経験について教えてください。どのような商材を扱い、どのような成果を上げましたか？' },
-    { id: 'q1-mid-2', question: '目標を達成できなかった経験はありますか？その時どのように対処しましたか？' },
-    { id: 'q1-mid-3', question: 'お客様との信頼関係を構築するために、普段どのようなことを心がけていますか？' },
-    { id: 'q1-mid-4', question: 'チームで営業に取り組んだ経験があれば教えてください。あなたの役割は何でしたか？' },
-    { id: 'q1-mid-5', question: '転職を考えた理由と、当社の営業職に応募された理由を教えてください。' },
-  ],
-  '2': [
-    { id: 'q2-1', question: 'これまでのアルバイトやお仕事の経験を教えてください。' },
-    { id: 'q2-2', question: 'パソコンの基本操作（Word、Excel）はどの程度できますか？' },
-    { id: 'q2-3', question: '電話対応や来客対応の経験はありますか？' },
-    { id: 'q2-4', question: '複数の業務を同時にお願いすることもありますが、優先順位をつけて作業するのは得意ですか？' },
-    { id: 'q2-5', question: '週にどのくらいのシフトで働けますか？' },
-  ],
-  '3-新卒': [
-    { id: 'q3-new-1', question: 'プログラミングを始めたきっかけと、これまでに学んだ言語やフレームワークを教えてください。' },
-    { id: 'q3-new-2', question: '学生時代に取り組んだ開発プロジェクトや個人開発があれば教えてください。' },
-    { id: 'q3-new-3', question: 'チームで開発した経験はありますか？その中であなたはどのような役割を担いましたか？' },
-    { id: 'q3-new-4', question: '技術的に難しい課題に直面した時、どのように解決しましたか？' },
-    { id: 'q3-new-5', question: '入社後にどのようなエンジニアになりたいですか？どのような技術を身につけたいですか？' },
-  ],
-  '3-中途': [
-    { id: 'q3-mid-1', question: 'これまでの開発経験や、担当してきたプロジェクトについて教えてください。' },
-    { id: 'q3-mid-2', question: '使用経験のあるプログラミング言語やフレームワーク、開発環境を教えてください。' },
-    { id: 'q3-mid-3', question: 'チーム開発での経験を教えてください。コードレビューやアーキテクチャ設計の経験はありますか？' },
-    { id: 'q3-mid-4', question: '技術的な課題を解決した経験で、特に印象に残っているものを教えてください。' },
-    { id: 'q3-mid-5', question: '転職を考えた理由と、当社でどのようなエンジニアとして成長したいか教えてください。' },
-  ],
-}
 
 const JOB_TYPE_TEMPLATES: Record<JobTypeKey, { name: string; questions: string[] }> = {
   '営業': { name: '営業', questions: ['これまでの営業経験について教えてください。どのような商材を扱い、どのような成果を上げましたか？', '目標を達成できなかった経験はありますか？その時どのように対処しましたか？', 'お客様との信頼関係を構築するために、普段どのようなことを心がけていますか？', 'チームで営業に取り組んだ経験があれば教えてください。あなたの役割は何でしたか？', '新規開拓で工夫していることを教えてください。'] },
@@ -124,22 +116,29 @@ type QuestionEditorProps = {
 }
 
 export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: QuestionEditorProps) {
-  const questionOptions = useMemo(() => generateQuestionOptions(DUMMY_JOBS), [])
-  const [selectedOptionId, setSelectedOptionId] = useState<string>('')
-  const [questionsByOption, setQuestionsByOption] = useState<Record<string, Question[]>>(() => QUESTIONS_BY_OPTION)
-  const [commonQuestions, setCommonQuestions] = useState(() => ({
-    icebreakers: COMMON_QUESTIONS.icebreakers.map((x) => ({ ...x })),
-    closing: COMMON_QUESTIONS.closing.map((x) => ({ ...x })),
-  }))
+  const searchParams = useSearchParams()
+  const initialJobId = searchParams.get('jobId')
+  const supabase = createClient()
+  const resolvedCompanyId = companyId === 'current' ? CURRENT_COMPANY_ID : companyId
+
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [jobsLoading, setJobsLoading] = useState(true)
+  const [selectedJobId, setSelectedJobId] = useState<string>('')
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null)
+  const [patternTabs, setPatternTabs] = useState<{ label: string; patternKey: string }[]>([])
+  const [activePattern, setActivePattern] = useState<string>('')
+  const [patternQuestions, setPatternQuestions] = useState<Question[]>([])
+  const [questionsLoading, setQuestionsLoading] = useState(false)
+  const [commonQuestionsIcebreak, setCommonQuestionsIcebreak] = useState<CommonQuestionItem[]>(DEFAULT_COMMON_QUESTIONS.icebreakers.map((x) => ({ ...x })))
+  const [commonQuestionsClosing, setCommonQuestionsClosing] = useState<CommonQuestionItem[]>(DEFAULT_COMMON_QUESTIONS.closing.map((x) => ({ ...x })))
   const [editingCommonId, setEditingCommonId] = useState<string | null>(null)
   const [templateModalOpen, setTemplateModalOpen] = useState(false)
   const [selectedTemplateQuestionIds, setSelectedTemplateQuestionIds] = useState<Set<number>>(new Set())
   const [insertAt, setInsertAt] = useState(0)
   const [toast, setToast] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
 
   const isDark = theme === 'dark'
-  const selectedOption = useMemo(() => questionOptions.find((opt) => opt.id === selectedOptionId), [questionOptions, selectedOptionId])
-  const questions = useMemo(() => selectedOptionId ? questionsByOption[selectedOptionId] ?? [] : [], [selectedOptionId, questionsByOption])
 
   const cn = {
     title: isDark ? 'text-white' : 'text-slate-900',
@@ -157,7 +156,133 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
     modalStrong: isDark ? 'text-white' : 'text-slate-900',
     emptyCard: isDark ? 'bg-white/[0.04] border-white/[0.06]' : 'bg-white border-slate-200',
     linkBtn: isDark ? 'bg-blue-600 hover:bg-blue-700' : 'bg-indigo-600 hover:bg-indigo-700',
+    tabActive: isDark ? 'border-blue-500 text-blue-400' : 'border-blue-500 text-blue-600',
+    tabInactive: isDark ? 'border-transparent text-gray-500 hover:text-gray-300' : 'border-transparent text-gray-500 hover:text-gray-700',
   }
+
+  useEffect(() => {
+    if (!resolvedCompanyId) {
+      setJobsLoading(false)
+      return
+    }
+    async function fetchJobs() {
+      setJobsLoading(true)
+      try {
+        const { data, error } = await supabase
+          .from('jobs')
+          .select('*')
+          .eq('company_id', resolvedCompanyId)
+          .eq('is_active', true)
+          .order('created_at')
+
+        if (error) throw error
+        if (data && data.length > 0) {
+          const mapped = data.map((j: { id: string; title: string; employment_type: string; description?: string }) => ({
+            id: j.id,
+            title: j.title || '',
+            employment_type: j.employment_type || '',
+            employmentTypeLabel: j.employment_type === 'other' && j.description ? j.description : (EMPLOYMENT_TYPE_LABELS[j.employment_type] ?? j.employment_type),
+          }))
+          setJobs(mapped)
+          if (initialJobId && data.some((d: { id: string }) => d.id === initialJobId)) {
+            setSelectedJobId(initialJobId)
+            const job = mapped.find((j: Job) => j.id === initialJobId)
+            if (job) setSelectedJob(job)
+          }
+        } else {
+          setJobs([])
+        }
+      } catch (err) {
+        console.error('求人取得エラー:', err)
+        setJobs([])
+      } finally {
+        setJobsLoading(false)
+      }
+    }
+    fetchJobs()
+  }, [resolvedCompanyId, initialJobId, supabase])
+
+  useEffect(() => {
+    if (selectedJobId) {
+      const job = jobs.find((j) => j.id === selectedJobId) || null
+      setSelectedJob(job)
+      if (job) {
+        const tabs = getPatternTabs(job.employment_type)
+        setPatternTabs(tabs)
+        setActivePattern(tabs[0]?.patternKey || '')
+      } else {
+        setPatternTabs([])
+        setActivePattern('')
+      }
+    } else {
+      setSelectedJob(null)
+      setPatternTabs([])
+      setActivePattern('')
+      setPatternQuestions([])
+    }
+  }, [selectedJobId, jobs])
+
+  useEffect(() => {
+    async function fetchCommonQuestions() {
+      try {
+        const { data, error } = await supabase.from('common_questions').select('*').order('category').order('sort_order')
+        if (error || !data || data.length === 0) return
+        const ice = data.filter((r: { category: string }) => r.category === 'icebreakers').map((r: { id: string; label?: string; question?: string; question_text?: string }) => ({
+          id: r.id,
+          label: r.label || 'アイスブレイク',
+          category: 'アイスブレイク',
+          question: r.question ?? r.question_text ?? '',
+        }))
+        const close = data.filter((r: { category: string }) => r.category === 'closing').map((r: { id: string; label?: string; question?: string; question_text?: string }) => ({
+          id: r.id,
+          label: r.label || 'クロージング',
+          category: 'クロージング',
+          question: r.question ?? r.question_text ?? '',
+        }))
+        if (ice.length > 0) setCommonQuestionsIcebreak(ice)
+        if (close.length > 0) setCommonQuestionsClosing(close)
+      } catch {
+        // デフォルトのまま
+      }
+    }
+    fetchCommonQuestions()
+  }, [supabase])
+
+  useEffect(() => {
+    if (!selectedJobId || !activePattern) {
+      setPatternQuestions([])
+      return
+    }
+    async function fetchJobQuestions() {
+      setQuestionsLoading(true)
+      try {
+        const { data, error } = await supabase
+          .from('job_questions')
+          .select('*')
+          .eq('job_id', selectedJobId)
+          .eq('pattern_key', activePattern)
+          .order('sort_order', { ascending: true })
+
+        if (error) throw error
+        if (data && data.length > 0) {
+          setPatternQuestions(
+            data.map((r: { id: string; question?: string; question_text?: string }) => ({
+              id: r.id,
+              question: r.question ?? r.question_text ?? '',
+            }))
+          )
+        } else {
+          setPatternQuestions([])
+        }
+      } catch (err) {
+        console.error('質問取得エラー:', err)
+        setPatternQuestions([])
+      } finally {
+        setQuestionsLoading(false)
+      }
+    }
+    fetchJobQuestions()
+  }, [selectedJobId, activePattern, supabase])
 
   const showToast = (message: string) => {
     setToast(message)
@@ -165,45 +290,46 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
   }
 
   const handleCommonQuestionChange = (id: string, value: string, type: 'icebreakers' | 'closing') => {
-    setCommonQuestions((prev) => {
-      const arr = type === 'icebreakers' ? prev.icebreakers : prev.closing
-      const idx = arr.findIndex((x) => x.id === id)
-      if (idx < 0) return prev
-      const nextArr = arr.map((item, i) => (i === idx ? { ...item, question: value } : item))
-      return type === 'icebreakers' ? { ...prev, icebreakers: nextArr } : { ...prev, closing: nextArr }
-    })
+    if (type === 'icebreakers') {
+      setCommonQuestionsIcebreak((prev) => {
+        const idx = prev.findIndex((x) => x.id === id)
+        if (idx < 0) return prev
+        return prev.map((item, i) => (i === idx ? { ...item, question: value } : item))
+      })
+    } else {
+      setCommonQuestionsClosing((prev) => {
+        const idx = prev.findIndex((x) => x.id === id)
+        if (idx < 0) return prev
+        return prev.map((item, i) => (i === idx ? { ...item, question: value } : item))
+      })
+    }
   }
 
   const handleAddQuestion = () => {
-    if (!selectedOptionId) return
-    const list = questionsByOption[selectedOptionId] ?? []
-    const newQuestion: Question = { id: `q-${selectedOptionId}-${Date.now()}`, question: '' }
-    setQuestionsByOption((prev) => ({ ...prev, [selectedOptionId]: [...list, newQuestion] }))
+    if (!selectedJobId) return
+    const newQuestion: Question = { id: `temp-${Date.now()}`, question: '' }
+    setPatternQuestions((prev) => [...prev, newQuestion])
   }
 
   const handleDeleteQuestion = (id: string) => {
-    if (!selectedOptionId) return
-    const list = (questionsByOption[selectedOptionId] ?? []).filter((q) => q.id !== id)
-    setQuestionsByOption((prev) => ({ ...prev, [selectedOptionId]: list }))
+    if (!selectedJobId) return
+    setPatternQuestions((prev) => prev.filter((q) => q.id !== id))
   }
 
   const handleQuestionChange = (id: string, value: string) => {
-    if (!selectedOptionId) return
-    const list = questionsByOption[selectedOptionId] ?? []
-    setQuestionsByOption((prev) => ({ ...prev, [selectedOptionId]: list.map((q) => (q.id === id ? { ...q, question: value } : q)) }))
+    setPatternQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, question: value } : q)))
   }
 
   const handleMoveQuestion = (index: number, direction: 'up' | 'down') => {
-    if (!selectedOptionId) return
-    const list = [...questions]
     const newIndex = direction === 'up' ? index - 1 : index + 1
-    if (newIndex < 0 || newIndex >= list.length) return
-    ;[list[index], list[newIndex]] = [list[newIndex], list[index]]
-    setQuestionsByOption((prev) => ({ ...prev, [selectedOptionId]: list }))
+    if (newIndex < 0 || newIndex >= patternQuestions.length) return
+    const next = [...patternQuestions]
+    ;[next[index], next[newIndex]] = [next[newIndex], next[index]]
+    setPatternQuestions(next)
   }
 
   const openTemplateModal = () => {
-    if (!selectedOption) return
+    if (!selectedJob) return
     setTemplateModalOpen(true)
     setSelectedTemplateQuestionIds(new Set())
     setInsertAt(0)
@@ -219,32 +345,73 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
   }
 
   const handleAddSelectedQuestions = () => {
-    if (!selectedOption) return
-    const template = JOB_TYPE_TEMPLATES[selectedOption.jobType as JobTypeKey] ?? JOB_TYPE_TEMPLATES['その他']
+    if (!selectedJob) return
+    const templateKey = JOB_TYPES.includes(selectedJob.title as JobTypeKey) ? (selectedJob.title as JobTypeKey) : 'その他'
+    const template = JOB_TYPE_TEMPLATES[templateKey]
     const toAdd = template.questions.filter((_, i) => selectedTemplateQuestionIds.has(i))
     if (toAdd.length === 0) return
-    const list = questionsByOption[selectedOptionId] ?? []
-    const insertIdx = Math.min(Math.max(0, insertAt), list.length)
-    const newQs: Question[] = toAdd.map((q, i) => ({ id: `q-${selectedOptionId}-${Date.now()}-${i}`, question: q }))
-    setQuestionsByOption((prev) => ({ ...prev, [selectedOptionId]: [...list.slice(0, insertIdx), ...newQs, ...list.slice(insertIdx)] }))
+    const insertIdx = Math.min(Math.max(0, insertAt), patternQuestions.length)
+    const newQs: Question[] = toAdd.map((q, i) => ({ id: `temp-${Date.now()}-${i}`, question: q }))
+    setPatternQuestions((prev) => [...prev.slice(0, insertIdx), ...newQs, ...prev.slice(insertIdx)])
     setTemplateModalOpen(false)
     setSelectedTemplateQuestionIds(new Set())
     showToast(`${toAdd.length}件の質問を追加しました`)
   }
 
   const handleReplaceAllWithTemplate = () => {
-    if (!selectedOption) return
+    if (!selectedJob) return
     if (!window.confirm('現在の質問を全てテンプレートに置き換えますか？')) return
-    const template = JOB_TYPE_TEMPLATES[selectedOption.jobType as JobTypeKey] ?? JOB_TYPE_TEMPLATES['その他']
-    const newQuestions: Question[] = template.questions.map((q, i) => ({ id: `q-${selectedOptionId}-${Date.now()}-${i}`, question: q }))
-    setQuestionsByOption((prev) => ({ ...prev, [selectedOptionId]: newQuestions }))
+    const templateKey = JOB_TYPES.includes(selectedJob.title as JobTypeKey) ? (selectedJob.title as JobTypeKey) : 'その他'
+    const template = JOB_TYPE_TEMPLATES[templateKey]
+    const newQuestions: Question[] = template.questions.map((q, i) => ({ id: `temp-${Date.now()}-${i}`, question: q }))
+    setPatternQuestions(newQuestions)
     setTemplateModalOpen(false)
     setSelectedTemplateQuestionIds(new Set())
     showToast(`${template.name}テンプレートで全て置き換えました`)
   }
 
-  const handleSaveQuestions = () => {
-    showToast('質問設定を保存しました')
+  const handleSaveQuestions = async () => {
+    if (!selectedJobId || !activePattern) return
+    setIsLoading(true)
+    try {
+      const { data: existing } = await supabase
+        .from('job_questions')
+        .select('id')
+        .eq('job_id', selectedJobId)
+        .eq('pattern_key', activePattern)
+
+      const existingIds = new Set((existing || []).map((r: { id: string }) => r.id))
+      const currentRealIds = patternQuestions.filter((q) => !q.id.startsWith('temp-')).map((q) => q.id)
+      const toDeleteIds = [...existingIds].filter((id) => !currentRealIds.includes(id))
+
+      for (const id of toDeleteIds) {
+        await supabase.from('job_questions').delete().eq('id', id)
+      }
+
+      for (let i = 0; i < patternQuestions.length; i++) {
+        const q = patternQuestions[i]
+        if (q.id.startsWith('temp-')) {
+          await supabase.from('job_questions').insert({
+            job_id: selectedJobId,
+            pattern_key: activePattern,
+            question_text: q.question,
+            sort_order: i,
+          })
+        } else {
+          await supabase
+            .from('job_questions')
+            .update({ question_text: q.question, sort_order: i })
+            .eq('id', q.id)
+        }
+      }
+
+      showToast('質問を保存しました')
+    } catch (err) {
+      console.error('質問保存エラー:', err)
+      showToast('質問の保存に失敗しました。')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const JobsLink = () => {
@@ -262,6 +429,17 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
     )
   }
 
+  if (jobsLoading) {
+    return (
+      <div className="min-w-0 max-w-[100vw] pb-10 flex items-center justify-center py-16">
+        <svg className={`animate-spin h-10 w-10 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+        </svg>
+      </div>
+    )
+  }
+
   return (
     <div className="min-w-0 max-w-[100vw] pb-10">
       <div className="flex flex-col gap-4 mb-6">
@@ -271,32 +449,44 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
 
       <div className="mb-6">
         <label className={`block text-sm font-medium mb-2 ${cn.label}`}>求人を選択</label>
-        {DUMMY_JOBS.length === 0 ? (
+        {jobs.length === 0 ? (
           <div className={`rounded-xl border p-6 text-center ${cn.emptyCard}`}>
-            <p className={`mb-4 ${cn.subtext}`}>求人が登録されていません。先に求人管理から求人を作成してください。</p>
+            <p className={`mb-4 ${cn.subtext}`}>募集中の求人がありません。先に求人管理で求人を作成し、募集を開始してください。</p>
             <JobsLink />
           </div>
         ) : (
           <select
-            value={selectedOptionId}
-            onChange={(e) => setSelectedOptionId(e.target.value)}
+            value={selectedJobId}
+            onChange={(e) => {
+              const id = e.target.value
+              setSelectedJobId(id)
+              const job = jobs.find((j) => j.id === id) || null
+              setSelectedJob(job)
+              if (job) {
+                const tabs = getPatternTabs(job.employment_type)
+                setPatternTabs(tabs)
+                setActivePattern(tabs[0]?.patternKey || '')
+              }
+            }}
             className={`w-full md:w-auto min-w-[300px] px-4 py-2.5 border rounded-xl text-sm focus:ring-2 focus:border-transparent outline-none ${cn.select}`}
           >
             <option value="">求人を選択してください</option>
-            {questionOptions.map((opt) => (
-              <option key={opt.id} value={opt.id}>{opt.label}</option>
+            {jobs.map((job) => (
+              <option key={job.id} value={job.id}>
+                {job.title} × {job.employmentTypeLabel}
+              </option>
             ))}
           </select>
         )}
       </div>
 
-      {selectedOptionId && selectedOption ? (
+      {selectedJobId && selectedJob ? (
         <>
           <div className={`mb-8 rounded-xl border p-6 ${cn.card}`}>
-            <h2 className={`text-base font-semibold mb-2 ${cn.title}`}>共通質問（全求人共通）</h2>
-            <p className={`text-sm mb-4 ${cn.subtext}`}>すべての面接で冒頭とクロージングに自動挿入されます。個別に編集可能です。</p>
+            <h2 className={`text-base font-semibold mb-2 ${cn.title}`}>共通質問（アイスブレイク）</h2>
+            <p className={`text-sm mb-4 ${cn.subtext}`}>すべての面接で冒頭に自動挿入されます。</p>
             <div className="space-y-4">
-              {commonQuestions.icebreakers.map((cq) => (
+              {commonQuestionsIcebreak.map((cq) => (
                 <div key={cq.id} className={`rounded-xl border p-4 ${cn.innerCard}`}>
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <p className={`text-xs font-semibold ${cn.label}`}>{cq.label}（{cq.category}）</p>
@@ -315,7 +505,67 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
                   )}
                 </div>
               ))}
-              {commonQuestions.closing.map((cq) => (
+            </div>
+          </div>
+
+          <div className={`mb-8 rounded-xl border p-6 ${cn.card}`}>
+            <h2 className={`text-base font-semibold mb-4 ${cn.title}`}>求人別質問</h2>
+            <div className={`flex border-b mb-4 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              {patternTabs.map((tab) => (
+                <button
+                  key={tab.patternKey}
+                  type="button"
+                  onClick={() => setActivePattern(tab.patternKey)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                    activePattern === tab.patternKey ? cn.tabActive : cn.tabInactive
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {questionsLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <svg className={`animate-spin h-8 w-8 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-4">
+                  {patternQuestions.map((q, i) => (
+                    <div key={q.id} className={`rounded-xl border p-5 transition-all ${cn.innerCard} ${!isDark && 'shadow-sm hover:shadow-md'}`}>
+                      <div className="flex items-start gap-3">
+                        <div className="flex flex-col gap-0.5 shrink-0">
+                          <button type="button" onClick={() => handleMoveQuestion(i, 'up')} disabled={i === 0} className={`p-1 disabled:opacity-30 disabled:cursor-not-allowed ${isDark ? 'text-gray-500 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}><ChevronUp className="w-5 h-5" /></button>
+                          <button type="button" onClick={() => handleMoveQuestion(i, 'down')} disabled={i === patternQuestions.length - 1} className={`p-1 disabled:opacity-30 disabled:cursor-not-allowed ${isDark ? 'text-gray-500 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}><ChevronDown className="w-5 h-5" /></button>
+                        </div>
+                        <span className={`shrink-0 mt-1 inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${isDark ? 'bg-white/10 text-gray-300' : 'bg-indigo-100 text-indigo-700'}`}>{i + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <textarea value={q.question} onChange={(e) => handleQuestionChange(q.id, e.target.value)} placeholder="質問文を入力してください" rows={2} className={`w-full px-4 py-2.5 border rounded-xl text-sm resize-none focus:outline-none focus:ring-2 ${cn.input}`} />
+                        </div>
+                        <button type="button" onClick={() => handleDeleteQuestion(q.id)} className={`shrink-0 p-2 rounded-lg transition-colors ${isDark ? 'text-gray-500 hover:text-red-400 hover:bg-red-500/10' : 'text-slate-400 hover:text-red-600 hover:bg-red-50'}`} aria-label="削除">
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <button type="button" onClick={handleAddQuestion} className={`mt-6 w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed text-sm font-medium rounded-xl transition-colors ${cn.btnAdd}`}>
+                  <Plus className="w-5 h-5" />質問を追加
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className={`mb-8 rounded-xl border p-6 ${cn.card}`}>
+            <h2 className={`text-base font-semibold mb-2 ${cn.title}`}>共通質問（クロージング）</h2>
+            <p className={`text-sm mb-4 ${cn.subtext}`}>すべての面接の終了時に自動挿入されます。</p>
+            <div className="space-y-4">
+              {commonQuestionsClosing.map((cq) => (
                 <div key={cq.id} className={`rounded-xl border p-4 ${cn.innerCard}`}>
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <p className={`text-xs font-semibold ${cn.label}`}>{cq.label}（{cq.category}）</p>
@@ -337,55 +587,24 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
             </div>
           </div>
 
-          <div>
-            <div className="flex items-start justify-between gap-4 mb-4">
-              <div>
-                <h2 className={`text-base font-semibold ${cn.title}`}>本質問</h2>
-                <p className={`text-sm mt-1 ${cn.subtext}`}>選択中の求人で使用する面接質問です。</p>
-              </div>
-              <button type="button" onClick={openTemplateModal} className={`inline-flex items-center gap-2 px-4 py-2 border text-sm font-medium rounded-xl transition-colors ${cn.btnTemplate}`}>
-                <FileText className="w-4 h-4" />テンプレートから読み込み
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              {questions.map((q, i) => (
-                <div key={q.id} className={`rounded-xl border p-5 transition-all ${cn.innerCard} ${!isDark && 'shadow-sm hover:shadow-md'}`}>
-                  <div className="flex items-start gap-3">
-                    <div className="flex flex-col gap-0.5 shrink-0">
-                      <button type="button" onClick={() => handleMoveQuestion(i, 'up')} disabled={i === 0} className={`p-1 disabled:opacity-30 disabled:cursor-not-allowed ${isDark ? 'text-gray-500 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}><ChevronUp className="w-5 h-5" /></button>
-                      <button type="button" onClick={() => handleMoveQuestion(i, 'down')} disabled={i === questions.length - 1} className={`p-1 disabled:opacity-30 disabled:cursor-not-allowed ${isDark ? 'text-gray-500 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}><ChevronDown className="w-5 h-5" /></button>
-                    </div>
-                    <span className={`shrink-0 mt-1 inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${isDark ? 'bg-white/10 text-gray-300' : 'bg-indigo-100 text-indigo-700'}`}>{i + 1}</span>
-                    <div className="flex-1 min-w-0">
-                      <textarea value={q.question} onChange={(e) => handleQuestionChange(q.id, e.target.value)} placeholder="質問文を入力してください" rows={2} className={`w-full px-4 py-2.5 border rounded-xl text-sm resize-none focus:outline-none focus:ring-2 ${cn.input}`} />
-                    </div>
-                    <button type="button" onClick={() => handleDeleteQuestion(q.id)} className={`shrink-0 p-2 rounded-lg transition-colors ${isDark ? 'text-gray-500 hover:text-red-400 hover:bg-red-500/10' : 'text-slate-400 hover:text-red-600 hover:bg-red-50'}`}><Trash2 className="w-5 h-5" /></button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <button type="button" onClick={handleAddQuestion} className={`mt-6 w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed text-sm font-medium rounded-xl transition-colors ${cn.btnAdd}`}>
-              <Plus className="w-5 h-5" />質問を追加
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <button type="button" onClick={openTemplateModal} className={`inline-flex items-center gap-2 px-4 py-2 border text-sm font-medium rounded-xl transition-colors ${cn.btnTemplate}`}>
+              <FileText className="w-4 h-4" />テンプレートから読み込み
             </button>
-          </div>
-
-          <div className="mt-8 flex justify-end">
-            <button type="button" onClick={handleSaveQuestions} className={`px-6 py-2.5 text-white text-sm font-semibold rounded-xl transition-all ${isDark ? `bg-gradient-to-r ${cn.btnSave} shadow-[0_4px_16px_rgba(59,130,246,0.3)]` : cn.btnSave}`}>
+            <button type="button" onClick={handleSaveQuestions} disabled={questionsLoading || isLoading} className={`px-6 py-2.5 text-white text-sm font-semibold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isDark ? `bg-gradient-to-r ${cn.btnSave} shadow-[0_4px_16px_rgba(59,130,246,0.3)]` : cn.btnSave}`}>
               変更を保存
             </button>
+            <JobsLink />
           </div>
 
-          {templateModalOpen && selectedOption && (
+          {templateModalOpen && selectedJob && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={(e) => e.target === e.currentTarget && (setTemplateModalOpen(false), setSelectedTemplateQuestionIds(new Set()))}>
               <div className={`rounded-2xl shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto border ${cn.modal}`} onClick={(e) => e.stopPropagation()}>
                 <h3 className={`text-lg font-bold mb-4 ${cn.title}`}>テンプレートから読み込み</h3>
-                <p className={`text-sm mb-2 ${cn.modalText}`}>現在選択中: <strong className={cn.modalStrong}>{selectedOption.label}</strong></p>
-                <p className={`text-sm mb-2 ${cn.modalText}`}>職種: <strong className={cn.modalStrong}>{selectedOption.jobType}</strong></p>
+                <p className={`text-sm mb-2 ${cn.modalText}`}>現在選択中: <strong className={cn.modalStrong}>{selectedJob.title} × {selectedJob.employmentTypeLabel}</strong></p>
                 <p className={`text-sm mb-4 ${cn.modalText}`}>質問を選択してください（複数選択可）</p>
                 <div className="space-y-2 mb-6 max-h-64 overflow-y-auto">
-                  {(JOB_TYPE_TEMPLATES[selectedOption.jobType as JobTypeKey] ?? JOB_TYPE_TEMPLATES['その他']).questions.map((q, idx) => (
+                  {(JOB_TYPE_TEMPLATES[JOB_TYPES.includes(selectedJob.title as JobTypeKey) ? (selectedJob.title as JobTypeKey) : 'その他']).questions.map((q, idx) => (
                     <label key={idx} className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer ${isDark ? 'border-white/[0.06] hover:bg-white/[0.04]' : 'border-slate-200 hover:bg-slate-50'}`}>
                       <input type="checkbox" checked={selectedTemplateQuestionIds.has(idx)} onChange={() => toggleTemplateQuestion(idx)} className={`mt-1 rounded ${isDark ? 'border-gray-500 text-blue-500 focus:ring-blue-500' : 'border-gray-300 text-indigo-600 focus:ring-indigo-500'}`} />
                       <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>{q}</span>
@@ -396,7 +615,7 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
                   <label className={`block text-sm font-medium ${cn.label}`}>挿入位置</label>
                   <select value={insertAt} onChange={(e) => setInsertAt(Number(e.target.value))} className={`w-full px-4 py-2 border rounded-lg text-sm ${cn.select}`}>
                     <option value={0}>先頭</option>
-                    {questions.map((_, i) => (<option key={i} value={i + 1}>{`${i + 1}番目の後`}</option>))}
+                    {patternQuestions.map((_, i) => (<option key={i} value={i + 1}>{`${i + 1}番目の後`}</option>))}
                   </select>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -412,7 +631,7 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
             </div>
           )}
         </>
-      ) : selectedOptionId === '' && DUMMY_JOBS.length > 0 ? (
+      ) : selectedJobId === '' && jobs.length > 0 ? (
         <div className={`rounded-xl border p-12 text-center ${cn.emptyCard}`}>
           <p className={cn.subtext}>求人を選択してください</p>
         </div>

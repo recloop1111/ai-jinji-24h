@@ -1,15 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Link as LinkIcon, User, Info, X } from 'lucide-react'
 import JobManager from '@/components/shared/JobManager'
 import QuestionEditor from '@/components/shared/QuestionEditor'
 
 const CARD_BASE = 'bg-gradient-to-br from-white/[0.07] to-white/[0.02] backdrop-blur-2xl border border-white/[0.08] rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)]'
-
-// TODO: 実データに差替え
-const INTERVIEW_URL = 'https://ai-jinji24h.com/interview/abc-token-xxxxx'
 
 // TODO: 実データに差替え
 const EVALUATION_AXES = [
@@ -35,13 +33,16 @@ const TABS = ['基本情報', 'ブランド設定', 'アバター設定', '質�
 export default function CompanyDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const companyId = params.id as string
+  const [company, setCompany] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>('基本情報')
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [stopModalOpen, setStopModalOpen] = useState(false)
 
   // ブランド設定 state
-  const [displayName, setDisplayName] = useState('株式会社ABC')
+  const [displayName, setDisplayName] = useState('')
   const [brandColor, setBrandColor] = useState('#2563EB')
   const [completeMessage, setCompleteMessage] = useState('本日は面接にご参加いただき、誠にありがとうございました。選考結果は1週間以内にメールにてご連絡いたします。')
 
@@ -55,15 +56,45 @@ export default function CompanyDetailPage() {
   const [axes, setAxes] = useState(EVALUATION_AXES.map((a) => ({ ...a })))
   const totalWeight = axes.reduce((sum, a) => sum + a.weight, 0)
 
+  useEffect(() => {
+    fetchCompany()
+  }, [companyId])
+
+  async function fetchCompany() {
+    if (!companyId) return
+    setLoading(true)
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('id', companyId)
+      .single()
+
+    if (data) {
+      setCompany(data)
+      setDisplayName(data.name || '')
+      setBrandColor(data.brand_color || '#2563EB')
+    }
+    setLoading(false)
+  }
+
   const showToast = (msg: string) => {
     setToastMessage(msg)
     setToastVisible(true)
     setTimeout(() => setToastVisible(false), 2000)
   }
 
+  const interviewUrl = company?.interview_slug
+    ? (typeof window !== 'undefined' ? `${window.location.origin}/interview/${company.interview_slug}` : '')
+    : ''
+
   const copyInterviewUrl = async () => {
+    if (!interviewUrl) {
+      showToast('面接URLが設定されていません')
+      return
+    }
     try {
-      await navigator.clipboard.writeText(INTERVIEW_URL)
+      await navigator.clipboard.writeText(interviewUrl)
       showToast('面接URLをコピーしました')
     } catch {
       showToast('コピーに失敗しました')
@@ -71,20 +102,60 @@ export default function CompanyDetailPage() {
   }
 
   const copyUrlFromField = async () => {
+    if (!interviewUrl) {
+      showToast('面接URLが設定されていません')
+      return
+    }
     try {
-      await navigator.clipboard.writeText(INTERVIEW_URL)
+      await navigator.clipboard.writeText(interviewUrl)
       showToast('面接URLをコピーしました')
     } catch {
       showToast('コピーに失敗しました')
     }
   }
 
-  const handleStopContract = () => {
-    setStopModalOpen(false)
-    showToast('契約を停止しました')
+  async function saveBrandSettings() {
+    const supabase = createClient()
+    await supabase
+      .from('companies')
+      .update({
+        name: displayName,
+        brand_color: brandColor,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', companyId)
+    showToast('ブランド設定を保存しました')
   }
 
-  const companyId = (params.id as string) ?? ''
+  async function handleStopContract() {
+    const supabase = createClient()
+    await supabase
+      .from('companies')
+      .update({
+        is_suspended: true,
+        status: 'suspended',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', companyId)
+    setStopModalOpen(false)
+    showToast('契約を停止しました')
+    fetchCompany()
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="animate-spin h-8 w-8 border-2 border-blue-500 border-t-transparent rounded-full" />
+      </div>
+    )
+  }
+
+  const statusType = company?.is_suspended ? 'suspended' : company?.is_active === false ? 'cancelled' : 'active'
+  const statusConfig = {
+    active: { label: 'アクティブ', className: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' },
+    suspended: { label: '停止中', className: 'bg-red-500/15 text-red-400 border border-red-500/20' },
+    cancelled: { label: '解約済み', className: 'bg-gray-500/15 text-gray-400 border border-gray-500/20' },
+  }[statusType] ?? { label: statusType, className: 'bg-gray-500/15 text-gray-400 border border-gray-500/20' }
 
   return (
     <>
@@ -106,10 +177,10 @@ export default function CompanyDetailPage() {
               企業一覧に戻る
             </button>
             <div className="flex items-center flex-wrap gap-2">
-              <h1 className="text-2xl font-bold text-white">株式会社ABC</h1>
-              <span className="inline-flex items-center gap-1 bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 rounded-full px-2.5 py-0.5 text-xs">
-                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
-                アクティブ
+              <h1 className="text-2xl font-bold text-white">{company?.name || '読み込み中...'}</h1>
+              <span className={`inline-flex items-center gap-1 border rounded-full px-2.5 py-0.5 text-xs ${statusConfig.className}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${statusType === 'active' ? 'bg-emerald-400' : statusType === 'suspended' ? 'bg-red-400' : 'bg-gray-500'}`} />
+                {statusConfig.label}
               </span>
             </div>
           </div>
@@ -147,52 +218,52 @@ export default function CompanyDetailPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-4 mb-8">
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">企業名</label>
-                <p className="text-sm text-white mt-1">株式会社ABC</p>
+                <p className="text-sm text-white mt-1">{company?.name || '未設定'}</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">代表者名</label>
-                <p className="text-sm text-white mt-1">田中 一郎</p>
+                <p className="text-sm text-white mt-1">{company?.contact_person || '未設定'}</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">担当者名</label>
-                <p className="text-sm text-white mt-1">佐藤 美咲</p>
+                <p className="text-sm text-white mt-1">{company?.contact_person || '未設定'}</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">担当者メール</label>
-                <p className="text-sm text-white mt-1">sato@abc-corp.co.jp</p>
+                <p className="text-sm text-white mt-1">{company?.contact_email || company?.email || '未設定'}</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">担当者電話</label>
-                <p className="text-sm text-white mt-1">03-1234-5678</p>
+                <p className="text-sm text-white mt-1">{company?.phone || '未設定'}</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">所在地</label>
-                <p className="text-sm text-white mt-1">東京都渋谷区神南1-2-3 ABCビル5F</p>
+                <p className="text-sm text-white mt-1">未設定</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">業種</label>
-                <p className="text-sm text-white mt-1">IT・ソフトウェア</p>
+                <p className="text-sm text-white mt-1">{company?.industry || '未設定'}</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">従業員数</label>
-                <p className="text-sm text-white mt-1">120名</p>
+                <p className="text-sm text-white mt-1">未設定</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">契約プラン</label>
-                <p className="text-sm text-white mt-1">プランB（11〜20件）</p>
+                <p className="text-sm text-white mt-1">{company?.plan || '未設定'}</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">契約開始日</label>
-                <p className="text-sm text-white mt-1">2024-10-15</p>
+                <p className="text-sm text-white mt-1">{company?.contract_start_date || '未設定'}</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">次回更新日</label>
-                <p className="text-sm text-white mt-1">2025-04-15</p>
+                <p className="text-sm text-white mt-1">未設定</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">面接URL</label>
                 <button type="button" onClick={copyUrlFromField} className="block text-sm text-blue-400 hover:text-blue-300 mt-1 break-all text-left">
-                  {INTERVIEW_URL}
+                  {interviewUrl || '未設定'}
                 </button>
               </div>
             </div>
@@ -241,7 +312,7 @@ export default function CompanyDetailPage() {
                   <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider">企業ロゴ画像</label>
                   <div className="flex items-center gap-4 mt-2">
                     <div className="w-20 h-20 bg-white/[0.05] border border-white/[0.08] rounded-xl flex items-center justify-center shrink-0">
-                      <span className="text-white/30 text-xs">ABC</span>
+                      <span className="text-white/30 text-xs">{displayName?.slice(0, 2) || company?.name?.slice(0, 2) || '—'}</span>
                     </div>
                     <div>
                       <button type="button" className="bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 rounded-xl px-4 py-2 text-sm">
@@ -276,7 +347,7 @@ export default function CompanyDetailPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => showToast('ブランド設定を保存しました')}
+                  onClick={saveBrandSettings}
                   className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-all shadow-[0_4px_16px_rgba(59,130,246,0.3)]"
                 >
                   保存する
@@ -286,7 +357,7 @@ export default function CompanyDetailPage() {
                 <p className="text-xs text-gray-500 mb-2">プレビュー</p>
                 <div className="w-full max-w-[288px] bg-gray-900 rounded-2xl border border-white/10 p-4">
                   <div className="w-12 h-12 bg-white/[0.05] rounded-xl flex items-center justify-center mb-3">
-                    <span className="text-white/30 text-xs">ABC</span>
+                    <span className="text-white/30 text-xs">{displayName?.slice(0, 2) || company?.name?.slice(0, 2) || '—'}</span>
                   </div>
                   <p className="text-sm font-medium mb-3" style={{ color: brandColor }}>
                     {displayName}
@@ -457,18 +528,27 @@ export default function CompanyDetailPage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className={`${CARD_BASE} p-5`}>
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">面接実施数</p>
-                <p className="text-2xl font-bold text-white mb-2">14/20件</p>
+                <p className="text-2xl font-bold text-white mb-2">{company?.monthly_interview_count ?? 0}/{company?.monthly_interview_limit ?? 0}件</p>
                 <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-500 rounded-full" style={{ width: '70%' }} />
+                  <div
+                    className="h-full bg-blue-500 rounded-full"
+                    style={{
+                      width: `${(company?.monthly_interview_limit ?? 0) > 0 ? Math.min(100, ((company?.monthly_interview_count ?? 0) / (company?.monthly_interview_limit ?? 1)) * 100) : 0}%`,
+                    }}
+                  />
                 </div>
               </div>
               <div className={`${CARD_BASE} p-5`}>
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">残り面接枠</p>
-                <p className="text-2xl font-bold text-white">6件</p>
+                <p className="text-2xl font-bold text-white">{Math.max(0, (company?.monthly_interview_limit ?? 0) - (company?.monthly_interview_count ?? 0))}件</p>
               </div>
               <div className={`${CARD_BASE} p-5`}>
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">プラン消化率</p>
-                <p className="text-2xl font-bold text-white">70%</p>
+                <p className="text-2xl font-bold text-white">
+                  {(company?.monthly_interview_limit ?? 0) > 0
+                    ? Math.round(((company?.monthly_interview_count ?? 0) / (company?.monthly_interview_limit ?? 1)) * 100)
+                    : 0}%
+                </p>
               </div>
             </div>
             <div className={`${CARD_BASE} overflow-hidden`}>
@@ -524,7 +604,7 @@ export default function CompanyDetailPage() {
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setStopModalOpen(false)} aria-hidden />
           <div className={`relative ${CARD_BASE} p-6 max-w-md w-full`}>
             <h3 className="text-lg font-semibold text-white mb-2">契約停止の確認</h3>
-            <p className="text-sm text-gray-400 mb-6">株式会社ABCの契約を停止しますか？停止すると新規面接の受付が停止されます。</p>
+            <p className="text-sm text-gray-400 mb-6">{company?.name || 'この企業'}の契約を停止しますか？停止すると新規面接の受付が停止されます。</p>
             <div className="flex gap-3 justify-end">
               <button
                 type="button"

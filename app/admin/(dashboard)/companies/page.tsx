@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Plus, Search, Download, Building2, CheckCircle, Square, X } from 'lucide-react'
 
@@ -53,18 +54,6 @@ function isFreeEmail(email: string): boolean {
   return domain ? FREE_EMAIL_DOMAINS.includes(domain) : true
 }
 
-// TODO: 実データに差替え
-const DUMMY_COMPANIES = [
-  { id: '1', name: '株式会社ABC', industry: 'IT・ソフトウェア', plan: 'プランB', planKey: 'B', status: 'active', interviewsThisMonth: 14, interviewLimit: 20, contractStart: '2024-10-15', contactName: '佐藤 美咲', contactEmail: 'sato@abc-corp.co.jp' },
-  { id: '2', name: '株式会社テックフロンティア', industry: 'IT・通信', plan: 'プランC', planKey: 'C', status: 'active', interviewsThisMonth: 25, interviewLimit: 30, contractStart: '2024-08-01', contactName: '鈴木 太郎', contactEmail: 'suzuki@techfrontier.co.jp' },
-  { id: '3', name: '山田商事株式会社', industry: '商社・卸売', plan: 'プランA', planKey: 'A', status: 'active', interviewsThisMonth: 7, interviewLimit: 10, contractStart: '2024-11-20', contactName: '山田 花子', contactEmail: 'yamada@yamada-shoji.co.jp' },
-  { id: '4', name: '株式会社グローバルHR', industry: '人材サービス', plan: 'カスタム', planKey: 'custom', status: 'active', interviewsThisMonth: 45, interviewLimit: 50, contractStart: '2024-06-01', contactName: '田中 健一', contactEmail: 'tanaka@globalhr.co.jp' },
-  { id: '5', name: '株式会社スタートアップラボ', industry: 'IT・スタートアップ', plan: 'プランA', planKey: 'A', status: 'active', interviewsThisMonth: 3, interviewLimit: 10, contractStart: '2025-01-10', contactName: '高橋 直人', contactEmail: 'takahashi@startuplab.co.jp' },
-  { id: '6', name: '東京建設株式会社', industry: '建設・不動産', plan: 'プランB', planKey: 'B', status: 'active', interviewsThisMonth: 5, interviewLimit: 20, contractStart: '2025-01-15', contactName: '伊藤 真理', contactEmail: 'ito@tokyo-kensetsu.co.jp' },
-  { id: '7', name: '株式会社フードネクスト', industry: '飲食・フード', plan: 'プランA', planKey: 'A', status: 'suspended', interviewsThisMonth: 0, interviewLimit: 10, contractStart: '2024-09-01', contactName: '中村 優子', contactEmail: 'nakamura@foodnext.co.jp' },
-  { id: '8', name: '関西メディカル株式会社', industry: '医療・ヘルスケア', plan: 'プランB', planKey: 'B', status: 'cancelled', interviewsThisMonth: 0, interviewLimit: 20, contractStart: '2024-07-01', contactName: '小林 誠', contactEmail: 'kobayashi@kansai-medical.co.jp' },
-]
-
 type StatusFilter = 'all' | 'active' | 'suspended' | 'cancelled'
 type PlanFilter = 'all' | 'A' | 'B' | 'C' | 'custom'
 
@@ -87,19 +76,13 @@ function getStatusConfig(status: string): { dotClass: string; textClass: string;
   return map[status] ?? { dotClass: 'bg-gray-500', textClass: 'text-gray-500', label: status }
 }
 
-// TODO: 実データに差替え（サマリー数値）
-const SUMMARY = {
-  total: 24,
-  active: 18,
-  activePercent: 75,
-  suspended: 2,
-}
-
 const ITEMS_PER_PAGE = 8
-const TOTAL_PAGES = Math.ceil(SUMMARY.total / ITEMS_PER_PAGE) // 3 pages for 24 items
 
 export default function CompaniesPage() {
   const router = useRouter()
+  const [companies, setCompanies] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [summary, setSummary] = useState({ total: 0, active: 0, activePercent: 0, suspended: 0 })
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [planFilter, setPlanFilter] = useState<PlanFilter>('all')
@@ -123,15 +106,61 @@ export default function CompaniesPage() {
     notes: '',
   })
 
+  useEffect(() => {
+    fetchCompanies()
+  }, [])
+
+  async function fetchCompanies() {
+    setLoading(true)
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('companies')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (data) {
+      const mapped = data.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        industry: c.industry || '未設定',
+        plan: c.plan || '未設定',
+        planKey: c.plan === 'スタンダード' ? 'A' : c.plan === 'プレミアム' ? 'B' : c.plan === 'エンタープライズ' ? 'C' : c.plan || 'A',
+        status: c.is_suspended ? 'suspended' : c.is_active === false ? 'cancelled' : (c.status || 'active'),
+        interviewsThisMonth: c.monthly_interview_count || 0,
+        interviewLimit: c.monthly_interview_limit || 0,
+        contractStart: c.contract_start_date || '',
+        contactName: c.contact_person || '',
+        contactEmail: c.contact_email || c.email || '',
+      }))
+      setCompanies(mapped)
+
+      const active = mapped.filter((c: any) => c.status === 'active').length
+      const suspended = mapped.filter((c: any) => c.status === 'suspended').length
+      setSummary({
+        total: mapped.length,
+        active,
+        activePercent: mapped.length > 0 ? Math.round((active / mapped.length) * 100) : 0,
+        suspended,
+      })
+    }
+    setLoading(false)
+  }
+
   const filteredCompanies = useMemo(() => {
-    return DUMMY_COMPANIES.filter((c) => {
+    return companies.filter((c) => {
       const q = searchQuery.trim().toLowerCase()
-      const matchSearch = !q || c.name.toLowerCase().includes(q) || c.contactName.toLowerCase().includes(q)
+      const matchSearch = !q || c.name.toLowerCase().includes(q) || (c.contactName || '').toLowerCase().includes(q)
       const matchStatus = statusFilter === 'all' || c.status === statusFilter
       const matchPlan = planFilter === 'all' || c.planKey === planFilter
       return matchSearch && matchStatus && matchPlan
     })
-  }, [searchQuery, statusFilter, planFilter])
+  }, [searchQuery, statusFilter, planFilter, companies])
+
+  const totalPages = Math.ceil(filteredCompanies.length / ITEMS_PER_PAGE)
+  const paginatedCompanies = filteredCompanies.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  )
 
   const showToast = (msg: string) => {
     setToastMessage(msg)
@@ -163,7 +192,7 @@ export default function CompaniesPage() {
     if (formErrors[key]) setFormErrors((prev) => ({ ...prev, [key]: '' }))
   }
 
-  const handleSubmitNewCompany = () => {
+  const handleSubmitNewCompany = async () => {
     const err: Record<string, string> = {}
     if (!form.companyName.trim()) err.companyName = '会社名を入力してください'
     if (!form.representativeName.trim()) err.representativeName = '代表者名を入力してください'
@@ -177,9 +206,33 @@ export default function CompaniesPage() {
     if (!form.plan) err.plan = 'プランを選択してください'
     setFormErrors(err)
     if (Object.keys(err).length > 0) return
-    // TODO: Phase 4 - Supabaseに企業データ保存、アカウント発行、業種別質問テンプレート自動セット、面接URL自動生成
-    showToast('企業を登録しました。業種に基づく質問テンプレートが自動設定されました。')
+
+    const supabase = createClient()
+    const planValue = form.plan === 'スタンダード' ? 'スタンダード' : form.plan === 'プレミアム' ? 'プレミアム' : form.plan === 'エンタープライズ' ? 'エンタープライズ' : form.plan
+    const { error } = await supabase.from('companies').insert({
+      name: form.companyName,
+      contact_person: form.contactName,
+      contact_email: form.contactEmail,
+      phone: form.contactPhone,
+      industry: form.industry,
+      plan: planValue,
+      status: 'active',
+      is_active: true,
+      is_suspended: false,
+      monthly_interview_limit: parseInt(form.monthlyInterviews) || 20,
+      monthly_interview_count: 0,
+      contract_start_date: new Date().toISOString().split('T')[0],
+      onboarding_completed: false,
+    }).select().single()
+
+    if (error) {
+      showToast('登録に失敗しました: ' + error.message)
+      return
+    }
+
+    showToast(form.companyName + 'を登録しました')
     setAddModalOpen(false)
+    fetchCompanies()
   }
 
   const handleCsvExport = () => {
@@ -198,6 +251,14 @@ export default function CompaniesPage() {
   const handleDetailClick = (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
     router.push(`/admin/companies/${id}`)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="animate-spin h-8 w-8 border-2 border-blue-500 border-t-transparent rounded-full" />
+      </div>
+    )
   }
 
   return (
@@ -223,18 +284,18 @@ export default function CompaniesPage() {
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
             <Building2 className="absolute top-4 right-4 w-8 h-8 text-blue-400/50" />
-            <p className="text-3xl font-bold text-white">{SUMMARY.total}</p>
+            <p className="text-3xl font-bold text-white">{summary.total}</p>
             <p className="text-sm text-gray-400 mt-0.5">全企業数</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
             <CheckCircle className="absolute top-4 right-4 w-8 h-8 text-emerald-400/50" />
-            <p className="text-3xl font-bold text-white">{SUMMARY.active}</p>
+            <p className="text-3xl font-bold text-white">{summary.active}</p>
             <p className="text-sm text-gray-400 mt-0.5">アクティブ</p>
-            <p className="text-xs text-emerald-400 mt-1">全体の{SUMMARY.activePercent}%</p>
+            <p className="text-xs text-emerald-400 mt-1">全体の{summary.activePercent}%</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
             <Square className="absolute top-4 right-4 w-8 h-8 text-red-400/50" />
-            <p className="text-3xl font-bold text-white">{SUMMARY.suspended}</p>
+            <p className="text-3xl font-bold text-white">{summary.suspended}</p>
             <p className="text-sm text-gray-400 mt-0.5">停止中</p>
           </div>
         </div>
@@ -300,14 +361,14 @@ export default function CompaniesPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredCompanies.length === 0 ? (
+                {paginatedCompanies.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="text-sm text-gray-500 py-16 text-center">
                       該当する企業がありません
                     </td>
                   </tr>
                 ) : (
-                  filteredCompanies.map((c) => {
+                  paginatedCompanies.map((c) => {
                     const statusConfig = getStatusConfig(c.status)
                     const pct = c.interviewLimit > 0 ? (c.interviewsThisMonth / c.interviewLimit) * 100 : 0
                     return (
@@ -382,7 +443,7 @@ export default function CompaniesPage() {
           {filteredCompanies.length > 0 && (
             <div className="flex items-center justify-between px-5 py-4 border-t border-white/[0.04]">
               <p className="text-sm text-gray-500">
-                全{SUMMARY.total}社中 {((currentPage - 1) * ITEMS_PER_PAGE) + 1}〜{Math.min(currentPage * ITEMS_PER_PAGE, SUMMARY.total)}社を表示
+                全{filteredCompanies.length}社中 {((currentPage - 1) * ITEMS_PER_PAGE) + 1}〜{Math.min(currentPage * ITEMS_PER_PAGE, filteredCompanies.length)}社を表示
               </p>
               <div className="flex items-center gap-1">
                 <button
@@ -393,7 +454,7 @@ export default function CompaniesPage() {
                 >
                   前へ
                 </button>
-                {Array.from({ length: TOTAL_PAGES }, (_, i) => i + 1).map((p) => (
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
                   <button
                     key={p}
                     type="button"
@@ -409,8 +470,8 @@ export default function CompaniesPage() {
                 ))}
                 <button
                   type="button"
-                  onClick={() => setCurrentPage((p) => Math.min(TOTAL_PAGES, p + 1))}
-                  disabled={currentPage >= TOTAL_PAGES}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
                   className="w-9 h-9 text-sm bg-white/[0.05] text-gray-400 hover:bg-white/[0.08] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
                 >
                   次へ
@@ -422,12 +483,12 @@ export default function CompaniesPage() {
 
         {/* モバイル・タブレット: カード形式 */}
         <div className="lg:hidden space-y-3">
-          {filteredCompanies.length === 0 ? (
+          {paginatedCompanies.length === 0 ? (
             <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-8 text-center text-sm text-gray-500">
               該当する企業がありません
             </div>
           ) : (
-            filteredCompanies.map((c) => {
+            paginatedCompanies.map((c) => {
               const statusConfig = getStatusConfig(c.status)
               const pct = c.interviewLimit > 0 ? (c.interviewsThisMonth / c.interviewLimit) * 100 : 0
               return (
@@ -475,7 +536,7 @@ export default function CompaniesPage() {
           {filteredCompanies.length > 0 && (
             <div className="flex items-center justify-between pt-4 pb-2">
               <p className="text-sm text-gray-500">
-                全{SUMMARY.total}社中 1〜{filteredCompanies.length}社を表示
+                全{filteredCompanies.length}社中 {((currentPage - 1) * ITEMS_PER_PAGE) + 1}〜{Math.min(currentPage * ITEMS_PER_PAGE, filteredCompanies.length)}社を表示
               </p>
               <div className="flex items-center gap-1">
                 <button
@@ -486,7 +547,7 @@ export default function CompaniesPage() {
                 >
                   前へ
                 </button>
-                {Array.from({ length: TOTAL_PAGES }, (_, i) => i + 1).map((p) => (
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
                   <button
                     key={p}
                     type="button"
@@ -500,8 +561,8 @@ export default function CompaniesPage() {
                 ))}
                 <button
                   type="button"
-                  onClick={() => setCurrentPage((p) => Math.min(TOTAL_PAGES, p + 1))}
-                  disabled={currentPage >= TOTAL_PAGES}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
                   className="w-9 h-9 text-sm bg-white/[0.05] text-gray-400 rounded-lg disabled:opacity-50"
                 >
                   次へ
