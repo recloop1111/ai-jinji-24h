@@ -146,7 +146,7 @@ export default function ApplicantsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('pending')
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all')
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false)
   const filterDropdownRef = useRef<HTMLDivElement>(null)
   const sendListRef = useRef<HTMLDivElement>(null)
@@ -162,16 +162,12 @@ export default function ApplicantsPage() {
   const [csvDownloadToast, setCsvDownloadToast] = useState(false)
   const [applicants, setApplicants] = useState<Applicant[]>(DUMMY_APPLICANTS as Applicant[])
   const [statusDropdownApplicantId, setStatusDropdownApplicantId] = useState<string | null>(null)
-  const statusDropdownRef = useRef<HTMLDivElement>(null)
   const [statusToast, setStatusToast] = useState(false)
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node
       if (filterDropdownRef.current && !filterDropdownRef.current.contains(target)) {
         setFilterDropdownOpen(false)
-      }
-      if (statusDropdownRef.current && !statusDropdownRef.current.contains(target)) {
-        setStatusDropdownApplicantId(null)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -343,11 +339,14 @@ export default function ApplicantsPage() {
 
   // TODO: Phase 4 - Supabaseでステータス更新
   const handleStatusUpdate = (applicantId: string, newStatus: 'considering' | 'second_pass' | 'rejected' | null) => {
-    setApplicants((prev) =>
-      prev.map((a) =>
+    console.log('handleStatusUpdate called:', { applicantId, newStatus })
+    setApplicants((prev) => {
+      const updated = prev.map((a) =>
         a.id === applicantId ? { ...a, status: newStatus } : a
       )
-    )
+      console.log('applicants updated:', updated)
+      return updated
+    })
     setStatusDropdownApplicantId(null)
     setStatusToast(true)
     setTimeout(() => setStatusToast(false), 2000)
@@ -521,7 +520,7 @@ export default function ApplicantsPage() {
                       {a.currentStatus === 'preparing' ? (
                         <span className="text-slate-400">-</span>
                       ) : (
-                        <div ref={statusDropdownApplicantId === a.id ? statusDropdownRef : undefined} className="relative inline-block">
+                        <div className="relative inline-block">
                           <button
                             type="button"
                             onClick={() => setStatusDropdownApplicantId(statusDropdownApplicantId === a.id ? null : a.id)}
@@ -535,12 +534,18 @@ export default function ApplicantsPage() {
                             <ChevronDownIcon className="w-3.5 h-3.5" />
                           </button>
                           {statusDropdownApplicantId === a.id && (
-                            <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 min-w-[120px] py-1">
-                              <button type="button" onClick={() => handleStatusUpdate(a.id, null)} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">未対応</button>
-                              <button type="button" onClick={() => handleStatusUpdate(a.id, 'considering')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">検討中</button>
-                              <button type="button" onClick={() => handleStatusUpdate(a.id, 'second_pass')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">二次通過</button>
-                              <button type="button" onClick={() => handleStatusUpdate(a.id, 'rejected')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">不採用</button>
-                            </div>
+                            <>
+                              <div 
+                                className="fixed inset-0 z-[50]" 
+                                onClick={() => setStatusDropdownApplicantId(null)} 
+                              />
+                              <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-[60] min-w-[120px] py-1">
+                                <button onClick={() => handleStatusUpdate(a.id, null)} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">未対応</button>
+                                <button onClick={() => handleStatusUpdate(a.id, 'considering')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">検討中</button>
+                                <button onClick={() => handleStatusUpdate(a.id, 'second_pass')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">二次通過</button>
+                                <button onClick={() => handleStatusUpdate(a.id, 'rejected')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">不採用</button>
+                              </div>
+                            </>
                           )}
                         </div>
                       )}
@@ -616,7 +621,7 @@ export default function ApplicantsPage() {
                     </span>
                   )}
                   {a.currentStatus === 'completed' && (
-                    <div ref={statusDropdownApplicantId === a.id ? statusDropdownRef : undefined} className="relative inline-block">
+                    <div className="relative inline-block">
                       <button
                         type="button"
                         onClick={() => setStatusDropdownApplicantId(statusDropdownApplicantId === a.id ? null : a.id)}
@@ -630,12 +635,18 @@ export default function ApplicantsPage() {
                         <ChevronDownIcon className="w-3.5 h-3.5" />
                       </button>
                       {statusDropdownApplicantId === a.id && (
-                        <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 min-w-[120px] py-1">
-                          <button type="button" onClick={() => handleStatusUpdate(a.id, null)} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">未対応</button>
-                          <button type="button" onClick={() => handleStatusUpdate(a.id, 'considering')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">検討中</button>
-                          <button type="button" onClick={() => handleStatusUpdate(a.id, 'second_pass')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">二次通過</button>
-                          <button type="button" onClick={() => handleStatusUpdate(a.id, 'rejected')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">不採用</button>
-                        </div>
+                        <>
+                          <div 
+                            className="fixed inset-0 z-[50]" 
+                            onClick={() => setStatusDropdownApplicantId(null)} 
+                          />
+                          <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-[60] min-w-[120px] py-1">
+                            <button onClick={() => handleStatusUpdate(a.id, null)} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">未対応</button>
+                            <button onClick={() => handleStatusUpdate(a.id, 'considering')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">検討中</button>
+                            <button onClick={() => handleStatusUpdate(a.id, 'second_pass')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">二次通過</button>
+                            <button onClick={() => handleStatusUpdate(a.id, 'rejected')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">不採用</button>
+                          </div>
+                        </>
                       )}
                     </div>
                   )}

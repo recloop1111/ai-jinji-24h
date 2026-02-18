@@ -73,7 +73,7 @@ export default function ClientDashboardPage() {
         })
 
         if (recent && recent.length > 0) {
-          setRecentApplicants(recent.map((a: any) => ({
+          const mappedApplicants = recent.map((a: any) => ({
             id: a.id,
             name: `${a.last_name || ''} ${a.first_name || ''}`.trim() || '名前未設定',
             email: a.email || '',
@@ -85,16 +85,30 @@ export default function ClientDashboardPage() {
               : a.selection_status === 'rejected' ? 'rejected' as const
               : null,
             score: a.interview_score || null,
-          })))
+          }))
+          setRecentApplicants(mappedApplicants)
+          setApplicants(mappedApplicants)
         } else {
           // デモ用サンプルデータ（実際の応募者が登録されると自動的に実データに切り替わります）
-          setRecentApplicants([
-            { id: 'demo-1', name: '山田 太郎', email: 'yamada@example.com', phone: '090-1234-5678', date: '2025-02-14 14:30', currentStatus: 'completed', status: 'second_pass', score: 85 },
-            { id: 'demo-2', name: '佐藤 花子', email: 'sato@example.com', phone: '080-2345-6789', date: '2025-02-14 11:00', currentStatus: 'preparing', status: null, score: null },
-            { id: 'demo-3', name: '鈴木 一郎', email: 'suzuki@example.com', phone: '070-3456-7890', date: '2025-02-13 16:00', currentStatus: 'completed', status: null, score: 72 },
-            { id: 'demo-4', name: '田中 美咲', email: 'tanaka@example.com', phone: '090-4567-8901', date: '2025-02-13 10:30', currentStatus: 'preparing', status: null, score: null },
-            { id: 'demo-5', name: '高橋 健太', email: 'takahashi@example.com', phone: '080-5678-9012', date: '2025-02-12 15:00', currentStatus: 'completed', status: 'rejected', score: 92 },
-          ])
+          const demoApplicants = [
+            { id: 'demo-1', name: '山田 太郎', date: '2025-02-15', job: '営業職', status: null, duration: '15:32' },
+            { id: 'demo-2', name: '佐藤 美咲', date: '2025-02-14', job: 'エンジニア', status: 'passed', duration: '18:45' },
+            { id: 'demo-3', name: '鈴木 健一', date: '2025-02-13', job: '事務職', status: 'failed', duration: '12:20' },
+            { id: 'demo-4', name: '田中 あかり', date: '2025-02-12', job: 'マーケティング', status: null, duration: '20:10' },
+            { id: 'demo-5', name: '高橋 翔太', date: '2025-02-11', job: 'カスタマーサポート', status: 'passed', duration: '16:55' },
+          ]
+          const mappedDemoApplicants = demoApplicants.map((demo) => ({
+            id: demo.id,
+            name: demo.name,
+            email: `${demo.name.toLowerCase().replace(/\s+/g, '.')}@example.com`,
+            phone: '090-0000-0000',
+            date: demo.date,
+            currentStatus: 'completed',
+            status: demo.status === 'passed' ? 'second_pass' as const : demo.status === 'failed' ? 'rejected' as const : null,
+            score: demo.status === 'passed' ? 85 : demo.status === 'failed' ? 55 : null,
+          }))
+          setRecentApplicants(mappedDemoApplicants)
+          setApplicants(mappedDemoApplicants)
         }
       } catch (err) {
         console.error('ダッシュボードデータ取得エラー:', err)
@@ -108,7 +122,6 @@ export default function ClientDashboardPage() {
   const [applicants, setApplicants] = useState<DashboardApplicant[]>([])
   const [mailModalOpen, setMailModalOpen] = useState(false)
   const [statusDropdownApplicantId, setStatusDropdownApplicantId] = useState<string | null>(null)
-  const statusDropdownRef = useRef<HTMLDivElement>(null)
   const [statusToast, setStatusToast] = useState(false)
   const [mailSelectedIds, setMailSelectedIds] = useState<Set<string>>(new Set())
   const [mailTemplateId, setMailTemplateId] = useState('')
@@ -116,20 +129,6 @@ export default function ClientDashboardPage() {
   const [mailToast, setMailToast] = useState(false)
   const sendListRef = useRef<HTMLDivElement>(null)
   const [sendListShowFade, setSendListShowFade] = useState(false)
-
-  useEffect(() => {
-    setApplicants(recentApplicants)
-  }, [recentApplicants])
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
-        setStatusDropdownApplicantId(null)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
 
   useEffect(() => {
     if (!mailModalOpen) return
@@ -177,18 +176,34 @@ export default function ClientDashboardPage() {
   }, [mailSelectedIds, applicants])
 
   const handleStatusUpdate = async (applicantId: string, newStatus: ApplicantStatus) => {
+    console.log('handleStatusUpdate called:', { applicantId, newStatus })
     const dbStatus = newStatus === null ? 'pending' : newStatus
-    try {
-      await supabase
-        .from('applicants')
-        .update({ selection_status: dbStatus, updated_at: new Date().toISOString() })
-        .eq('id', applicantId)
-    } catch (err) {
-      console.error('ステータス更新エラー:', err)
+    
+    // デモデータの場合はSupabase更新をスキップ
+    if (!applicantId.startsWith('demo-')) {
+      try {
+        await supabase
+          .from('applicants')
+          .update({ selection_status: dbStatus, updated_at: new Date().toISOString() })
+          .eq('id', applicantId)
+      } catch (err) {
+        console.error('ステータス更新エラー:', err)
+      }
     }
-    setApplicants((prev) =>
-      prev.map((a) => (a.id === applicantId ? { ...a, status: newStatus } : a))
-    )
+    
+    // applicantsとrecentApplicantsの両方を更新
+    setApplicants((prev) => {
+      const updated = prev.map((a) => (a.id === applicantId ? { ...a, status: newStatus } : a))
+      console.log('applicants updated:', updated)
+      return updated
+    })
+    
+    setRecentApplicants((prev) => {
+      const updated = prev.map((a) => (a.id === applicantId ? { ...a, status: newStatus } : a))
+      console.log('recentApplicants updated:', updated)
+      return updated
+    })
+    
     setStatusDropdownApplicantId(null)
     setStatusToast(true)
     setTimeout(() => setStatusToast(false), 2000)
@@ -299,7 +314,7 @@ export default function ClientDashboardPage() {
                       {a.currentStatus === 'preparing' ? (
                         <span className="text-slate-400">-</span>
                       ) : (
-                        <div ref={statusDropdownApplicantId === a.id ? statusDropdownRef : undefined} className="relative inline-block">
+                        <div className="relative inline-block">
                           <button
                             type="button"
                             onClick={() => setStatusDropdownApplicantId(statusDropdownApplicantId === a.id ? null : a.id)}
@@ -313,12 +328,18 @@ export default function ClientDashboardPage() {
                             <ChevronDownIcon className="w-3.5 h-3.5" />
                           </button>
                           {statusDropdownApplicantId === a.id && (
-                            <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 min-w-[120px] py-1">
-                              <button type="button" onClick={() => handleStatusUpdate(a.id, null)} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">未対応</button>
-                              <button type="button" onClick={() => handleStatusUpdate(a.id, 'considering')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">検討中</button>
-                              <button type="button" onClick={() => handleStatusUpdate(a.id, 'second_pass')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">二次通過</button>
-                              <button type="button" onClick={() => handleStatusUpdate(a.id, 'rejected')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">不採用</button>
-                            </div>
+                            <>
+                              <div 
+                                className="fixed inset-0 z-[50]" 
+                                onClick={() => setStatusDropdownApplicantId(null)} 
+                              />
+                              <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-[60] min-w-[120px] py-1">
+                                <button onClick={() => handleStatusUpdate(a.id, null)} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">未対応</button>
+                                <button onClick={() => handleStatusUpdate(a.id, 'considering')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">検討中</button>
+                                <button onClick={() => handleStatusUpdate(a.id, 'second_pass')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">二次通過</button>
+                                <button onClick={() => handleStatusUpdate(a.id, 'rejected')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">不採用</button>
+                              </div>
+                            </>
                           )}
                         </div>
                       )}
@@ -378,7 +399,7 @@ export default function ClientDashboardPage() {
                     </span>
                   )}
                   {a.currentStatus === 'completed' && (
-                    <div ref={statusDropdownApplicantId === a.id ? statusDropdownRef : undefined} className="relative inline-block">
+                    <div className="relative inline-block">
                       <button
                         type="button"
                         onClick={() => setStatusDropdownApplicantId(statusDropdownApplicantId === a.id ? null : a.id)}
@@ -392,12 +413,18 @@ export default function ClientDashboardPage() {
                         <ChevronDownIcon className="w-3.5 h-3.5" />
                       </button>
                       {statusDropdownApplicantId === a.id && (
-                        <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 min-w-[120px] py-1">
-                          <button type="button" onClick={() => handleStatusUpdate(a.id, null)} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">未対応</button>
-                          <button type="button" onClick={() => handleStatusUpdate(a.id, 'considering')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">検討中</button>
-                          <button type="button" onClick={() => handleStatusUpdate(a.id, 'second_pass')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">二次通過</button>
-                          <button type="button" onClick={() => handleStatusUpdate(a.id, 'rejected')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">不採用</button>
-                        </div>
+                        <>
+                          <div 
+                            className="fixed inset-0 z-[50]" 
+                            onClick={() => setStatusDropdownApplicantId(null)} 
+                          />
+                          <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-[60] min-w-[120px] py-1">
+                            <button onClick={() => handleStatusUpdate(a.id, null)} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">未対応</button>
+                            <button onClick={() => handleStatusUpdate(a.id, 'considering')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">検討中</button>
+                            <button onClick={() => handleStatusUpdate(a.id, 'second_pass')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">二次通過</button>
+                            <button onClick={() => handleStatusUpdate(a.id, 'rejected')} className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">不採用</button>
+                          </div>
+                        </>
                       )}
                     </div>
                   )}
