@@ -53,7 +53,7 @@ function AdminAuthModal({
                 setAdminPassword(e.target.value)
                 setError('')
               }}
-              className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="管理者用パスワードを入力"
             />
             <button
@@ -77,7 +77,7 @@ function AdminAuthModal({
           <button
             type="button"
             onClick={handleSubmit}
-            className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+            className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
           >
             認証して実行
           </button>
@@ -168,7 +168,7 @@ export default function SettingsPage() {
               onClick={() => setActiveTab(tab.id)}
               className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === tab.id
-                  ? 'border-indigo-600 text-indigo-600'
+                  ? 'border-blue-600 text-blue-600'
                   : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
               }`}
             >
@@ -191,7 +191,7 @@ export default function SettingsPage() {
                 type="text"
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="企業名を入力"
               />
             </div>
@@ -249,7 +249,7 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={handleSave}
-                className="inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
               >
                 <SaveIcon className="w-4 h-4" />
                 保存
@@ -275,7 +275,7 @@ export default function SettingsPage() {
                   type="button"
                   onClick={() => setEmailNotifications(!emailNotifications)}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    emailNotifications ? 'bg-indigo-600' : 'bg-slate-300'
+                    emailNotifications ? 'bg-blue-600' : 'bg-slate-300'
                   }`}
                 >
                   <span
@@ -296,7 +296,7 @@ export default function SettingsPage() {
                 value={notificationEmail}
                 onChange={(e) => setNotificationEmail(e.target.value)}
                 disabled={!emailNotifications}
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                 placeholder="notification@example.com"
               />
             </div>
@@ -305,7 +305,7 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={handleSave}
-                className="inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
               >
                 <SaveIcon className="w-4 h-4" />
                 保存
@@ -330,7 +330,7 @@ export default function SettingsPage() {
                       type={showLoginCurrentPassword ? 'text' : 'password'}
                       value={loginCurrentPassword}
                       onChange={(e) => setLoginCurrentPassword(e.target.value)}
-                      className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="現在のログインパスワードを入力"
                     />
                     <button
@@ -352,7 +352,7 @@ export default function SettingsPage() {
                       type={showLoginNewPassword ? 'text' : 'password'}
                       value={loginNewPassword}
                       onChange={(e) => setLoginNewPassword(e.target.value)}
-                      className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="新しいログインパスワードを入力"
                     />
                     <button
@@ -377,7 +377,7 @@ export default function SettingsPage() {
                       type={showLoginConfirmPassword ? 'text' : 'password'}
                       value={loginConfirmPassword}
                       onChange={(e) => setLoginConfirmPassword(e.target.value)}
-                      className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="新しいログインパスワードを再入力"
                     />
                     <button
@@ -394,7 +394,7 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={() => setLoginAuthModalOpen(true)}
-                    className="inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                    className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
                   >
                     変更する
                   </button>
@@ -418,7 +418,7 @@ export default function SettingsPage() {
                       type={showAdminCurrentPassword ? 'text' : 'password'}
                       value={adminCurrentPassword}
                       onChange={(e) => setAdminCurrentPassword(e.target.value)}
-                      className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="現在の管理者用パスワードを入力"
                     />
                     <button
@@ -440,7 +440,7 @@ export default function SettingsPage() {
                       type={showAdminNewPassword ? 'text' : 'password'}
                       value={adminNewPassword}
                       onChange={(e) => setAdminNewPassword(e.target.value)}
-                      className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="新しい管理者用パスワードを入力"
                     />
                     <button
@@ -465,7 +465,7 @@ export default function SettingsPage() {
                       type={showAdminConfirmPassword ? 'text' : 'password'}
                       value={adminConfirmPassword}
                       onChange={(e) => setAdminConfirmPassword(e.target.value)}
-                      className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="新しい管理者用パスワードを再入力"
                     />
                     <button
@@ -482,7 +482,7 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={() => setAdminAuthModalOpen(true)}
-                    className="inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                    className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
                   >
                     変更する
                   </button>
@@ -505,7 +505,7 @@ export default function SettingsPage() {
                   type="button"
                   onClick={() => setTwoFactorAuth(!twoFactorAuth)}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    twoFactorAuth ? 'bg-indigo-600' : 'bg-slate-300'
+                    twoFactorAuth ? 'bg-blue-600' : 'bg-slate-300'
                   }`}
                 >
                   <span

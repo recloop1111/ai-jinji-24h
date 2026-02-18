@@ -164,7 +164,7 @@ export default function ClientDashboardPage() {
             <h2 className="text-base font-semibold text-slate-900">直近の応募者</h2>
             <Link
               href="/client/applicants"
-              className="text-sm font-medium text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+              className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
             >
               一覧を見る
               <ChevronRightIcon className="w-4 h-4" />
@@ -245,7 +245,7 @@ export default function ClientDashboardPage() {
                       <div className="flex items-center justify-end gap-1">
                         <a
                           href={`tel:${a.phone}`}
-                          className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                           title="電話"
                         >
                           <PhoneIcon className="w-4 h-4" />
@@ -253,14 +253,14 @@ export default function ClientDashboardPage() {
                         <button
                           type="button"
                           onClick={() => openMailModal(new Set([a.id]))}
-                          className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                           title="メール"
                         >
                           <MailIcon className="w-4 h-4" />
                         </button>
                         <Link
                           href={`/client/applicants/${a.id}`}
-                          className="inline-flex items-center px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium rounded-lg transition-colors"
+                          className="inline-flex items-center px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium rounded-lg transition-colors"
                         >
                           詳細
                         </Link>
@@ -321,13 +321,13 @@ export default function ClientDashboardPage() {
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-1 pt-1">
-                  <a href={`tel:${a.phone}`} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                  <a href={`tel:${a.phone}`} className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
                     <PhoneIcon className="w-4 h-4" />
                   </a>
-                  <button type="button" onClick={() => openMailModal(new Set([a.id]))} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                  <button type="button" onClick={() => openMailModal(new Set([a.id]))} className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
                     <MailIcon className="w-4 h-4" />
                   </button>
-                  <Link href={`/client/applicants/${a.id}`} className="inline-flex items-center px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium rounded-lg">
+                  <Link href={`/client/applicants/${a.id}`} className="inline-flex items-center px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium rounded-lg">
                     詳細
                   </Link>
                 </div>
@@ -350,7 +350,7 @@ export default function ClientDashboardPage() {
                 <select
                   value={mailTemplateId}
                   onChange={(e) => handleMailTemplateChange(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
                 >
                   {templates.map((t: Template) => (
                     <option key={t.id} value={t.id}>
@@ -413,7 +413,7 @@ export default function ClientDashboardPage() {
                                 setMailBody(e.target.value.split(mailSelectedApplicants[0].name).join('{{応募者名}}'))
                               }
                               rows={8}
-                              className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 resize-none"
+                              className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none"
                             />
                           </>
                         ) : (
@@ -452,7 +452,7 @@ export default function ClientDashboardPage() {
                 <button
                   type="button"
                   onClick={handleMailSend}
-                  className="flex-1 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                  className="flex-1 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                 >
                   送信する
                 </button>

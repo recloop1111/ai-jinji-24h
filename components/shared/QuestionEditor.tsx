@@ -146,16 +146,16 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
     card: isDark ? 'bg-white/[0.04] border-white/[0.06]' : 'bg-slate-50 border-slate-200',
     innerCard: isDark ? 'bg-white/[0.04] border-white/[0.06]' : 'bg-white border-slate-200',
     btnTemplate: isDark ? 'bg-white/[0.05] hover:bg-white/[0.08] border-white/[0.08] text-gray-400 hover:text-white' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50',
-    btnAdd: isDark ? 'bg-white/[0.03] border-dashed border-white/[0.08] text-gray-400 hover:bg-white/[0.05] hover:border-white/15' : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300',
-    btnSave: isDark ? 'from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500' : 'bg-indigo-600 hover:bg-indigo-700',
-    input: isDark ? 'bg-white/[0.05] border-white/[0.08] text-white placeholder-gray-500 focus:ring-blue-500/30' : 'border-slate-200 bg-slate-50/50 text-slate-800 placeholder-slate-400 focus:ring-indigo-500/30',
+    btnAdd: isDark ? 'bg-white/[0.03] border-dashed border-white/[0.08] text-gray-400 hover:bg-white/[0.05] hover:border-white/15' : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100 hover:border-blue-300',
+    btnSave: isDark ? 'from-blue-600 to-blue-600 hover:from-blue-500 hover:to-blue-500' : 'bg-blue-600 hover:bg-blue-700',
+    input: isDark ? 'bg-white/[0.05] border-white/[0.08] text-white placeholder-gray-500 focus:ring-blue-500/30' : 'border-slate-200 bg-slate-50/50 text-slate-800 placeholder-slate-400 focus:ring-blue-500/30',
     label: isDark ? 'text-gray-500' : 'text-slate-500',
-    select: isDark ? 'bg-white/[0.05] border-white/[0.08] text-white focus:ring-blue-500/50' : 'border-slate-200 text-slate-900 bg-white focus:ring-indigo-500',
+    select: isDark ? 'bg-white/[0.05] border-white/[0.08] text-white focus:ring-blue-500/50' : 'border-slate-200 text-slate-900 bg-white focus:ring-blue-500',
     modal: isDark ? 'bg-gray-900 border-white/10' : 'bg-white',
     modalText: isDark ? 'text-gray-400' : 'text-slate-600',
     modalStrong: isDark ? 'text-white' : 'text-slate-900',
     emptyCard: isDark ? 'bg-white/[0.04] border-white/[0.06]' : 'bg-white border-slate-200',
-    linkBtn: isDark ? 'bg-blue-600 hover:bg-blue-700' : 'bg-indigo-600 hover:bg-indigo-700',
+    linkBtn: isDark ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-600 hover:bg-blue-700',
     tabActive: isDark ? 'border-blue-500 text-blue-400' : 'border-blue-500 text-blue-600',
     tabInactive: isDark ? 'border-transparent text-gray-500 hover:text-gray-300' : 'border-transparent text-gray-500 hover:text-gray-700',
   }
@@ -491,7 +491,7 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <p className={`text-xs font-semibold ${cn.label}`}>{cq.label}（{cq.category}）</p>
                     {editingCommonId === cq.id ? (
-                      <button type="button" onClick={() => setEditingCommonId(null)} className={`text-xs font-medium ${isDark ? 'text-blue-400 hover:text-blue-300' : 'text-indigo-600 hover:text-indigo-700'}`}>保存</button>
+                      <button type="button" onClick={() => setEditingCommonId(null)} className={`text-xs font-medium ${isDark ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-700'}`}>保存</button>
                     ) : (
                       <button type="button" onClick={() => setEditingCommonId(cq.id)} className={`inline-flex items-center gap-1 text-xs ${cn.subtext} ${isDark ? 'hover:text-white' : 'hover:text-slate-900'}`}>
                         <Pencil className="w-3 h-3" />編集
@@ -542,7 +542,7 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
                           <button type="button" onClick={() => handleMoveQuestion(i, 'up')} disabled={i === 0} className={`p-1 disabled:opacity-30 disabled:cursor-not-allowed ${isDark ? 'text-gray-500 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}><ChevronUp className="w-5 h-5" /></button>
                           <button type="button" onClick={() => handleMoveQuestion(i, 'down')} disabled={i === patternQuestions.length - 1} className={`p-1 disabled:opacity-30 disabled:cursor-not-allowed ${isDark ? 'text-gray-500 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}><ChevronDown className="w-5 h-5" /></button>
                         </div>
-                        <span className={`shrink-0 mt-1 inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${isDark ? 'bg-white/10 text-gray-300' : 'bg-indigo-100 text-indigo-700'}`}>{i + 1}</span>
+                        <span className={`shrink-0 mt-1 inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${isDark ? 'bg-white/10 text-gray-300' : 'bg-blue-100 text-blue-700'}`}>{i + 1}</span>
                         <div className="flex-1 min-w-0">
                           <textarea value={q.question} onChange={(e) => handleQuestionChange(q.id, e.target.value)} placeholder="質問文を入力してください" rows={2} className={`w-full px-4 py-2.5 border rounded-xl text-sm resize-none focus:outline-none focus:ring-2 ${cn.input}`} />
                         </div>
@@ -570,7 +570,7 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <p className={`text-xs font-semibold ${cn.label}`}>{cq.label}（{cq.category}）</p>
                     {editingCommonId === cq.id ? (
-                      <button type="button" onClick={() => setEditingCommonId(null)} className={`text-xs font-medium ${isDark ? 'text-blue-400 hover:text-blue-300' : 'text-indigo-600 hover:text-indigo-700'}`}>保存</button>
+                      <button type="button" onClick={() => setEditingCommonId(null)} className={`text-xs font-medium ${isDark ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-700'}`}>保存</button>
                     ) : (
                       <button type="button" onClick={() => setEditingCommonId(cq.id)} className={`inline-flex items-center gap-1 text-xs ${cn.subtext} ${isDark ? 'hover:text-white' : 'hover:text-slate-900'}`}>
                         <Pencil className="w-3 h-3" />編集
@@ -606,7 +606,7 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
                 <div className="space-y-2 mb-6 max-h-64 overflow-y-auto">
                   {(JOB_TYPE_TEMPLATES[JOB_TYPES.includes(selectedJob.title as JobTypeKey) ? (selectedJob.title as JobTypeKey) : 'その他']).questions.map((q, idx) => (
                     <label key={idx} className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer ${isDark ? 'border-white/[0.06] hover:bg-white/[0.04]' : 'border-slate-200 hover:bg-slate-50'}`}>
-                      <input type="checkbox" checked={selectedTemplateQuestionIds.has(idx)} onChange={() => toggleTemplateQuestion(idx)} className={`mt-1 rounded ${isDark ? 'border-gray-500 text-blue-500 focus:ring-blue-500' : 'border-gray-300 text-indigo-600 focus:ring-indigo-500'}`} />
+                      <input type="checkbox" checked={selectedTemplateQuestionIds.has(idx)} onChange={() => toggleTemplateQuestion(idx)} className={`mt-1 rounded ${isDark ? 'border-gray-500 text-blue-500 focus:ring-blue-500' : 'border-gray-300 text-blue-600 focus:ring-blue-500'}`} />
                       <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>{q}</span>
                     </label>
                   ))}
@@ -619,7 +619,7 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
                   </select>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={handleAddSelectedQuestions} disabled={selectedTemplateQuestionIds.size === 0} className={`inline-flex items-center gap-2 px-4 py-2 text-white text-sm font-medium rounded-xl ${isDark ? 'bg-blue-600 hover:bg-blue-500' : 'bg-indigo-600 hover:bg-indigo-700'} disabled:opacity-50 disabled:cursor-not-allowed`}>
+                  <button type="button" onClick={handleAddSelectedQuestions} disabled={selectedTemplateQuestionIds.size === 0} className={`inline-flex items-center gap-2 px-4 py-2 text-white text-sm font-medium rounded-xl ${isDark ? 'bg-blue-600 hover:bg-blue-500' : 'bg-blue-600 hover:bg-blue-700'} disabled:opacity-50 disabled:cursor-not-allowed`}>
                     <Check className="w-4 h-4" />選択した質問を追加（{selectedTemplateQuestionIds.size}件）
                   </button>
                   <button type="button" onClick={handleReplaceAllWithTemplate} className={`inline-flex items-center px-4 py-2 border text-sm font-medium rounded-xl ${isDark ? 'border-amber-500/50 text-amber-400 hover:bg-amber-500/10' : 'border-amber-300 text-amber-700 hover:bg-amber-50'}`}>全て置換</button>

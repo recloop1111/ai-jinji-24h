@@ -104,7 +104,7 @@ function AdminAuthModal({
                 setAdminPassword(e.target.value)
                 setError('')
               }}
-              className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="管理者用パスワードを入力"
             />
             <button
@@ -128,7 +128,7 @@ function AdminAuthModal({
           <button
             type="button"
             onClick={handleSubmit}
-            className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+            className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
           >
             認証して実行
           </button>
@@ -418,7 +418,7 @@ export default function ApplicantsPage() {
                         name="statusFilter"
                         checked={statusFilter === o.value}
                         onChange={() => handleStatusFilterSelect(o.value)}
-                        className="border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        className="border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
                       <span className="text-sm text-gray-700">{o.label}</span>
                     </label>
@@ -432,12 +432,12 @@ export default function ApplicantsPage() {
 
       {/* メール送信バー（選択時） */}
       {selectedCount > 0 && (
-        <div className="flex flex-wrap items-center gap-3 px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl">
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
           <span className="text-sm font-medium text-slate-700">{selectedCount}名選択中</span>
           <button
             type="button"
             onClick={() => openMailModal(selectedIds)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700"
           >
             <MailIcon className="w-4 h-4" />
             メール送信
@@ -464,7 +464,7 @@ export default function ApplicantsPage() {
                       type="checkbox"
                       checked={allFilteredSelected}
                       onChange={toggleSelectAll}
-                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">応募者名</th>
@@ -485,7 +485,7 @@ export default function ApplicantsPage() {
                         type="checkbox"
                         checked={selectedIds.has(a.id)}
                         onChange={() => toggleSelect(a.id)}
-                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-900">{a.name}</td>
@@ -549,7 +549,7 @@ export default function ApplicantsPage() {
                       <div className="flex items-center justify-end gap-1 flex-wrap">
                         <a
                           href={`tel:${a.phone}`}
-                          className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                           title="電話"
                         >
                           <PhoneIcon className="w-4 h-4" />
@@ -557,14 +557,14 @@ export default function ApplicantsPage() {
                         <button
                           type="button"
                           onClick={() => openMailModal(new Set([a.id]))}
-                          className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                           title="メール"
                         >
                           <MailIcon className="w-4 h-4" />
                         </button>
                         <Link
                           href={`/client/applicants/${a.id}`}
-                          className="inline-flex items-center px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium rounded-lg transition-colors"
+                          className="inline-flex items-center px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium rounded-lg transition-colors"
                         >
                           詳細
                         </Link>
@@ -590,7 +590,7 @@ export default function ApplicantsPage() {
                       type="checkbox"
                       checked={selectedIds.has(a.id)}
                       onChange={() => toggleSelect(a.id)}
-                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                   </div>
                 </div>
@@ -641,15 +641,15 @@ export default function ApplicantsPage() {
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-1 pt-1">
-                  <a href={`tel:${a.phone}`} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                  <a href={`tel:${a.phone}`} className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
                     <PhoneIcon className="w-4 h-4" />
                   </a>
-                  <button type="button" onClick={() => openMailModal(new Set([a.id]))} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                  <button type="button" onClick={() => openMailModal(new Set([a.id]))} className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
                     <MailIcon className="w-4 h-4" />
                   </button>
                   <Link
                     href={`/client/applicants/${a.id}`}
-                    className="inline-flex items-center px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium rounded-lg"
+                    className="inline-flex items-center px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium rounded-lg"
                   >
                     詳細
                   </Link>
@@ -675,7 +675,7 @@ export default function ApplicantsPage() {
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  className="w-8 h-8 flex items-center justify-center text-sm font-medium bg-indigo-600 text-white rounded-lg"
+                  className="w-8 h-8 flex items-center justify-center text-sm font-medium bg-blue-600 text-white rounded-lg"
                 >
                   1
                 </button>
@@ -717,7 +717,7 @@ export default function ApplicantsPage() {
                 <select
                   value={mailTemplateId}
                   onChange={(e) => handleMailTemplateChange(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
                 >
                   {templates.map((t: Template) => (
                     <option key={t.id} value={t.id}>
@@ -780,7 +780,7 @@ export default function ApplicantsPage() {
                                 setMailBody(e.target.value.split(mailSelectedApplicants[0].name).join('{{応募者名}}'))
                               }
                               rows={8}
-                              className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 resize-none"
+                              className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none"
                             />
                           </>
                         ) : (
@@ -819,7 +819,7 @@ export default function ApplicantsPage() {
                 <button
                   type="button"
                   onClick={handleMailSend}
-                  className="flex-1 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                  className="flex-1 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                 >
                   送信する
                 </button>

@@ -51,7 +51,7 @@ function AdminAuthModal({
                 setAdminPassword(e.target.value)
                 setError('')
               }}
-              className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="管理者用パスワードを入力"
             />
             <button
@@ -75,7 +75,7 @@ function AdminAuthModal({
           <button
             type="button"
             onClick={handleSubmit}
-            className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+            className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
           >
             認証して実行
           </button>
@@ -260,7 +260,7 @@ export default function PlanPage() {
               aria-checked={autoUpgrade}
               onClick={handleAutoUpgradeToggle}
               className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full transition-colors ${
-                autoUpgrade ? 'bg-indigo-600' : 'bg-gray-300'
+                autoUpgrade ? 'bg-blue-600' : 'bg-gray-300'
               }`}
             >
               <span
@@ -318,13 +318,13 @@ export default function PlanPage() {
                 <div
                   key={plan.key}
                   className={`rounded-xl border p-5 shadow-sm ${
-                    isCurrent ? 'border-indigo-500 bg-indigo-50/50' : 'border-slate-200 bg-white'
+                    isCurrent ? 'border-blue-500 bg-blue-50/50' : 'border-slate-200 bg-white'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <h3 className="text-base font-bold text-slate-900">{plan.name}</h3>
                     {isCurrent && (
-                      <span className="shrink-0 px-2 py-0.5 text-xs font-semibold text-indigo-700 bg-indigo-100 rounded-full">
+                      <span className="shrink-0 px-2 py-0.5 text-xs font-semibold text-blue-700 bg-blue-100 rounded-full">
                         現在のプラン
                       </span>
                     )}
@@ -362,7 +362,7 @@ export default function PlanPage() {
                     <button
                       type="button"
                       onClick={() => handlePlanChangeClick(plan.key)}
-                      className="w-full px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
+                      className="w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
                     >
                       アップグレード
                     </button>
@@ -481,7 +481,7 @@ export default function PlanPage() {
                   type="email"
                   value={contactEmail}
                   onChange={(e) => setContactEmail(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
                 />
               </div>
               <div className="mb-6">
@@ -494,7 +494,7 @@ export default function PlanPage() {
                   onChange={(e) => setContactMessage(e.target.value)}
                   placeholder="ご希望の月間面接件数や、ご質問内容をご記入ください"
                   rows={4}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-slate-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 resize-none"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-slate-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 resize-none"
                 />
               </div>
               <div className="flex gap-3">

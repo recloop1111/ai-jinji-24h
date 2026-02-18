@@ -86,7 +86,7 @@ export default function TemplatesPage() {
             <button
               type="button"
               onClick={openCreate}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition-all shadow-md shadow-indigo-500/20 shrink-0"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all shadow-md shadow-blue-500/20 shrink-0"
             >
               <PlusIcon className="w-4 h-4" />
               新規作成
@@ -132,7 +132,7 @@ export default function TemplatesPage() {
                   <button
                     type="button"
                     onClick={() => openEdit(t)}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
                   >
                     <PencilIcon className="w-4 h-4" />
                     編集
@@ -173,7 +173,7 @@ export default function TemplatesPage() {
                     value={formName}
                     onChange={(e) => setFormName(e.target.value)}
                     placeholder="例: 面接案内メール"
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
                   />
                 </div>
                 <div>
@@ -183,7 +183,7 @@ export default function TemplatesPage() {
                     value={formSubject}
                     onChange={(e) => setFormSubject(e.target.value)}
                     placeholder="例: 【AI人事24h】面接のご案内"
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
                   />
                 </div>
                 <div>
@@ -195,7 +195,7 @@ export default function TemplatesPage() {
                         key={v.key}
                         type="button"
                         onClick={() => insertVariable(v.key)}
-                        className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100"
+                        className="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100"
                       >
                         {v.key}
                       </button>
@@ -206,7 +206,7 @@ export default function TemplatesPage() {
                     onChange={(e) => setFormBody(e.target.value)}
                     rows={10}
                     placeholder="メール本文を入力してください"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-800 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 resize-none"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-800 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 resize-none"
                   />
                 </div>
                 <div className="flex gap-3 pt-2">
@@ -214,7 +214,7 @@ export default function TemplatesPage() {
                     type="button"
                     onClick={handleSave}
                     disabled={!formName.trim() || !formSubject.trim() || !formBody.trim()}
-                    className="flex-1 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                    className="flex-1 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                   >
                     保存
                   </button>

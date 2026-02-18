@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, Pencil, MessageSquare, Pause, Play, X } from 'lucide-react'
+import { Plus, Pencil, MessageSquare, Pause, Play, X, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 type JobStatus = 'active' | 'paused' | 'draft'
@@ -214,6 +214,8 @@ export default function JobManager({ companyId, theme }: JobManagerProps) {
       company_id: resolvedCompanyId,
       title,
       employment_type: employmentTypeDb,
+      experience_type: 'none',
+      pattern_key: `${employmentTypeDb}-default`,
       is_active: false,
     }
     if (employmentTypeDb === 'other') {
@@ -299,24 +301,41 @@ export default function JobManager({ companyId, theme }: JobManagerProps) {
     }
   }
 
+  async function handleDeleteJob(jobId: string) {
+    if (!confirm('この求人を削除しますか？関連する質問データも削除されます。')) return
+    try {
+      const { error } = await supabase
+        .from('jobs')
+        .delete()
+        .eq('id', jobId)
+      if (error) throw error
+      showToast('求人を削除しました')
+      fetchJobs()
+    } catch (err) {
+      console.error('求人削除エラー:', err)
+      showToast('求人の削除に失敗しました')
+    }
+  }
+
   const cn = {
     title: isDark ? 'text-white' : 'text-slate-900',
     subtext: isDark ? 'text-gray-400' : 'text-slate-500',
     card: isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-slate-200',
     cardHover: isDark ? 'hover:shadow-lg' : 'hover:shadow-md',
-    btnPrimary: isDark ? 'bg-blue-600 hover:bg-blue-700' : 'bg-[#6366f1] hover:bg-[#5855eb]',
+    btnPrimary: isDark ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-600 hover:bg-blue-700',
     btnSecondary: isDark ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700',
-    btnQuestion: isDark ? 'bg-blue-600/20 hover:bg-blue-600/30 text-blue-400' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700',
+    btnQuestion: isDark ? 'bg-blue-600/20 hover:bg-blue-600/30 text-blue-400' : 'bg-blue-50 hover:bg-blue-100 text-blue-700',
     btnPause: isDark ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-400' : 'bg-amber-50 hover:bg-amber-100 text-amber-700',
     btnPlay: isDark ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400' : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700',
+    btnDelete: isDark ? 'bg-red-500/20 hover:bg-red-500/30 text-red-400' : 'bg-red-50 hover:bg-red-100 text-red-700',
     emptyText: isDark ? 'text-gray-400' : 'text-slate-600',
     emptySubtext: isDark ? 'text-gray-500' : 'text-slate-500',
     modal: isDark ? 'bg-gray-800 border-gray-700' : 'bg-white',
     modalTitle: isDark ? 'text-white' : 'text-slate-900',
     modalClose: isDark ? 'text-gray-400 hover:text-white hover:bg-gray-700' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100',
     label: isDark ? 'text-gray-400' : 'text-slate-700',
-    select: isDark ? 'bg-gray-900 border-gray-700 text-white focus:ring-blue-500' : 'border-slate-200 text-slate-900 focus:ring-indigo-500',
-    input: isDark ? 'bg-gray-900 border-gray-700 text-white placeholder-gray-500 focus:ring-blue-500' : 'border-slate-200 text-slate-900 placeholder-slate-400 focus:ring-indigo-500',
+    select: isDark ? 'bg-gray-900 border-gray-700 text-white focus:ring-blue-500' : 'border-slate-200 text-slate-900 focus:ring-blue-500',
+    input: isDark ? 'bg-gray-900 border-gray-700 text-white placeholder-gray-500 focus:ring-blue-500' : 'border-slate-200 text-slate-900 placeholder-slate-400 focus:ring-blue-500',
     cancel: isDark ? 'text-gray-400 bg-gray-700 hover:bg-gray-600' : 'text-slate-600 bg-slate-100 hover:bg-slate-200',
   }
 
@@ -427,6 +446,14 @@ export default function JobManager({ companyId, theme }: JobManagerProps) {
                       再開
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteJob(job.id)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${cn.btnDelete}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    削除
+                  </button>
                 </div>
               </div>
             )

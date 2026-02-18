@@ -102,7 +102,7 @@ export default function BillingPage() {
                       <button
                         type="button"
                         onClick={handleInvoiceDownload}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
                       >
                         <DownloadIcon className="w-4 h-4" />
                         請求書DL

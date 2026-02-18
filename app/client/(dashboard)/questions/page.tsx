@@ -9,7 +9,7 @@ function QuestionsContent() {
 
 export default function QuestionsPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center py-24"><div className="animate-spin h-10 w-10 border-2 border-indigo-500 border-t-transparent rounded-full" /></div>}>
+    <Suspense fallback={<div className="flex items-center justify-center py-24"><div className="animate-spin h-10 w-10 border-2 border-blue-500 border-t-transparent rounded-full" /></div>}>
       <QuestionsContent />
     </Suspense>
   )

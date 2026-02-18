@@ -379,7 +379,7 @@ export default function ApplicantDetailPage() {
           <div>
             <Link
               href="/client/applicants"
-              className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-indigo-600 font-medium mb-4 transition-colors rounded-lg hover:bg-white/60 px-2 py-1 -mx-2 -my-1"
+              className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-blue-600 font-medium mb-4 transition-colors rounded-lg hover:bg-white/60 px-2 py-1 -mx-2 -my-1"
             >
               <ChevronLeftIcon className="w-4 h-4 shrink-0" />
               応募者一覧に戻る
@@ -478,7 +478,7 @@ export default function ApplicantDetailPage() {
                   <select
                     value={selectedStatus ?? 'pending'}
                     onChange={(e) => setSelectedStatus(e.target.value === 'pending' ? null : e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all"
+                    className="w-full px-3 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all"
                   >
                     {STATUS_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>
@@ -490,7 +490,7 @@ export default function ApplicantDetailPage() {
                     value={selectionMemo}
                     onChange={(e) => setSelectionMemo(e.target.value)}
                     rows={3}
-                    className="w-full px-3 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all resize-none"
+                    className="w-full px-3 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all resize-none"
                     placeholder="選考メモを入力..."
                   />
                   <button
@@ -500,7 +500,7 @@ export default function ApplicantDetailPage() {
                       setToast('保存しました')
                       setTimeout(() => setToast(''), 2500)
                     }}
-                    className="w-full px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition-all shadow-md shadow-indigo-500/20"
+                    className="w-full px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all shadow-md shadow-blue-500/20"
                   >
                     保存
                   </button>
@@ -526,7 +526,7 @@ export default function ApplicantDetailPage() {
                   onClick={() => setActiveTab(tab.key)}
                   className={`px-4 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all ${
                     activeTab === tab.key
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/25'
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25'
                       : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                   }`}
                 >
@@ -643,10 +643,10 @@ export default function ApplicantDetailPage() {
               <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-5">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-semibold text-slate-900">総合スコア</span>
-                  <span className="text-2xl font-extrabold text-indigo-600 tabular-nums">{DUMMY.totalScore}<span className="text-sm font-normal text-slate-400"> / 100</span></span>
+                  <span className="text-2xl font-extrabold text-blue-600 tabular-nums">{DUMMY.totalScore}<span className="text-sm font-normal text-slate-400"> / 100</span></span>
                 </div>
                 <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full bg-indigo-500" style={{ width: `${DUMMY.totalScore}%` }} />
+                  <div className="h-full rounded-full bg-blue-500" style={{ width: `${DUMMY.totalScore}%` }} />
                 </div>
                 <p className="text-xs text-slate-500 mt-2">同職種平均: {DUMMY.averageScore}点</p>
               </div>
@@ -715,7 +715,7 @@ export default function ApplicantDetailPage() {
               <div className="p-6 sm:p-7 border-b border-slate-200/80">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-base font-bold text-slate-900">{axis.label}</h3>
-                  <span className="text-lg font-extrabold tabular-nums text-indigo-600">
+                  <span className="text-lg font-extrabold tabular-nums text-blue-600">
                     {axis.score}<span className="text-sm font-normal text-slate-400"> / {axis.max}</span>
                   </span>
                 </div>
@@ -770,7 +770,7 @@ export default function ApplicantDetailPage() {
               <div className="p-6 sm:p-7 bg-slate-50/50 border-b border-slate-200/80">
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="flex items-center gap-3 min-w-0">
-                    <span className="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 text-sm font-bold">
+                    <span className="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-700 text-sm font-bold">
                       {entry.number}
                     </span>
                     <p className="text-sm sm:text-base font-bold text-slate-900 leading-relaxed">{entry.question}</p>
@@ -778,7 +778,7 @@ export default function ApplicantDetailPage() {
                 </div>
                 <div className="flex flex-wrap items-center gap-2 ml-11">
                   {entry.axisLabels.map((axis) => (
-                    <span key={axis} className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200/60">
+                    <span key={axis} className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200/60">
                       {axis}
                     </span>
                   ))}
@@ -797,23 +797,23 @@ export default function ApplicantDetailPage() {
                 </div>
                 {/* AIの一言メモ */}
                 <div className="flex items-start gap-2.5 pl-1">
-                  <span className="shrink-0 mt-0.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-bold">AI</span>
-                  <p className="text-xs text-violet-700 font-medium leading-relaxed">{entry.aiMemo}</p>
+                  <span className="shrink-0 mt-0.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-600 text-[10px] font-bold">AI</span>
+                  <p className="text-xs text-blue-700 font-medium leading-relaxed">{entry.aiMemo}</p>
                 </div>
 
                 {/* フォローアップ質問（ある場合） */}
                 {entry.followUp && (
-                  <div className="mt-4 ml-4 pl-4 border-l-2 border-indigo-200 space-y-3">
+                  <div className="mt-4 ml-4 pl-4 border-l-2 border-blue-200 space-y-3">
                     <div>
-                      <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-1.5">深掘り質問</p>
+                      <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-1.5">深掘り質問</p>
                       <p className="text-sm text-slate-700 leading-relaxed font-medium">{entry.followUp.question}</p>
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
-                        <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider">深掘り回答</p>
+                        <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider">深掘り回答</p>
                         <span className="text-xs text-slate-400 tabular-nums">{entry.followUp.answerDuration}</span>
                       </div>
-                      <p className="text-sm text-slate-800 leading-relaxed bg-indigo-50/50 rounded-xl p-4 border border-indigo-100">
+                      <p className="text-sm text-slate-800 leading-relaxed bg-blue-50/50 rounded-xl p-4 border border-blue-100">
                         {entry.followUp.answer}
                       </p>
                     </div>
@@ -889,7 +889,7 @@ export default function ApplicantDetailPage() {
                       onClick={() => setPlaybackSpeed(speed)}
                       className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors ${
                         playbackSpeed === speed
-                          ? 'bg-indigo-600 text-white'
+                          ? 'bg-blue-600 text-white'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
@@ -905,7 +905,7 @@ export default function ApplicantDetailPage() {
                     aria-checked={subtitleEnabled}
                     onClick={() => setSubtitleEnabled(!subtitleEnabled)}
                     className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors ${
-                      subtitleEnabled ? 'bg-indigo-600' : 'bg-slate-300'
+                      subtitleEnabled ? 'bg-blue-600' : 'bg-slate-300'
                     }`}
                   >
                     <span
@@ -935,13 +935,13 @@ export default function ApplicantDetailPage() {
                 <button
                   key={i}
                   type="button"
-                  className="w-full flex items-start gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200/80 hover:bg-indigo-50 hover:border-indigo-200 transition-colors text-left group"
+                  className="w-full flex items-start gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200/80 hover:bg-blue-50 hover:border-blue-200 transition-colors text-left group"
                 >
-                  <span className="shrink-0 inline-flex items-center justify-center w-14 h-8 rounded-lg bg-indigo-100 text-indigo-700 text-xs font-bold tabular-nums group-hover:bg-indigo-200 transition-colors">
+                  <span className="shrink-0 inline-flex items-center justify-center w-14 h-8 rounded-lg bg-blue-100 text-blue-700 text-xs font-bold tabular-nums group-hover:bg-blue-200 transition-colors">
                     {hl.time}
                   </span>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-800 group-hover:text-indigo-700 transition-colors">{hl.label}</p>
+                    <p className="text-sm font-medium text-slate-800 group-hover:text-blue-700 transition-colors">{hl.label}</p>
                     <p className="text-xs text-slate-400 mt-0.5 tabular-nums">{hl.timestamp}</p>
                   </div>
                 </button>
@@ -967,7 +967,7 @@ export default function ApplicantDetailPage() {
                 setToast('PDF生成機能は今後実装予定です')
                 setTimeout(() => setToast(''), 2500)
               }}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-md shadow-indigo-500/20"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-md shadow-blue-500/20"
             >
               <Download className="w-4 h-4" />
               PDFをダウンロード
@@ -989,7 +989,7 @@ export default function ApplicantDetailPage() {
                   value={shareEmail}
                   onChange={(e) => setShareEmail(e.target.value)}
                   placeholder="example@company.com"
-                  className="w-full px-4 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all"
+                  className="w-full px-4 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all"
                 />
               </div>
               <div>
@@ -1000,7 +1000,7 @@ export default function ApplicantDetailPage() {
                   onChange={(e) => setShareMessage(e.target.value)}
                   rows={3}
                   placeholder="補足メッセージを入力..."
-                  className="w-full px-4 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all resize-none"
+                  className="w-full px-4 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all resize-none"
                 />
               </div>
               <button
@@ -1010,7 +1010,7 @@ export default function ApplicantDetailPage() {
                   setToast('メール送信機能は今後実装予定です')
                   setTimeout(() => setToast(''), 2500)
                 }}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-md shadow-indigo-500/20"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-md shadow-blue-500/20"
               >
                 <Mail className="w-4 h-4" />
                 送信する
