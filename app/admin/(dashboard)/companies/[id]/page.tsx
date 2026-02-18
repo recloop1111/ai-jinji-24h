@@ -19,7 +19,7 @@ const EVALUATION_AXES = [
   { name: 'ストレス耐性', weight: 10 },
 ]
 
-// TODO: 実データに差替え
+// デモ用サンプルデータ（段階4でSupabase実データに差替え予定）
 const MONTHLY_USAGE = [
   { month: '2025-02', used: 14, limit: 20, plan: 'プランB', atLimit: false },
   { month: '2025-01', used: 18, limit: 20, plan: 'プランB', atLimit: false },
@@ -28,7 +28,7 @@ const MONTHLY_USAGE = [
   { month: '2024-10', used: 8, limit: 20, plan: 'プランB', atLimit: false },
 ]
 
-const TABS = ['基本情報', 'ブランド設定', 'アバター設定', '質問設定', '評価設定', '求人管理', '利用状況'] as const
+const TABS = ['基本情報', 'ブランド設定', 'アバター設定', '質問設定', '評価設定', '求人管理', '利用状況', 'セキュリティ'] as const
 
 export default function CompanyDetailPage() {
   const params = useParams()
@@ -344,7 +344,7 @@ export default function CompanyDetailPage() {
                 <button
                   type="button"
                   onClick={saveBrandSettings}
-                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-all shadow-[0_4px_16px_rgba(59,130,246,0.3)]"
+                  className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-all shadow-[0_4px_16px_rgba(59,130,246,0.3)]"
                 >
                   保存する
                 </button>
@@ -384,7 +384,7 @@ export default function CompanyDetailPage() {
               <div>
                 <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider">アバター画像</label>
                 <div className="flex items-center gap-4 mt-2">
-                  <div className="w-24 h-24 rounded-full bg-gradient-to-br from-purple-500/20 to-blue-500/20 border border-white/10 flex items-center justify-center shrink-0">
+                  <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-500/20 to-blue-500/20 border border-white/10 flex items-center justify-center shrink-0">
                     <User className="w-10 h-10 text-gray-500" />
                   </div>
                   <div>
@@ -446,7 +446,7 @@ export default function CompanyDetailPage() {
               <button
                 type="button"
                 onClick={() => showToast('アバター設定を保存しました')}
-                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-all shadow-[0_4px_16px_rgba(59,130,246,0.3)]"
+                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-all shadow-[0_4px_16px_rgba(59,130,246,0.3)]"
               >
                 保存する
               </button>
@@ -504,7 +504,7 @@ export default function CompanyDetailPage() {
             <button
               type="button"
               onClick={() => showToast('評価設定を保存しました')}
-              className="mt-6 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-all shadow-[0_4px_16px_rgba(59,130,246,0.3)]"
+              className="mt-6 bg-gradient-to-r from-blue-600 to-blue-600 hover:from-blue-500 hover:to-blue-500 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-all shadow-[0_4px_16px_rgba(59,130,246,0.3)]"
             >
               保存する
             </button>
@@ -550,6 +550,7 @@ export default function CompanyDetailPage() {
             <div className={`${CARD_BASE} overflow-hidden`}>
               <div className="p-6 pb-0">
                 <h2 className="text-base font-semibold text-white mb-4">月別利用推移</h2>
+                <p className="text-xs text-amber-400/70 px-4 pb-2">※ 現在はサンプルデータを表示しています。実データは今後のアップデートで反映されます。</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[400px]">
@@ -588,6 +589,85 @@ export default function CompanyDetailPage() {
                 >
                   この企業の応募者一覧を見る →
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* タブ8: セキュリティ */}
+        {activeTab === 'セキュリティ' && (
+          <div className="space-y-6">
+            {/* セキュリティポリシー説明 */}
+            <div className={`${CARD_BASE} p-6`}>
+              <h2 className="text-base font-semibold text-white mb-4">セキュリティポリシー</h2>
+              <div className="space-y-4">
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
+                  <h3 className="text-sm font-medium text-blue-400 mb-2">パスワードポリシー</h3>
+                  <p className="text-xs text-gray-300 leading-relaxed">
+                    企業アカウントのパスワードは12文字以上（大文字・小文字・数字・特殊文字を各1文字以上）が必要です。
+                    NISTガイドラインに準拠し、定期的なパスワード変更は求めません。
+                    漏洩が検知された場合のみ変更を要求します。
+                  </p>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
+                  <h3 className="text-sm font-medium text-blue-400 mb-2">セッション管理</h3>
+                  <p className="text-xs text-gray-300 leading-relaxed">
+                    企業アカウント: 最終操作から24時間でタイムアウト。同時ログイン制限なし。
+                    運営管理者: 最終操作から8時間でタイムアウト。同時ログイン制限なし。
+                  </p>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
+                  <h3 className="text-sm font-medium text-blue-400 mb-2">MFA（多要素認証）</h3>
+                  <p className="text-xs text-gray-300 leading-relaxed">
+                    運営管理者: TOTP必須。企業アカウント: 推奨（任意）。
+                    Google AuthenticatorやAuthyなどのアプリで6桁コードを生成します。
+                  </p>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
+                  <h3 className="text-sm font-medium text-blue-400 mb-2">異常検知・ログイン通知</h3>
+                  <p className="text-xs text-gray-300 leading-relaxed">
+                    通常と異なる国やIPアドレスからのログインが検知された場合、
+                    登録メールアドレスに自動通知が送信されます。
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* アカウントロック管理 */}
+            <div className={`${CARD_BASE} p-6`}>
+              <h2 className="text-base font-semibold text-white mb-2">アカウントロック管理</h2>
+              <p className="text-sm text-gray-400 mb-4">
+                企業アカウントが10回連続ログイン失敗でロックされた場合、ここから手動で解除できます。
+                通常は30分後に自動解除されます。
+              </p>
+              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-white">アカウント状態</p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {company?.is_locked
+                        ? `ロック中（${company?.locked_at ? new Date(company.locked_at).toLocaleString('ja-JP') : ''}）`
+                        : 'ロックなし（正常）'}
+                    </p>
+                  </div>
+                  {company?.is_locked && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const supabase = createClient()
+                        await supabase
+                          .from('companies')
+                          .update({ is_locked: false, locked_at: null, login_fail_count: 0, updated_at: new Date().toISOString() })
+                          .eq('id', companyId)
+                        showToast('アカウントロックを解除しました')
+                        setRefreshTrigger((t) => t + 1)
+                      }}
+                      className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15 border border-emerald-500/20 rounded-xl px-4 py-2 text-sm transition-colors"
+                    >
+                      ロック解除
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>

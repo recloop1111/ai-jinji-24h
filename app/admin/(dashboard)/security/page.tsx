@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Search } from 'lucide-react'
 
 // TODO: 実データに差替え
@@ -132,6 +132,68 @@ function getLevelBadge(level: string): string {
   return map[level] ?? 'bg-gray-500/20 text-gray-400'
 }
 
+function LockedAccountsList() {
+  const [lockedCompanies, setLockedCompanies] = useState<any[]>([])
+  const [loadingLocked, setLoadingLocked] = useState(true)
+
+  useEffect(() => {
+    async function fetchLocked() {
+      const { createClient } = await import('@/lib/supabase/client')
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('companies')
+        .select('id, name, is_locked, locked_at, login_fail_count')
+        .eq('is_locked', true)
+      setLockedCompanies(data || [])
+      setLoadingLocked(false)
+    }
+    fetchLocked()
+  }, [])
+
+  async function handleUnlock(companyId: string) {
+    const { createClient } = await import('@/lib/supabase/client')
+    const supabase = createClient()
+    await supabase
+      .from('companies')
+      .update({ is_locked: false, locked_at: null, login_fail_count: 0, updated_at: new Date().toISOString() })
+      .eq('id', companyId)
+    setLockedCompanies((prev) => prev.filter((c) => c.id !== companyId))
+  }
+
+  if (loadingLocked) return <p className="text-sm text-gray-500">読み込み中...</p>
+
+  if (lockedCompanies.length === 0) {
+    return (
+      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
+        <p className="text-sm text-emerald-400">現在ロックされている企業アカウントはありません。</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {lockedCompanies.map((company) => (
+        <div key={company.id} className="flex items-center justify-between bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+          <div>
+            <p className="text-sm font-medium text-white">{company.name}</p>
+            <p className="text-xs text-gray-400 mt-1">
+              ロック日時: {company.locked_at ? new Date(company.locked_at).toLocaleString('ja-JP') : '不明'}
+              {company.login_fail_count && ` | 失敗回数: ${company.login_fail_count}回`}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleUnlock(company.id)}
+            className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15 border border-emerald-500/20 rounded-xl px-4 py-2 text-sm transition-colors shrink-0"
+          >
+            ロック解除
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function SecurityPage() {
   const [activeTab, setActiveTab] = useState<'access' | 'audit' | 'policy' | 'alert'>('access')
   const [toastVisible, setToastVisible] = useState(false)
@@ -148,11 +210,11 @@ export default function SecurityPage() {
   const [passwordRequireUpper, setPasswordRequireUpper] = useState(true)
   const [passwordRequireNumber, setPasswordRequireNumber] = useState(true)
   const [passwordRequireSpecial, setPasswordRequireSpecial] = useState(true)
-  const [passwordExpiry, setPasswordExpiry] = useState('90')
-  const [sessionTimeout, setSessionTimeout] = useState('2h')
-  const [maxConcurrentLogin, setMaxConcurrentLogin] = useState('2')
+  const [passwordExpiry, setPasswordExpiry] = useState('0')
+  const [sessionTimeout, setSessionTimeout] = useState('8h')
+  const [maxConcurrentLogin, setMaxConcurrentLogin] = useState('unlimited')
   const [lockAfterFailures, setLockAfterFailures] = useState('5')
-  const [lockDuration, setLockDuration] = useState('30')
+  const [lockDuration, setLockDuration] = useState('15')
   const [admin2FARequired, setAdmin2FARequired] = useState(true)
   const [client2FARequired, setClient2FARequired] = useState(false)
   const [twoFAMethod, setTwoFAMethod] = useState('totp')
@@ -543,6 +605,13 @@ export default function SecurityPage() {
           <div className="space-y-4">
             <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
               <h2 className="text-lg font-semibold text-white mb-4">パスワードポリシー</h2>
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 mb-4">
+                <p className="text-xs text-gray-300 leading-relaxed">
+                  NISTガイドライン（SP 800-63B）に準拠し、定期的なパスワード変更は求めません。
+                  パスワードの漏洩が検知された場合のみ変更を要求します。
+                  12文字以上で大文字・小文字・数字・特殊文字を各1文字以上含むことを推奨します。
+                </p>
+              </div>
               <div className="space-y-4">
                 <div>
                   <InputLabel>最小文字数</InputLabel>
@@ -592,6 +661,13 @@ export default function SecurityPage() {
 
             <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
               <h2 className="text-lg font-semibold text-white mb-4">セッション管理</h2>
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 mb-4">
+                <p className="text-xs text-gray-300 leading-relaxed">
+                  運営管理者は最終操作から8時間、企業アカウントは24時間でセッションが切れます。
+                  同時ログインに制限はありません。アカウントロックは自動解除されますが、
+                  緊急時は下記「企業アカウントロック管理」から手動解除も可能です。
+                </p>
+              </div>
               <div className="space-y-4">
                 <div>
                   <InputLabel>セッションタイムアウト</InputLabel>
@@ -656,6 +732,12 @@ export default function SecurityPage() {
 
             <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
               <h2 className="text-lg font-semibold text-white mb-4">二要素認証設定</h2>
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 mb-4">
+                <p className="text-xs text-gray-300 leading-relaxed">
+                  運営管理者にはTOTP（Google Authenticator等）による二要素認証を必須とします。
+                  企業アカウントには推奨としますが、強制はしません。
+                </p>
+              </div>
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <InputLabel>管理者に2FAを必須にする</InputLabel>
@@ -685,6 +767,16 @@ export default function SecurityPage() {
               >
                 保存
               </button>
+            </div>
+
+            {/* 企業アカウントロック管理 */}
+            <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
+              <h2 className="text-lg font-semibold text-white mb-2">企業アカウントロック管理</h2>
+              <p className="text-sm text-gray-400 mb-4">
+                ログイン失敗によりロックされた企業アカウントを確認・解除できます。
+                通常はロック時間経過後に自動解除されますが、緊急時はここから手動で解除してください。
+              </p>
+              <LockedAccountsList />
             </div>
           </div>
         )}

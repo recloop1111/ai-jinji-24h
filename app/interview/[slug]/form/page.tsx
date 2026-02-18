@@ -201,7 +201,11 @@ export default function FormPage() {
           first_name: firstName.trim(),
           last_name_kana: lastNameKana.trim(),
           first_name_kana: firstNameKana.trim(),
-          birth_date: '2000-01-01',
+          birth_date: (() => {
+            const now = new Date()
+            const birthYear = now.getFullYear() - parseInt(age, 10)
+            return `${birthYear}-01-01`
+          })(),
           age: parseInt(age, 10),
           gender: gender,
           phone_number: phone,

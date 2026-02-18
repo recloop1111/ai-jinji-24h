@@ -320,6 +320,14 @@ export default function SettingsPage() {
             {/* セクションA: ログインパスワード変更 */}
             <div>
               <h3 className="text-base font-semibold text-slate-900 mb-4">ログインパスワード変更</h3>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <h4 className="text-sm font-semibold text-blue-900 mb-2">パスワードポリシー</h4>
+                <ul className="text-xs text-blue-800 space-y-1 list-disc list-inside">
+                  <li>12文字以上（大文字・小文字・数字・特殊文字を各1文字以上含む）</li>
+                  <li>定期的なパスワード変更は不要です（NISTガイドライン準拠）</li>
+                  <li>パスワード漏洩が検知された場合のみ、変更をお願いします</li>
+                </ul>
+              </div>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -364,7 +372,7 @@ export default function SettingsPage() {
                     </button>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    8文字以上、英数字と記号を含む
+                    12文字以上、大文字・小文字・数字・特殊文字を各1文字以上含む
                   </p>
                 </div>
 
@@ -452,7 +460,7 @@ export default function SettingsPage() {
                     </button>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    8文字以上、英数字と記号を含む
+                    12文字以上、大文字・小文字・数字・特殊文字を各1文字以上含む
                   </p>
                 </div>
 
@@ -498,7 +506,8 @@ export default function SettingsPage() {
                     二要素認証（2FA）
                   </label>
                   <p className="text-xs text-slate-500">
-                    ログイン時に追加の認証コードが必要になります
+                    ログイン時にGoogle AuthenticatorなどのTOTPアプリで生成される6桁のコードが必要になります。
+                    アカウントの不正アクセス防止のため、有効化を強く推奨します。
                   </p>
                 </div>
                 <button
@@ -514,6 +523,34 @@ export default function SettingsPage() {
                     }`}
                   />
                 </button>
+              </div>
+            </div>
+
+            {/* アカウント保護について */}
+            <div className="pt-6 border-t border-slate-200">
+              <h3 className="text-base font-semibold text-slate-900 mb-3">アカウント保護について</h3>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-3">
+                <div>
+                  <h4 className="text-sm font-medium text-slate-700">セッション管理</h4>
+                  <p className="text-xs text-slate-500 mt-1">
+                    最終操作から24時間が経過すると自動的にログアウトされます。
+                    複数デバイスからの同時ログインに制限はありません。
+                  </p>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium text-slate-700">アカウントロック</h4>
+                  <p className="text-xs text-slate-500 mt-1">
+                    ログインに10回連続で失敗すると、30分間アカウントがロックされます。
+                    30分経過後に自動で解除されます。ロック中にお急ぎの場合は運営までご連絡ください。
+                  </p>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium text-slate-700">ログイン通知</h4>
+                  <p className="text-xs text-slate-500 mt-1">
+                    通常と異なるIPアドレスや地域からのログインが検知された場合、
+                    登録メールアドレスに通知が送信されます。
+                  </p>
+                </div>
               </div>
             </div>
           </div>
