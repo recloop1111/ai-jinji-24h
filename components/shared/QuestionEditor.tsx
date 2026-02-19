@@ -118,7 +118,8 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
   const searchParams = useSearchParams()
   const initialJobId = searchParams.get('jobId')
   const { companyId: currentCompanyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
-  const supabase = createClient()
+  // Supabaseクライアント: createBrowserClientを使用（lib/supabase/client.ts経由）
+  const supabase = useMemo(() => createClient(), [])
   const resolvedCompanyId = companyIdProp === 'current' ? currentCompanyId : companyIdProp
 
   const [jobs, setJobs] = useState<Job[]>([])
@@ -222,66 +223,94 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     }
   }, [selectedJobId, jobs])
 
-  useEffect(() => {
-    async function fetchCommonQuestions() {
-      try {
-        const { data, error } = await supabase.from('common_questions').select('*').order('category').order('sort_order')
-        if (error || !data || data.length === 0) return
-        const ice = data.filter((r: { category: string }) => r.category === 'icebreakers').map((r: { id: string; label?: string; question?: string; question_text?: string }) => ({
-          id: r.id,
-          label: r.label || 'アイスブレイク',
-          category: 'アイスブレイク',
-          question: r.question ?? r.question_text ?? '',
-        }))
-        const close = data.filter((r: { category: string }) => r.category === 'closing').map((r: { id: string; label?: string; question?: string; question_text?: string }) => ({
-          id: r.id,
-          label: r.label || 'クロージング',
-          category: 'クロージング',
-          question: r.question ?? r.question_text ?? '',
-        }))
-        if (ice.length > 0) setCommonQuestionsIcebreak(ice)
-        if (close.length > 0) setCommonQuestionsClosing(close)
-      } catch {
-        // デフォルトのまま
-      }
+  const fetchCommonQuestions = async (companyId: string | null) => {
+    if (!companyId) {
+      console.log('[QuestionEditor 共通質問読み込み] company_idなし - スキップ')
+      return
     }
-    fetchCommonQuestions()
-  }, [supabase])
+    try {
+      console.log('[QuestionEditor 共通質問読み込み] テーブル: common_questions 条件: company_id=', companyId, '取得カラム: *')
+      const { data, error } = await supabase
+        .from('common_questions')
+        .select('*')
+        .eq('company_id', companyId)
+        .order('category')
+        .order('sort_order')
+
+      console.log('[QuestionEditor 共通質問読み込み] 取得件数=', data?.length || 0, 'data=', data, 'error=', error)
+
+      if (error) {
+        console.error('[QuestionEditor 共通質問読み込み] エラー:', error)
+        return
+      }
+
+      if (!data || data.length === 0) {
+        console.log('[QuestionEditor 共通質問読み込み] データなし - デフォルト値を使用')
+        return
+      }
+
+      const ice = data.filter((r: { category: string }) => r.category === 'icebreakers').map((r: { id: string; label?: string; question?: string; question_text?: string }) => ({
+        id: r.id,
+        label: r.label || 'アイスブレイク',
+        category: 'アイスブレイク',
+        question: r.question ?? r.question_text ?? '',
+      }))
+      const close = data.filter((r: { category: string }) => r.category === 'closing').map((r: { id: string; label?: string; question?: string; question_text?: string }) => ({
+        id: r.id,
+        label: r.label || 'クロージング',
+        category: 'クロージング',
+        question: r.question ?? r.question_text ?? '',
+      }))
+
+      console.log('[QuestionEditor 共通質問読み込み] マッピング後 アイスブレイク件数=', ice.length, 'クロージング件数=', close.length)
+
+      if (ice.length > 0) setCommonQuestionsIcebreak(ice)
+      if (close.length > 0) setCommonQuestionsClosing(close)
+    } catch (err) {
+      console.error('[QuestionEditor 共通質問読み込み] 例外:', err)
+    }
+  }
+
+  useEffect(() => {
+    fetchCommonQuestions(resolvedCompanyId)
+  }, [resolvedCompanyId, supabase])
+
+  const fetchJobQuestions = async (jobId: string, patternKey: string) => {
+    setQuestionsLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('job_questions')
+        .select('*')
+        .eq('job_id', jobId)
+        .eq('pattern_key', patternKey)
+        .order('sort_order', { ascending: true })
+
+      console.log('[QuestionEditor 読み込み] テーブル: job_questions', '条件: job_id=', jobId, 'pattern_key=', patternKey, '取得件数=', data?.length || 0, 'data=', data, 'error=', error)
+
+      if (error) throw error
+      if (data && data.length > 0) {
+        const mapped = data.map((r: { id: string; question?: string; question_text?: string }) => ({
+          id: r.id,
+          question: r.question ?? r.question_text ?? '',
+        }))
+        setPatternQuestions(mapped)
+      } else {
+        setPatternQuestions([])
+      }
+    } catch (err) {
+      console.error('質問取得エラー:', err)
+      setPatternQuestions([])
+    } finally {
+      setQuestionsLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (!selectedJobId || !activePattern) {
       setPatternQuestions([])
       return
     }
-    async function fetchJobQuestions() {
-      setQuestionsLoading(true)
-      try {
-        const { data, error } = await supabase
-          .from('job_questions')
-          .select('*')
-          .eq('job_id', selectedJobId)
-          .eq('pattern_key', activePattern)
-          .order('sort_order', { ascending: true })
-
-        if (error) throw error
-        if (data && data.length > 0) {
-          setPatternQuestions(
-            data.map((r: { id: string; question?: string; question_text?: string }) => ({
-              id: r.id,
-              question: r.question ?? r.question_text ?? '',
-            }))
-          )
-        } else {
-          setPatternQuestions([])
-        }
-      } catch (err) {
-        console.error('質問取得エラー:', err)
-        setPatternQuestions([])
-      } finally {
-        setQuestionsLoading(false)
-      }
-    }
-    fetchJobQuestions()
+    fetchJobQuestions(selectedJobId, activePattern)
   }, [selectedJobId, activePattern, supabase])
 
   const showToast = (message: string) => {
@@ -370,44 +399,186 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     showToast(`${template.name}テンプレートで全て置き換えました`)
   }
 
+  const handleSaveCommonQuestions = async () => {
+    if (!resolvedCompanyId) {
+      console.error('[QuestionEditor 共通質問保存] company_idなし - スキップ')
+      return
+    }
+
+    try {
+      console.log('[QuestionEditor 共通質問保存開始] テーブル: common_questions company_id=', resolvedCompanyId, 'アイスブレイク件数=', commonQuestionsIcebreak.length, 'クロージング件数=', commonQuestionsClosing.length)
+
+      // アイスブレイクとクロージングを統合
+      const allCommonQuestions = [
+        ...commonQuestionsIcebreak.map((q, index) => ({
+          id: q.id,
+          company_id: resolvedCompanyId,
+          category: 'icebreakers',
+          label: q.label,
+          question_text: q.question,
+          is_scorable: false,
+          sort_order: index + 1,
+        })),
+        ...commonQuestionsClosing.map((q, index) => ({
+          id: q.id,
+          company_id: resolvedCompanyId,
+          category: 'closing',
+          label: q.label,
+          question_text: q.question,
+          is_scorable: false,
+          sort_order: index + 1,
+        })),
+      ]
+
+      // ステップ1: 既存の共通質問を全削除
+      const { data: deleteData, error: deleteError } = await supabase
+        .from('common_questions')
+        .delete()
+        .eq('company_id', resolvedCompanyId)
+        .select()
+
+      console.log('[QuestionEditor 共通質問保存] ステップ1: DELETE実行完了', '削除件数=', deleteData?.length || 0, 'data=', deleteData, 'error=', deleteError)
+
+      if (deleteError) {
+        console.error('[QuestionEditor 共通質問保存] 削除エラー:', deleteError)
+        throw deleteError
+      }
+
+      // ステップ2: 新しい共通質問を一括挿入
+      if (allCommonQuestions.length > 0) {
+        const rows = allCommonQuestions.map((q) => ({
+          company_id: q.company_id,
+          category: q.category,
+          label: q.label,
+          question_text: q.question_text,
+          is_scorable: q.is_scorable,
+          sort_order: q.sort_order,
+        }))
+
+        console.log('[QuestionEditor 共通質問保存] ステップ2: INSERT実行開始', '挿入件数=', rows.length, 'rows=', rows)
+
+        const { data: insertData, error: insertError } = await supabase
+          .from('common_questions')
+          .insert(rows)
+          .select()
+
+        console.log('[QuestionEditor 共通質問保存] ステップ2: INSERT実行完了', '挿入件数=', insertData?.length || 0, 'data=', insertData, 'error=', insertError)
+
+        if (insertError) {
+          console.error('[QuestionEditor 共通質問保存] 挿入エラー:', insertError)
+          throw insertError
+        }
+      } else {
+        console.log('[QuestionEditor 共通質問保存] ステップ2: 挿入データなし（空配列）')
+      }
+
+      // ステップ3: 保存直後の検証
+      const { data: verifyData, error: verifyError } = await supabase
+        .from('common_questions')
+        .select('*')
+        .eq('company_id', resolvedCompanyId)
+        .order('category')
+        .order('sort_order')
+
+      console.log('[QuestionEditor 共通質問保存後の検証] 再取得データ テーブル: common_questions 条件: company_id=', resolvedCompanyId, '取得件数=', verifyData?.length || 0, 'data=', verifyData, 'error=', verifyError)
+
+      if (verifyError) {
+        console.error('[QuestionEditor 共通質問保存後の検証] 検証エラー:', verifyError)
+      }
+
+      // ステップ4: 保存後に最新データを再取得して画面に反映
+      await fetchCommonQuestions(resolvedCompanyId)
+
+      console.log('[QuestionEditor 共通質問保存] 保存成功: DELETE→INSERT完了')
+    } catch (err) {
+      console.error('[QuestionEditor 共通質問保存] エラー発生:', err)
+      throw err
+    }
+  }
+
   const handleSaveQuestions = async () => {
     if (!selectedJobId || !activePattern) return
     setIsLoading(true)
     try {
-      const { data: existing } = await supabase
+      console.log('[QuestionEditor 保存開始] 処理方式: DELETE → INSERT', 'job_id=', selectedJobId, 'pattern_key=', activePattern, '保存予定件数=', patternQuestions.length)
+      console.log('[QuestionEditor 保存] Supabaseクライアント:', supabase, 'URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
+
+      // 共通質問も保存
+      await handleSaveCommonQuestions()
+
+      // ステップ1: 既存の質問を全削除
+      const { data: deleteData, error: deleteError } = await supabase
         .from('job_questions')
-        .select('id')
+        .delete()
         .eq('job_id', selectedJobId)
         .eq('pattern_key', activePattern)
+        .select()
 
-      const existingIds = new Set((existing || []).map((r: { id: string }) => r.id))
-      const currentRealIds = patternQuestions.filter((q) => !q.id.startsWith('temp-')).map((q) => q.id)
-      const toDeleteIds = [...existingIds].filter((id) => !currentRealIds.includes(id))
+      console.log('[QuestionEditor 保存] ステップ1: DELETE実行完了', '削除件数=', deleteData?.length || 0, 'data=', deleteData, 'error=', deleteError)
 
-      for (const id of toDeleteIds) {
-        await supabase.from('job_questions').delete().eq('id', id)
+      if (deleteError) {
+        console.error('[QuestionEditor 保存] 削除エラー:', deleteError)
+        showToast('質問の保存に失敗しました。')
+        return
       }
 
-      for (let i = 0; i < patternQuestions.length; i++) {
-        const q = patternQuestions[i]
-        if (q.id.startsWith('temp-')) {
-          await supabase.from('job_questions').insert({
-            job_id: selectedJobId,
-            pattern_key: activePattern,
-            question_text: q.question,
-            sort_order: i,
-          })
+      // ステップ2: 新しい質問を一括挿入
+      if (patternQuestions.length > 0) {
+        const rows = patternQuestions.map((q, index) => ({
+          job_id: selectedJobId,
+          pattern_key: activePattern,
+          question_text: q.question,
+          sort_order: index + 1,
+        }))
+
+        console.log('[QuestionEditor 保存] ステップ2: INSERT実行開始', '挿入件数=', rows.length, 'rows=', rows)
+
+        const { data: insertData, error: insertError } = await supabase
+          .from('job_questions')
+          .insert(rows)
+          .select()
+
+        console.log('[QuestionEditor 保存] ステップ2: INSERT実行完了', '挿入件数=', insertData?.length || 0, 'data=', insertData, 'error=', insertError)
+
+        if (insertError) {
+          console.error('[QuestionEditor 保存] 挿入エラー:', insertError)
+          showToast('質問の保存に失敗しました。')
+          return
+        }
+      } else {
+        console.log('[QuestionEditor 保存] ステップ2: 挿入データなし（空配列）')
+      }
+
+      console.log('[QuestionEditor 保存] 保存成功: DELETE→INSERT完了')
+
+      // ステップ3: 保存直後の検証 - 保存したはずのデータを再取得
+      const { data: verifyData, error: verifyError } = await supabase
+        .from('job_questions')
+        .select('*')
+        .eq('job_id', selectedJobId)
+        .eq('pattern_key', activePattern)
+        .order('sort_order', { ascending: true })
+
+      console.log('[QuestionEditor 保存後の検証] 再取得データ テーブル: job_questions 条件: job_id=', selectedJobId, 'pattern_key=', activePattern, '取得件数=', verifyData?.length || 0, 'data=', verifyData, 'error=', verifyError)
+
+      if (verifyError) {
+        console.error('[QuestionEditor 保存後の検証] 検証エラー:', verifyError)
+      } else {
+        const expectedCount = patternQuestions.length
+        const actualCount = verifyData?.length || 0
+        if (actualCount !== expectedCount) {
+          console.warn('[QuestionEditor 保存後の検証] 件数不一致 期待=', expectedCount, '実際=', actualCount)
         } else {
-          await supabase
-            .from('job_questions')
-            .update({ question_text: q.question, sort_order: i })
-            .eq('id', q.id)
+          console.log('[QuestionEditor 保存後の検証] ✓ 件数一致 期待=', expectedCount, '実際=', actualCount)
         }
       }
 
+      // ステップ4: 保存後に最新データを再取得して画面に反映
+      await fetchJobQuestions(selectedJobId, activePattern)
+
       showToast('質問を保存しました')
     } catch (err) {
-      console.error('質問保存エラー:', err)
+      console.error('[QuestionEditor 保存] エラー発生:', err)
       showToast('質問の保存に失敗しました。')
     } finally {
       setIsLoading(false)
