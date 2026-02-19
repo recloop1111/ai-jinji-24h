@@ -3,6 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { useCompanyId } from '@/lib/hooks/useCompanyId'
 import { useTemplates, type Template } from '../../contexts/TemplatesContext'
 import { ChevronRight as ChevronRightIcon, ChevronDown as ChevronDownIcon, Phone as PhoneIcon, Mail as MailIcon } from 'lucide-react'
 
@@ -29,7 +30,7 @@ type DashboardApplicant = {
 }
 
 export default function ClientDashboardPage() {
-  const CURRENT_COMPANY_ID = '7a58cc1b-9f81-4da5-ae2c-fd3abea05c33' // TODO: 認証実装後に動的取得
+  const { companyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
   const supabase = createClient()
 
   const [kpis, setKpis] = useState({ interviews: 0, avgDuration: 0, applicants: 0, used: 0, limit: 0 })
@@ -37,6 +38,10 @@ export default function ClientDashboardPage() {
   const [dataLoading, setDataLoading] = useState(true)
 
   useEffect(() => {
+    if (!companyId) {
+      if (!companyIdLoading) setDataLoading(false)
+      return
+    }
     async function fetchDashboardData() {
       setDataLoading(true)
       try {
@@ -44,7 +49,7 @@ export default function ClientDashboardPage() {
         const { data: company } = await supabase
           .from('companies')
           .select('monthly_interview_count, monthly_interview_limit')
-          .eq('id', CURRENT_COMPANY_ID)
+          .eq('id', companyId)
           .single()
 
         // 今月の応募者数取得
@@ -53,14 +58,14 @@ export default function ClientDashboardPage() {
         const { data: monthlyApplicants, count: applicantCount } = await supabase
           .from('applicants')
           .select('id', { count: 'exact', head: true })
-          .eq('company_id', CURRENT_COMPANY_ID)
+          .eq('company_id', companyId)
           .gte('created_at', firstDayOfMonth)
 
         // 直近の応募者5件取得
         const { data: recent } = await supabase
           .from('applicants')
           .select('id, last_name, first_name, email, phone_number, created_at, selection_status, interview_score')
-          .eq('company_id', CURRENT_COMPANY_ID)
+          .eq('company_id', companyId)
           .order('created_at', { ascending: false })
           .limit(5)
 
@@ -116,7 +121,7 @@ export default function ClientDashboardPage() {
       setDataLoading(false)
     }
     fetchDashboardData()
-  }, [])
+  }, [companyId])
 
   const { templates } = useTemplates()
   const [applicants, setApplicants] = useState<DashboardApplicant[]>([])
@@ -217,6 +222,23 @@ export default function ClientDashboardPage() {
     const hasOverflow = el.scrollHeight > el.clientHeight
     const isAtBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 2
     setSendListShowFade(hasOverflow && !isAtBottom)
+  }
+
+  if (companyIdLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[320px]">
+        <span className="inline-block w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+  if (companyIdError || (!companyId && !companyIdLoading)) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-800 text-sm">
+          {companyIdError ?? '企業情報を取得できませんでした。ログインし直すか、デモモードでお試しください。'}
+        </div>
+      </div>
+    )
   }
 
   return (

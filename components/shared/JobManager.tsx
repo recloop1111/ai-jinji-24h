@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Plus, Pencil, MessageSquare, Pause, Play, X, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useCompanyId } from '@/lib/hooks/useCompanyId'
 
 type JobStatus = 'active' | 'paused' | 'draft'
 
@@ -72,9 +73,8 @@ type JobManagerProps = {
   theme: 'light' | 'dark'
 }
 
-const CURRENT_COMPANY_ID = '7a58cc1b-9f81-4da5-ae2c-fd3abea05c33' // TODO: 認証実装後に動的取得に変更
-
-export default function JobManager({ companyId, theme }: JobManagerProps) {
+export default function JobManager({ companyId: companyIdProp, theme }: JobManagerProps) {
+  const { companyId: currentCompanyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
   const supabase = createClient()
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
@@ -94,7 +94,7 @@ export default function JobManager({ companyId, theme }: JobManagerProps) {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
   const isDark = theme === 'dark'
-  const resolvedCompanyId = companyId === 'current' ? CURRENT_COMPANY_ID : companyId
+  const resolvedCompanyId = companyIdProp === 'current' ? currentCompanyId : companyIdProp
 
   useEffect(() => {
     fetchJobs()
@@ -339,6 +339,20 @@ export default function JobManager({ companyId, theme }: JobManagerProps) {
     cancel: isDark ? 'text-gray-400 bg-gray-700 hover:bg-gray-600' : 'text-slate-600 bg-slate-100 hover:bg-slate-200',
   }
 
+  if (companyIdProp === 'current' && companyIdLoading) {
+    return (
+      <div className="min-w-0 max-w-[100vw] pb-10 flex items-center justify-center py-16">
+        <span className={`inline-block w-10 h-10 border-2 ${isDark ? 'border-blue-400' : 'border-blue-600'} border-t-transparent rounded-full animate-spin`} />
+      </div>
+    )
+  }
+  if (companyIdProp === 'current' && (companyIdError || (!resolvedCompanyId && !companyIdLoading))) {
+    return (
+      <div className={`rounded-lg p-4 text-sm ${isDark ? 'bg-red-500/10 border border-red-500/20 text-red-400' : 'bg-red-50 border border-red-200 text-red-800'}`}>
+        {companyIdError ?? '企業情報を取得できませんでした。'}
+      </div>
+    )
+  }
   if (loading) {
     return (
       <div className="min-w-0 max-w-[100vw] pb-10 flex items-center justify-center py-16">

@@ -1,161 +1,127 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 
 export default function AdminLoginPage() {
   const router = useRouter()
-  const [step, setStep] = useState<1 | 2>(1)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [code, setCode] = useState<string[]>(['', '', '', '', '', ''])
   const [error, setError] = useState('')
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([])
+  const [loading, setLoading] = useState(false)
 
-  const handleStep1Submit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    if (!email.trim() || !password.trim()) {
-      setError('メールアドレスとパスワードを入力してください')
-      return
-    }
-    // TODO: Supabase Authでメール+パスワード認証を実装
-    setStep(2)
-  }
-
-  const handleCodeChange = useCallback((index: number, value: string) => {
-    if (value.length > 1) return
-    const digit = value.replace(/\D/g, '')
-    const next = [...code]
-    next[index] = digit
-    setCode(next)
-    setError('')
-    if (digit && index < 5) {
-      inputRefs.current[index + 1]?.focus()
-    }
-    if (next.every((c) => c !== '')) {
-      const fullCode = next.join('')
-      // TODO: TOTP検証をバックエンドで実装
-      if (fullCode === '123456') {
-        router.push('/admin')
-      } else {
-        setError('認証コードが正しくありません')
+    setLoading(true)
+    try {
+      const supabase = createClient()
+      const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+      if (signInError) {
+        setError(signInError.message)
+        setLoading(false)
+        return
       }
-    }
-  }, [code, router])
+      const user = authData.user
+      if (!user) {
+        setError('認証に失敗しました')
+        setLoading(false)
+        return
+      }
 
-  const handleCodeKeyDown = (index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !code[index] && index > 0) {
-      inputRefs.current[index - 1]?.focus()
-      const next = [...code]
-      next[index - 1] = ''
-      setCode(next)
-    }
-  }
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    const fullCode = code.join('')
-    if (fullCode.length !== 6) {
-      setError('6桁の認証コードを入力してください')
-      return
-    }
-    // TODO: TOTP検証をバックエンドで実装
-    if (fullCode === '123456') {
-      router.push('/admin')
-    } else {
-      setError('認証コードが正しくありません')
+      if (profileError || !profile) {
+        await supabase.auth.signOut()
+        setError('管理者権限がありません')
+        setLoading(false)
+        return
+      }
+
+      const role = profile.role as string
+      if (role !== 'admin' && role !== 'super_admin') {
+        await supabase.auth.signOut()
+        setError('管理者権限がありません')
+        setLoading(false)
+        return
+      }
+
+      router.push('/admin/dashboard')
+      router.refresh()
+    } catch {
+      setError('ログインに失敗しました')
+      setLoading(false)
     }
   }
 
   return (
-    <div className="bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen flex flex-col items-center">
-      <div className="w-full max-w-md mx-auto mt-20 px-4">
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-8">
-          {step === 1 ? (
-            <>
-              <div className="mb-6">
-                <h1 className="text-2xl font-bold text-gray-900">AI人事24h</h1>
-                <span className="inline-block mt-2 bg-red-100 text-red-700 text-xs font-semibold px-2 py-0.5 rounded-full">
-                  運営管理
-                </span>
-              </div>
-              <form onSubmit={handleStep1Submit} className="space-y-4">
-                <div>
-                  <label htmlFor="admin-email" className="block text-sm font-medium text-gray-700 mb-1">
-                    メールアドレス
-                  </label>
-                  <input
-                    id="admin-email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:border-gray-900 focus:ring-2 focus:ring-gray-900/20 outline-none transition-colors"
-                    autoComplete="email"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="admin-password" className="block text-sm font-medium text-gray-700 mb-1">
-                    パスワード
-                  </label>
-                  <input
-                    id="admin-password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:border-gray-900 focus:ring-2 focus:ring-gray-900/20 outline-none transition-colors"
-                    autoComplete="current-password"
-                  />
-                </div>
-                {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
-                <button
-                  type="submit"
-                  className="w-full py-3 bg-gray-900 hover:bg-gray-800 text-white rounded-xl font-semibold transition-colors"
-                >
-                  次へ
-                </button>
-              </form>
-            </>
-          ) : (
-            <>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">二段階認証</h2>
-              <p className="text-sm text-gray-500 mb-6">
-                認証アプリに表示されている6桁のコードを入力してください
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-8">
+          <h1 className="text-2xl font-bold text-white">AI人事24h</h1>
+          <p className="text-sm text-slate-400 mt-1">運営管理画面</p>
+        </div>
+
+        <div className="bg-slate-800/50 border border-slate-700 rounded-2xl shadow-xl p-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="admin-email" className="block text-sm font-medium text-slate-300 mb-1">
+                メールアドレス
+              </label>
+              <input
+                id="admin-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+                className="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="admin@example.com"
+              />
+            </div>
+            <div>
+              <label htmlFor="admin-password" className="block text-sm font-medium text-slate-300 mb-1">
+                パスワード
+              </label>
+              <input
+                id="admin-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+                className="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="••••••••"
+              />
+            </div>
+            {error && (
+              <p className="text-sm text-red-400" role="alert">
+                {error}
               </p>
-              <form onSubmit={handleLoginSubmit} className="space-y-6">
-                <div className="flex gap-2 justify-center">
-                  {[0, 1, 2, 3, 4, 5].map((i) => (
-                    <input
-                      key={i}
-                      ref={(el) => { inputRefs.current[i] = el }}
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={1}
-                      value={code[i]}
-                      onChange={(e) => handleCodeChange(i, e.target.value)}
-                      onKeyDown={(e) => handleCodeKeyDown(i, e)}
-                      className="w-12 h-14 text-center text-2xl font-bold border border-gray-300 rounded-xl focus:border-gray-900 focus:ring-2 focus:ring-gray-900/20 outline-none transition-colors"
-                    />
-                  ))}
-                </div>
-                {error && <p className="text-red-600 text-sm text-center">{error}</p>}
-                <button
-                  type="submit"
-                  className="w-full py-3 bg-gray-900 hover:bg-gray-800 text-white rounded-xl font-semibold transition-colors"
-                >
-                  ログイン
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setStep(1); setError(''); setCode(['', '', '', '', '', '']) }}
-                  className="block w-full text-sm text-gray-500 hover:text-gray-700 cursor-pointer"
-                >
-                  戻る
-                </button>
-              </form>
-            </>
-          )}
+            )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 px-4 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <span className="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ログイン中...
+                </>
+              ) : (
+                'ログイン'
+              )}
+            </button>
+          </form>
         </div>
       </div>
     </div>

@@ -5,8 +5,7 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Plus, FileText, Check, ChevronUp, ChevronDown, Pencil, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-
-const CURRENT_COMPANY_ID = '7a58cc1b-9f81-4da5-ae2c-fd3abea05c33'
+import { useCompanyId } from '@/lib/hooks/useCompanyId'
 
 type Question = {
   id: string
@@ -115,11 +114,12 @@ type QuestionEditorProps = {
   onNavigateToJobs?: () => void
 }
 
-export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: QuestionEditorProps) {
+export default function QuestionEditor({ companyId: companyIdProp, theme, onNavigateToJobs }: QuestionEditorProps) {
   const searchParams = useSearchParams()
   const initialJobId = searchParams.get('jobId')
+  const { companyId: currentCompanyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
   const supabase = createClient()
-  const resolvedCompanyId = companyId === 'current' ? CURRENT_COMPANY_ID : companyId
+  const resolvedCompanyId = companyIdProp === 'current' ? currentCompanyId : companyIdProp
 
   const [jobs, setJobs] = useState<Job[]>([])
   const [jobsLoading, setJobsLoading] = useState(true)
@@ -426,6 +426,21 @@ export default function QuestionEditor({ companyId, theme, onNavigateToJobs }: Q
       <Link href="/client/jobs" className={`inline-flex items-center gap-2 px-4 py-2 ${cn.linkBtn} text-white text-sm font-medium rounded-xl transition-colors`}>
         求人管理へ
       </Link>
+    )
+  }
+
+  if (companyIdProp === 'current' && companyIdLoading) {
+    return (
+      <div className="min-w-0 max-w-[100vw] pb-10 flex items-center justify-center py-16">
+        <span className={`inline-block w-10 h-10 border-2 ${isDark ? 'border-blue-400' : 'border-blue-600'} border-t-transparent rounded-full animate-spin`} />
+      </div>
+    )
+  }
+  if (companyIdProp === 'current' && (companyIdError || (!resolvedCompanyId && !companyIdLoading))) {
+    return (
+      <div className={`rounded-lg p-4 text-sm ${isDark ? 'bg-red-500/10 border border-red-500/20 text-red-400' : 'bg-red-50 border border-red-200 text-red-800'}`}>
+        {companyIdError ?? '企業情報を取得できませんでした。'}
+      </div>
     )
   }
 
