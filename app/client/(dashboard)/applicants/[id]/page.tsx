@@ -332,8 +332,6 @@ export default function ApplicantDetailPage() {
   const id = params.id as string
   const supabase = createClient()
   
-  console.log('[ApplicantDetailPage] 受け取った id:', id)
-  console.log('[ApplicantDetailPage] params:', params)
   
   const [activeTab, setActiveTab] = useState<TabKey>('summary')
   const [selectedStatus, setSelectedStatus] = useState<string | null>(DUMMY.status)
@@ -356,12 +354,6 @@ export default function ApplicantDetailPage() {
       }
       
       setLoading(true)
-      console.log('[ApplicantDetailPage] Fetching applicant with query:')
-      console.log('.from("applicants")')
-      console.log('.select("*")')
-      console.log('.eq("id", id)')
-      console.log('.single()')
-      console.log('id:', id)
       
       try {
         // 応募者データを取得
@@ -371,12 +363,8 @@ export default function ApplicantDetailPage() {
           .eq('id', id)
           .single()
 
-        console.log('[ApplicantDetailPage] Query result - data:', applicantData)
-        console.log('[ApplicantDetailPage] Query result - error:', applicantError)
-        console.log('[ApplicantDetailPage] 取得した applicant.id:', applicantData?.id)
 
         if (applicantError) {
-          console.error('[ApplicantDetailPage] 応募者データ取得エラー:', applicantError)
           setApplicant(null)
         } else if (applicantData) {
           setApplicant(applicantData)
@@ -429,16 +417,13 @@ export default function ApplicantDetailPage() {
 
           if (!interviewError && interviewData) {
             setInterview(interviewData)
-            console.log('[ApplicantDetailPage] 面接データ取得成功:', interviewData)
           } else {
-            console.log('[ApplicantDetailPage] 面接データなし:', interviewError)
             setInterview(null)
           }
         } else {
           setApplicant(null)
         }
       } catch (err) {
-        console.error('[ApplicantDetailPage] 応募者データ取得例外:', err)
         setApplicant(null)
       }
       setLoading(false)
