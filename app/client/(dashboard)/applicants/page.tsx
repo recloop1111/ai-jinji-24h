@@ -1061,14 +1061,14 @@ function ApplicantsContent() {
         </div>
       )}
 
-      {/* CSVダウンロード 案内モーダル（プランAの場合） */}
+      {/* CSVダウンロード 案内モーダル（ライトプランの場合） */}
       {csvInfoModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setCsvInfoModalOpen(false)} aria-hidden />
           <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
             <h3 className="text-lg font-bold text-slate-900 mb-4">CSVダウンロードについて</h3>
             <p className="text-sm text-slate-600 mb-6">
-              CSVダウンロード機能はプランB以上でご利用いただけます。
+              CSVダウンロード機能はスタンダード以上でご利用いただけます。
             </p>
             <div className="flex gap-3">
               <button

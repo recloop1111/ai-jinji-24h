@@ -5,14 +5,14 @@ import { Search, FileText, ArrowUp } from 'lucide-react'
 
 // TODO: 実データに差替え
 const BILLING_DATA = [
-  { id: 1, company: '株式会社ABC', industry: 'IT・通信', plan: 'プランC', monthlyFee: 150000, interviewsUsed: 45, interviewLimit: 50, status: 'paid', nextBillingDate: '2026-03-01' },
-  { id: 2, company: '株式会社テックフロンティア', industry: 'IT・通信', plan: 'プランB', monthlyFee: 100000, interviewsUsed: 28, interviewLimit: 30, status: 'billed', nextBillingDate: '2026-03-01' },
-  { id: 3, company: '山田商事株式会社', industry: '商社・卸売', plan: 'プランA', monthlyFee: 50000, interviewsUsed: 8, interviewLimit: 10, status: 'unbilled', nextBillingDate: '2026-03-15' },
+  { id: 1, company: '株式会社ABC', industry: 'IT・通信', plan: 'プロ', monthlyFee: 120000, interviewsUsed: 45, interviewLimit: 50, status: 'paid', nextBillingDate: '2026-03-01' },
+  { id: 2, company: '株式会社テックフロンティア', industry: 'IT・通信', plan: 'スタンダード', monthlyFee: 80000, interviewsUsed: 28, interviewLimit: 30, status: 'billed', nextBillingDate: '2026-03-01' },
+  { id: 3, company: '山田商事株式会社', industry: '商社・卸売', plan: 'ライト', monthlyFee: 40000, interviewsUsed: 8, interviewLimit: 10, status: 'unbilled', nextBillingDate: '2026-03-15' },
   { id: 4, company: '株式会社グローバルHR', industry: '人材サービス', plan: 'カスタム', monthlyFee: 300000, interviewsUsed: 120, interviewLimit: 200, status: 'paid', nextBillingDate: '2026-03-01' },
-  { id: 5, company: '株式会社スタートアップラボ', industry: 'IT・通信', plan: 'プランA', monthlyFee: 50000, interviewsUsed: 5, interviewLimit: 10, status: 'overdue', nextBillingDate: '2026-02-15' },
-  { id: 6, company: '株式会社サンライズ', industry: '飲食・フード', plan: 'プランB', monthlyFee: 100000, interviewsUsed: 22, interviewLimit: 30, status: 'billed', nextBillingDate: '2026-03-01' },
-  { id: 7, company: '東京メディカル株式会社', industry: '医療・福祉', plan: 'プランC', monthlyFee: 150000, interviewsUsed: 38, interviewLimit: 50, status: 'unbilled', nextBillingDate: '2026-03-10' },
-  { id: 8, company: '株式会社エデュケーション・プラス', industry: '教育・学習', plan: 'プランB', monthlyFee: 100000, interviewsUsed: 15, interviewLimit: 30, status: 'overdue', nextBillingDate: '2026-02-10' },
+  { id: 5, company: '株式会社スタートアップラボ', industry: 'IT・通信', plan: 'ライト', monthlyFee: 40000, interviewsUsed: 5, interviewLimit: 10, status: 'overdue', nextBillingDate: '2026-02-15' },
+  { id: 6, company: '株式会社サンライズ', industry: '飲食・フード', plan: 'スタンダード', monthlyFee: 80000, interviewsUsed: 22, interviewLimit: 30, status: 'billed', nextBillingDate: '2026-03-01' },
+  { id: 7, company: '東京メディカル株式会社', industry: '医療・福祉', plan: 'プロ', monthlyFee: 120000, interviewsUsed: 38, interviewLimit: 50, status: 'unbilled', nextBillingDate: '2026-03-10' },
+  { id: 8, company: '株式会社エデュケーション・プラス', industry: '教育・学習', plan: 'スタンダード', monthlyFee: 80000, interviewsUsed: 15, interviewLimit: 30, status: 'overdue', nextBillingDate: '2026-02-10' },
 ]
 
 // TODO: 実データに差替え（月次売上・万円）
@@ -37,9 +37,9 @@ const ITEMS_PER_PAGE = 8
 
 function getPlanBadgeClass(plan: string): string {
   const map: Record<string, string> = {
-    'プランA': 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
-    'プランB': 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-    'プランC': 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
+    'ライト': 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
+    'スタンダード': 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+    'プロ': 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
     'カスタム': 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
   }
   return map[plan] ?? 'bg-gray-500/10 text-gray-400 border border-gray-500/20'
@@ -239,9 +239,9 @@ export default function BillingPage() {
               className="bg-white/[0.05] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-gray-300 appearance-none cursor-pointer focus:outline-none focus:border-blue-500/50"
             >
               <option value="all">全て</option>
-              <option value="プランA">プランA</option>
-              <option value="プランB">プランB</option>
-              <option value="プランC">プランC</option>
+              <option value="ライト">ライト</option>
+              <option value="スタンダード">スタンダード</option>
+              <option value="プロ">プロ</option>
               <option value="カスタム">カスタム</option>
             </select>
           </div>

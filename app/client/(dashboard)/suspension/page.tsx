@@ -146,7 +146,7 @@ export default function SuspensionPage() {
               </span>
             </div>
             <p className="text-sm text-gray-500">
-              プランB（スタンダード）| 契約開始日: 2025-04-01
+              スタンダード | 契約開始日: 2025-04-01
             </p>
           </div>
           {/* TODO: 実データに差替え */}

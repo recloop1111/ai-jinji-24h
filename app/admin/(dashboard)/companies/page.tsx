@@ -329,9 +329,9 @@ export default function CompaniesPage() {
               className="bg-white/[0.05] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-gray-300 appearance-none cursor-pointer focus:outline-none focus:border-blue-500/50"
             >
               <option value="all">すべてのプラン</option>
-              <option value="A">プランA（1〜10件）</option>
-              <option value="B">プランB（11〜20件）</option>
-              <option value="C">プランC（21〜30件）</option>
+              <option value="light">ライト（1〜10件）</option>
+              <option value="standard">スタンダード（11〜20件）</option>
+              <option value="pro">プロ（21〜30件）</option>
               <option value="custom">カスタム</option>
             </select>
             <button

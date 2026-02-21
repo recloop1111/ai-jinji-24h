@@ -5,8 +5,8 @@ import { Download as DownloadIcon, Landmark as BankIcon } from 'lucide-react'
 
 // TODO: 実データに差替え
 const PAYMENT_INFO = {
-  monthlyAmount: 120000,
-  planLabel: 'プランB（11〜20件）',
+  monthlyAmount: 80000,
+  planLabel: 'スタンダード（11〜20件）',
   nextBillingDate: '2025-03-15',
   paymentMethod: '請求書払い（銀行振込）',
   transferBank: 'みずほ銀行 渋谷支店',
@@ -17,14 +17,14 @@ const PAYMENT_INFO = {
 
 // TODO: 実データに差替え
 const BILLING_RECORDS = [
-  { id: '1', date: '2025-02-15', description: 'プランB 月額利用料（2月分）', amount: 120000, status: 'pending' as const },
-  { id: '2', date: '2025-01-15', description: 'プランB 月額利用料（1月分）', amount: 120000, status: 'paid' as const },
+  { id: '1', date: '2025-02-15', description: 'スタンダード 月額利用料（2月分）', amount: 80000, status: 'pending' as const },
+  { id: '2', date: '2025-01-15', description: 'スタンダード 月額利用料（1月分）', amount: 80000, status: 'paid' as const },
   { id: '3', date: '2025-01-15', description: '初期費用', amount: 200000, status: 'paid' as const },
   { id: '4', date: '2025-01-15', description: '職種追加（営業職）', amount: 100000, status: 'paid' as const },
-  { id: '5', date: '2024-12-20', description: 'プランA 月額利用料（12月分）', amount: 60000, status: 'paid' as const },
-  { id: '6', date: '2024-11-20', description: 'プランA 月額利用料（11月分）', amount: 60000, status: 'paid' as const },
-  { id: '7', date: '2024-10-20', description: 'プランA 月額利用料（10月分）', amount: 60000, status: 'paid' as const },
-  { id: '8', date: '2024-09-20', description: 'プランA 月額利用料（9月分）', amount: 60000, status: 'paid' as const },
+  { id: '5', date: '2024-12-20', description: 'ライト 月額利用料（12月分）', amount: 40000, status: 'paid' as const },
+  { id: '6', date: '2024-11-20', description: 'ライト 月額利用料（11月分）', amount: 40000, status: 'paid' as const },
+  { id: '7', date: '2024-10-20', description: 'ライト 月額利用料（10月分）', amount: 40000, status: 'paid' as const },
+  { id: '8', date: '2024-09-20', description: 'ライト 月額利用料（9月分）', amount: 40000, status: 'paid' as const },
 ]
 
 const STATUS_BADGE: Record<string, { label: string; className: string }> = {

@@ -19,11 +19,11 @@ const EVALUATION_AXES = [
 ]
 
 const MONTHLY_USAGE = [
-  { month: '2025-02', used: 14, limit: 20, plan: 'プランB', atLimit: false },
-  { month: '2025-01', used: 18, limit: 20, plan: 'プランB', atLimit: false },
-  { month: '2024-12', used: 12, limit: 20, plan: 'プランB', atLimit: false },
-  { month: '2024-11', used: 20, limit: 20, plan: 'プランB', atLimit: true },
-  { month: '2024-10', used: 8, limit: 20, plan: 'プランB', atLimit: false },
+  { month: '2025-02', used: 14, limit: 20, plan: 'スタンダード', atLimit: false },
+  { month: '2025-01', used: 18, limit: 20, plan: 'スタンダード', atLimit: false },
+  { month: '2024-12', used: 12, limit: 20, plan: 'スタンダード', atLimit: false },
+  { month: '2024-11', used: 20, limit: 20, plan: 'スタンダード', atLimit: true },
+  { month: '2024-10', used: 8, limit: 20, plan: 'スタンダード', atLimit: false },
 ]
 
 const PLAN_OPTIONS = [
