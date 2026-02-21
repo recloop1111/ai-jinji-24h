@@ -10,7 +10,7 @@ export type Company = {
   name: string
   email: string
   industry: string
-  plan: 'A' | 'B' | 'C' | 'custom'
+  plan: 'light' | 'standard' | 'pro' | 'custom'
   maxInterviews: number
   autoUpgrade: boolean
   isActive: boolean
@@ -64,7 +64,7 @@ export type Report = {
   applicantId: string
   companyId: string
   overallScore: number
-  grade: 'S' | 'A' | 'B' | 'C' | 'D'
+  grade: 'A' | 'B' | 'C' | 'D' | 'E'
   summary: string
   strengths: string[]
   weaknesses: string[]
@@ -81,7 +81,7 @@ export type AxisScore = {
   comment: string
 }
 
-export type EvaluationAxis = 'communication' | 'logical_thinking' | 'motivation' | 'stress_tolerance' | 'integrity' | 'leadership'
+export type EvaluationAxis = 'communication' | 'logical_thinking' | 'desire' | 'stress_tolerance' | 'integrity' | 'initiative'
 
 export type QuestionScore = {
   id: string
@@ -208,9 +208,9 @@ export type QuestionBank = {
 }
 
 export const PLAN_CONFIG = {
-  A: { name: 'プランA', price: 60000, maxInterviews: 10, csvDownload: false, dataRetentionDays: 90 },
-  B: { name: 'プランB', price: 120000, maxInterviews: 20, csvDownload: true, dataRetentionDays: null },
-  C: { name: 'プランC', price: 180000, maxInterviews: 30, csvDownload: true, dataRetentionDays: null },
+  light: { name: 'ライト', price: 40000, maxInterviews: 10, csvDownload: false, dataRetentionDays: 180 },
+  standard: { name: 'スタンダード', price: 80000, maxInterviews: 20, csvDownload: true, dataRetentionDays: null },
+  pro: { name: 'プロ', price: 120000, maxInterviews: 30, csvDownload: true, dataRetentionDays: null },
 } as const
 
 export const SETUP_FEE = 200000
