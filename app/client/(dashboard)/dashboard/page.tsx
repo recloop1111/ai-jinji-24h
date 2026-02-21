@@ -47,7 +47,6 @@ function DashboardContent() {
           .single()
 
         if (companyError) {
-          console.error('[Dashboard] Company fetch error:', companyError.message)
         }
 
         // 今月の応募者数取得
@@ -68,7 +67,6 @@ function DashboardContent() {
           .limit(5)
 
         if (recentError) {
-          console.error('[Dashboard] Applicants fetch error:', recentError.message)
         }
 
         setKpis({
@@ -87,7 +85,6 @@ function DashboardContent() {
             .select('applicant_id, detail_json')
 
           if (resError) {
-            console.error('[Dashboard] Results fetch error:', resError.message)
           } else if (resultsData) {
             resultsData.forEach((r: any) => {
               resultsMap[r.applicant_id] = r
@@ -124,7 +121,6 @@ function DashboardContent() {
           setApplicants([])
         }
       } catch (err: any) {
-        console.error('[Dashboard] データ取得例外:', err?.message || err)
       }
       setDataLoading(false)
     }
@@ -189,7 +185,6 @@ function DashboardContent() {
   }, [mailSelectedIds, applicants])
 
   const handleStatusUpdate = async (applicantId: string, newStatus: ApplicantStatus) => {
-    console.log('handleStatusUpdate called:', { applicantId, newStatus })
     // resultカラムを更新（未対応・検討中・二次通過・不採用）
     const dbResult = newStatus === null ? '未対応' 
       : newStatus === 'considering' ? '検討中'
@@ -205,20 +200,17 @@ function DashboardContent() {
           .update({ result: dbResult, updated_at: new Date().toISOString() })
           .eq('id', applicantId)
       } catch (err) {
-        console.error('ステータス更新エラー:', err)
       }
     }
     
     // applicantsとrecentApplicantsの両方を更新
     setApplicants((prev) => {
       const updated = prev.map((a) => (a.id === applicantId ? { ...a, status: newStatus } : a))
-      console.log('applicants updated:', updated)
       return updated
     })
     
     setRecentApplicants((prev) => {
       const updated = prev.map((a) => (a.id === applicantId ? { ...a, status: newStatus } : a))
-      console.log('recentApplicants updated:', updated)
       return updated
     })
     

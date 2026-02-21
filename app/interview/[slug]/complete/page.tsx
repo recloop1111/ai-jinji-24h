@@ -158,10 +158,8 @@ export default function CompletePage() {
         })
 
       if (error) {
-        console.error('[CompletePage] 面接結果保存エラー:', error)
       }
     } catch (error) {
-      console.error('[CompletePage] 面接結果保存例外:', error)
     }
   }
 
@@ -176,13 +174,11 @@ export default function CompletePage() {
         .eq('id', applicantId)
 
       if (error) {
-        console.error('[CompletePage] 満足度評価保存エラー:', error)
         return
       }
 
       setSubmitted(true)
     } catch (error) {
-      console.error('[CompletePage] 満足度評価保存例外:', error)
     }
   }
 

@@ -51,13 +51,11 @@ export default function InterviewPage() {
         .single()
 
       if (error || !data) {
-        console.error('[InterviewPage] 企業情報取得エラー:', error)
         setCompany(null)
       } else {
         setCompany(data)
       }
     } catch (error) {
-      console.error('[InterviewPage] 企業情報取得例外:', error)
       setCompany(null)
     }
     setLoading(false)

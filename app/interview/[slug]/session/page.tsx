@@ -69,7 +69,6 @@ export default function SessionPage() {
     // 面接開始: interviewsテーブルにINSERT
     async function startInterview() {
       if (!storedApplicantId || !storedCompanyId) {
-        console.warn('[SessionPage] applicant_idまたはcompany_idが取得できません')
         return
       }
 
@@ -95,14 +94,12 @@ export default function SessionPage() {
           .single()
 
         if (error) {
-          console.error('[SessionPage] 面接開始エラー:', error)
         } else if (data) {
           setInterviewId(data.id)
           setJobId(resolvedJobId)
           sessionStorage.setItem(`interview_${slug}_interview_id`, data.id)
         }
       } catch (error) {
-        console.error('[SessionPage] 面接開始例外:', error)
       }
     }
 
@@ -120,7 +117,6 @@ export default function SessionPage() {
         streamRef.current = stream
         setHasStream(true)
       } catch (error) {
-        console.error('カメラへのアクセスに失敗しました:', error)
       }
     }
 
@@ -251,7 +247,6 @@ export default function SessionPage() {
             finalQuestions = customQuestions
           }
 
-          console.log('[SessionPage] 最終質問順序:', finalQuestions)
           setQuestionList(finalQuestions)
           setTotalQuestions(finalQuestions.length)
           // 最初の質問を表示
@@ -263,7 +258,6 @@ export default function SessionPage() {
           setAiSpeechText('本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？')
         }
       } catch (error) {
-        console.error('[SessionPage] 質問取得エラー:', error)
         setQuestionList(['本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？'])
         setTotalQuestions(1)
         setAiSpeechText('本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？')
@@ -353,7 +347,6 @@ export default function SessionPage() {
             })
             .eq('id', applicantId)
         } catch (error) {
-          console.error('[SessionPage] ブラウザ離脱時の更新エラー:', error)
         }
       }
     }
@@ -385,14 +378,6 @@ export default function SessionPage() {
           ? '時間切れ'
           : '自主終了'
 
-        console.log('[SessionPage] 面接終了処理:', {
-          endReason,
-          finalEndReason,
-          totalQuestions,
-          answeredQuestions,
-          isAllQuestionsAnswered,
-        })
-
         // interviewsテーブルを更新
         const { error: interviewError } = await supabase
           .from('interviews')
@@ -407,9 +392,7 @@ export default function SessionPage() {
           .eq('id', interviewId)
 
         if (interviewError) {
-          console.error('[SessionPage] 面接終了エラー:', interviewError)
         } else {
-          console.log('[SessionPage] interviewsテーブル更新成功')
         }
 
         // applicantsテーブルのstatusを更新
@@ -432,9 +415,7 @@ export default function SessionPage() {
           .eq('id', applicantId)
 
         if (applicantError) {
-          console.error('[SessionPage] 応募者ステータス更新エラー:', applicantError)
         } else {
-          console.log('[SessionPage] applicantsテーブル更新成功:', { applicantStatus })
         }
 
         // 終了理由に応じて画面遷移を分岐
@@ -448,7 +429,6 @@ export default function SessionPage() {
           router.push(`/interview/${slug}/ended`)
         }
       } catch (error) {
-        console.error('[SessionPage] 面接終了例外:', error)
         // エラー時も途中終了画面へ遷移（安全側に倒す）
         router.push(`/interview/${slug}/ended`)
       }

@@ -48,7 +48,6 @@ export default function PracticePage() {
         streamRef.current = stream
         setHasStream(true)
       } catch (error) {
-        console.error('カメラへのアクセスに失敗しました:', error)
       }
     }
 
@@ -156,7 +155,6 @@ export default function PracticePage() {
           startFallbackTimer()
           return
         }
-        console.error('Speech recognition error:', event.error)
         // エラー時はフォールバックに切り替え
         startFallbackTimer()
       }

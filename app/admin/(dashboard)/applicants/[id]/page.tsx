@@ -147,7 +147,6 @@ export default function AdminApplicantDetailPage() {
           .single()
 
         if (applicantError) {
-          console.error('[AdminApplicantDetail] Applicant fetch error:', applicantError.message)
           setApplicant(null)
         } else if (applicantData) {
           setApplicant(applicantData)
@@ -186,7 +185,6 @@ export default function AdminApplicantDetailPage() {
           }
         }
       } catch (err: any) {
-        console.error('[AdminApplicantDetail] Error:', err?.message || err)
       } finally {
         setLoading(false)
       }
@@ -206,13 +204,11 @@ export default function AdminApplicantDetailPage() {
         })
         .eq('id', id)
       if (error) {
-        console.error('[AdminApplicantDetail] Save error:', error.message)
         setToast('保存に失敗しました')
       } else {
         setToast('保存しました')
       }
     } catch (err: any) {
-      console.error('[AdminApplicantDetail] Save error:', err?.message || err)
       setToast('保存に失敗しました')
     } finally {
       setSaving(false)

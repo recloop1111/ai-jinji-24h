@@ -48,13 +48,11 @@ export default function VerifyPage() {
         .single()
 
       if (error || !data) {
-        console.error('[VerifyPage] 企業情報取得エラー:', error)
         setCompany(null)
       } else {
         setCompany(data)
       }
     } catch (error) {
-      console.error('[VerifyPage] 企業情報取得例外:', error)
       setCompany(null)
     }
     setLoading(false)
@@ -138,7 +136,6 @@ export default function VerifyPage() {
       // ここでSupabase/API呼び出しを行う予定
     } catch (error) {
       // TODO: 段階4 - Supabase接続を本実装する
-      console.warn('Supabase再送信スキップ（段階3デモ）:', error)
     }
     
     setToast('認証コードを再送信しました')

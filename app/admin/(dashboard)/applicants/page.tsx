@@ -93,7 +93,6 @@ export default function AdminApplicantsPage() {
           .order('created_at', { ascending: false })
 
         if (appError) {
-          console.error('[AdminApplicants] Applicants fetch error:', appError.message)
         }
 
         const { data: companiesData } = await supabase
@@ -140,7 +139,6 @@ export default function AdminApplicantsPage() {
         setApplicants(merged)
         setCompanies(companiesData || [])
       } catch (err: any) {
-        console.error('[AdminApplicants] Error:', err?.message || err)
       } finally {
         setLoading(false)
       }

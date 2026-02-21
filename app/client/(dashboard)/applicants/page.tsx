@@ -172,7 +172,6 @@ function ApplicantsContent() {
           .order('created_at', { ascending: false })
 
         if (appError) {
-          console.error('[ApplicantsPage] Applicants fetch error:', appError.message)
           setApplicants([])
           setDataLoading(false)
           return
@@ -185,7 +184,6 @@ function ApplicantsContent() {
           .select('applicant_id, detail_json')
 
         if (resError) {
-          console.error('[ApplicantsPage] Results fetch error:', resError.message)
         } else if (resultsData) {
           resultsData.forEach((r: any) => {
             resultsMap[r.applicant_id] = r
@@ -216,7 +214,6 @@ function ApplicantsContent() {
         })
         setApplicants(mappedApplicants)
       } catch (err: any) {
-        console.error('[ApplicantsPage] 応募者データ取得例外:', err?.message || err)
         setApplicants([])
       }
       setDataLoading(false)
@@ -418,7 +415,6 @@ function ApplicantsContent() {
   }, [applicants, mailSelectedIds])
 
   const handleStatusUpdate = async (applicantId: string, newStatus: 'considering' | 'second_pass' | 'rejected' | null) => {
-    console.log('handleStatusUpdate called:', { applicantId, newStatus })
     // resultカラムを更新（未対応・検討中・二次通過・不採用）
     const dbResult = newStatus === null ? '未対応' 
       : newStatus === 'considering' ? '検討中'
@@ -433,14 +429,12 @@ function ApplicantsContent() {
         .update({ result: dbResult, updated_at: new Date().toISOString() })
         .eq('id', applicantId)
     } catch (err) {
-      console.error('ステータス更新エラー:', err)
     }
     
     setApplicants((prev) => {
       const updated = prev.map((a) =>
         a.id === applicantId ? { ...a, status: newStatus } : a
       )
-      console.log('applicants updated:', updated)
       return updated
     })
     setStatusDropdownApplicantId(null)
@@ -521,7 +515,6 @@ function ApplicantsContent() {
               <button
                 type="button"
                 onClick={() => {
-                  console.log('[ApplicantsPage] 結果フィルタボタンクリック:', !filterDropdownOpen)
                   setFilterDropdownOpen(!filterDropdownOpen)
                 }}
                 className={`inline-flex items-center gap-2 bg-white border border-gray-300 rounded-lg h-10 px-4 text-sm text-gray-700 hover:bg-gray-50 transition relative shrink-0 whitespace-nowrap ${statusFilter !== 'all' ? 'text-blue-600' : ''}`}
@@ -537,7 +530,6 @@ function ApplicantsContent() {
                   <div 
                     className="fixed inset-0 z-[90]" 
                     onClick={() => {
-                      console.log('[ApplicantsPage] オーバーレイクリック')
                       setFilterDropdownOpen(false)
                     }} 
                   />
@@ -551,7 +543,6 @@ function ApplicantsContent() {
                             name="statusFilter"
                             checked={statusFilter === o.value}
                             onChange={() => {
-                              console.log('[ApplicantsPage] 結果フィルタ選択:', o.value)
                               handleStatusFilterSelect(o.value)
                             }}
                             className="border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -569,7 +560,6 @@ function ApplicantsContent() {
               <button
                 type="button"
                 onClick={() => {
-                  console.log('[ApplicantsPage] 現在状況フィルタボタンクリック:', !currentStatusFilterDropdownOpen)
                   setCurrentStatusFilterDropdownOpen(!currentStatusFilterDropdownOpen)
                 }}
                 className={`inline-flex items-center gap-2 bg-white border border-gray-300 rounded-lg h-10 px-4 text-sm text-gray-700 hover:bg-gray-50 transition relative shrink-0 whitespace-nowrap ${currentStatusFilter !== 'all' ? 'text-blue-600' : ''}`}
@@ -585,7 +575,6 @@ function ApplicantsContent() {
                   <div 
                     className="fixed inset-0 z-[90]" 
                     onClick={() => {
-                      console.log('[ApplicantsPage] 現在状況オーバーレイクリック')
                       setCurrentStatusFilterDropdownOpen(false)
                     }} 
                   />
@@ -599,7 +588,6 @@ function ApplicantsContent() {
                             name="currentStatusFilter"
                             checked={currentStatusFilter === o.value}
                             onChange={() => {
-                              console.log('[ApplicantsPage] 現在状況フィルタ選択:', o.value)
                               handleCurrentStatusFilterSelect(o.value)
                             }}
                             className="border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -752,7 +740,6 @@ function ApplicantsContent() {
                         <Link
                           href={`/client/applicants/${a.id}`}
                           onClick={() => {
-                            console.log('[ApplicantsPage] 詳細ボタンクリック - applicant.id:', a.id)
                           }}
                           className="inline-flex items-center px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium rounded-lg transition-colors"
                         >
@@ -846,7 +833,6 @@ function ApplicantsContent() {
                   <Link
                     href={`/client/applicants/${a.id}`}
                     onClick={() => {
-                      console.log('[ApplicantsPage] 詳細ボタンクリック（モバイル） - applicant.id:', a.id)
                     }}
                     className="inline-flex items-center px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium rounded-lg"
                   >

@@ -121,7 +121,6 @@ export default function AdminDashboardPage() {
         }))
         setRecentApplicants(recent)
       } catch (err: any) {
-        console.error('[AdminDashboard] Error:', err?.message || err)
       } finally {
         setLoading(false)
       }

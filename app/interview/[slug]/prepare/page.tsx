@@ -94,7 +94,6 @@ export default function PreparePage() {
         }
         updateVolume()
       } catch (err) {
-        console.error('Camera error:', err)
         setCameraStatus('error')
         setMicStatus('error')
       }
@@ -134,7 +133,6 @@ export default function PreparePage() {
       }
     } catch (error) {
       // TODO: 段階4 - Supabase接続を本実装する
-      console.warn('Supabase取得スキップ（段階3デモ）:', error)
       setCompany(dummyCompany)
     }
     setLoading(false)
