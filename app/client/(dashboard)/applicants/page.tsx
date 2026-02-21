@@ -135,7 +135,7 @@ function ApplicantsContent() {
   const { companyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
   const supabase = createClient()
   // TODO: 実際にはAPIからプラン情報を取得
-  const getCurrentPlan = (): 'A' | 'B' | 'C' | 'custom' => 'B' // TODO: 実データに差替え
+  const getCurrentPlan = (): 'light' | 'standard' | 'pro' | 'custom' => 'standard' // TODO: 実データに差替え
   const currentPlan = getCurrentPlan()
   const { templates } = useTemplates()
   const [searchQuery, setSearchQuery] = useState('')
@@ -261,7 +261,7 @@ function ApplicantsContent() {
   const handleCsvDownloadClick = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    if (currentPlan === 'A') {
+    if (currentPlan === 'light') {
       setCsvInfoModalOpen(true)
     } else {
       setCsvAdminAuthModalOpen(true)
