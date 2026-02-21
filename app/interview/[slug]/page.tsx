@@ -28,6 +28,7 @@ export default function InterviewPage() {
     name: string
     logo_url: string | null
     interview_slug: string
+    is_suspended: boolean
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [consent, setConsent] = useState(false)
@@ -42,20 +43,11 @@ export default function InterviewPage() {
   async function fetchCompany() {
     setLoading(true)
     try {
-      console.log('Querying companies with slug:', slug)
-      console.log('.select("id, name, logo_url, interview_slug")')
-      console.log('.eq("interview_slug", slug)')
-      console.log('eq column name: interview_slug')
-      console.log('eq value:', slug)
-      
       const { data, error } = await supabase
         .from('companies')
-        .select('id, name, logo_url, interview_slug')
+        .select('id, name, logo_url, interview_slug, is_suspended')
         .eq('interview_slug', slug)
         .single()
-
-      console.log('Query result - data:', data)
-      console.log('Query result - error:', error)
 
       if (error || !data) {
         console.error('[InterviewPage] 企業情報取得エラー:', error)
@@ -133,25 +125,24 @@ export default function InterviewPage() {
     )
   }
 
-  // TODO: is_suspendedチェックを復活させる場合は、selectにis_suspendedを追加
-  // if (company.is_suspended) {
-  //   return (
-  //     <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen flex items-center justify-center px-4">
-  //       <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 text-center max-w-lg w-full">
-  //         <div className="flex justify-center mb-4">
-  //           <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500">
-  //             <circle cx="12" cy="12" r="10"/>
-  //             <line x1="12" y1="16" x2="12" y2="12"/>
-  //             <line x1="12" y1="8" x2="12.01" y2="8"/>
-  //           </svg>
-  //         </div>
-  //         <p className="text-gray-600 text-sm sm:text-base">
-  //           現在、面接の受付を一時停止しております。恐れ入りますが、しばらく経ってから再度お試しください。
-  //         </p>
-  //       </div>
-  //     </div>
-  //   )
-  // }
+  if (company.is_suspended) {
+    return (
+      <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen flex items-center justify-center px-4">
+        <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 text-center max-w-lg w-full">
+          <div className="flex justify-center mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="16" x2="12" y2="12"/>
+              <line x1="12" y1="8" x2="12.01" y2="8"/>
+            </svg>
+          </div>
+          <p className="text-gray-600 text-sm sm:text-base">
+            現在、面接の受付を一時停止しております。恐れ入りますが、しばらく経ってから再度お試しください。
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen pb-8">
