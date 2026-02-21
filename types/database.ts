@@ -15,6 +15,7 @@ export type Company = {
   autoUpgrade: boolean
   isActive: boolean
   isPaused: boolean
+  isDemo: boolean
   interviewSlug: string
   createdAt: string
   updatedAt: string

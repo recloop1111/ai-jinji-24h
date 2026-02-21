@@ -240,3 +240,10 @@ SET
 FROM public.applicants a
 WHERE ir.applicant_id = a.id AND a.status = '完了';
 ```
+
+## 7. companies テーブルに is_demo カラムを追加
+
+```sql
+-- デモモード判定用フラグ（デモ企業の場合 true、本番企業は false）
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT false;
+```

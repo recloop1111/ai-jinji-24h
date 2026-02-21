@@ -1,61 +1,130 @@
 # AI人事24h - プロジェクト設計ガイド
 
 ## 設計書一覧
-このプロジェクトの全設計書は docs/ フォルダに格納されています。実装時は必ず参照してください。
+- docs/REQUIREMENTS.md - 要件定義書v7.1
+- docs/SCREEN_DESIGN.md - 画面設計書v1.3
+- docs/API_DESIGN.md - API設計書v1.1
+- docs/INFRASTRUCTURE.md - インフラ構成設計書v1.0
+- docs/MIGRATION_SQL.md - マイグレーションSQL履歴
 
-- docs/REQUIREMENTS.md - 要件定義書v7.0（サービス概要、ビジネスモデル、全機能定義、セキュリティ、非機能要件）
-- docs/SCREEN_DESIGN.md - 画面設計書v1.1（全28画面42ビューの詳細設計、レイアウト、コンポーネント仕様）
-- docs/API_DESIGN.md - API設計書v1.1（全66エンドポイントの詳細仕様、認証、エラー形式）
-- docs/INFRASTRUCTURE.md - インフラ構成設計書v1.0（環境構成、外部サービス、デプロイ戦略）
+※ 設計書v4.2（会話内で確定した仕様の統合版）の内容が最新。docs/配下の正式設計書への反映は一部未実施。
 
 ## 技術スタック
-- Next.js App Router + TypeScript + Tailwind CSS
-- Supabase (PostgreSQL 27テーブル, Auth, Storage, RLS)
-- OpenAI Realtime API (gpt-4o-mini-realtime-preview)
-- Cloudflare R2 (録画保存、90日ライフサイクル)
+- Next.js 16 App Router + TypeScript + Tailwind CSS 4
+- Supabase Free (PostgreSQL 25テーブル, Auth, RLS)
+- OpenAI Realtime API (gpt-4o-mini-realtime-preview) ※未導入
+- Cloudflare R2 (録画保存180日) ※未導入
 - Stripe (課金・プラン管理)
-- Twilio Verify (SMS OTP認証)
+- Twilio Verify (SMS OTP 4桁) ※未導入
 - Resend (トランザクションメール)
 - Google reCAPTCHA v3
-- Vercel (Node 20, 東京リージョン)
+- Vercel (Node 20)
 - Sentry (エラー監視)
 
 ## 3ロール構成
-1. 応募者 (Candidate) - /interview/* - SMS OTP認証
-2. 企業ユーザー (Client) - /client/* - メール+パスワード認証 (Supabase Auth)
-3. 運営ユーザー (Admin) - /admin/* - メール+パスワード+2FA認証
+1. 応募者 (Candidate) - /interview/* - SMS OTP認証(4桁)
+2. 企業ユーザー (Client) - /client/* - メール+パスワード認証
+3. 運営ユーザー (Admin) - /admin/* - メール+パスワード+TOTP 2FA認証
 
-## API構成 (全66本)
-- 応募者API 15本: /api/interview/*
-- 企業API 24本: /api/client/*
-- 運営API 19本: /api/admin/*
-- Webhook 4本: /api/webhooks/*
-- 内部バッチ 4本: /api/internal/batch/*
+## 料金体系（確定）
+- ライト: ¥40,000/月, 10件まで
+- スタンダード: ¥80,000/月, 20件まで
+- プロ: ¥120,000/月, 30件まで
+- 31件以降: ¥3,500/件
+- 初期費用: ¥200,000
 
-## エラー形式（全API共通）
-{ "error": { "code": "ERROR_CODE", "message": "説明文" } }
+## 評価グレード（確定）
+A(80-100) / B(65-79) / C(50-64) / D(35-49) / E(0-34) の5段階
 
-## 現在の進捗
-- Phase 1完了: DB27テーブル作成済み, Auth動作, RLS設定済み(companies, applicants, job_types)
-- Phase 2進行中: 企業ログイン, 応募者一覧, 応募者詳細ページ実装済み
-- 未着手: テンプレメール, プラン管理, 請求履歴, 停止申請, 応募者フロー, 管理画面, レポートエンジン, Webhook, バッチ
+## 評価軸キー（確定）
+communication / logical_thinking / initiative / desire / stress_tolerance / integrity
+
+## 現在の進捗 (2026-02-21)
+
+### Phase 1: 完了
+- DB 27テーブル作成済み（Supabase）
+- companies テーブルに is_demo カラム追加済み
+- Supabase Auth動作確認済み
+- RLS全テーブル修正完了（39ポリシー）
+
+### Phase 2: 進行中
+実装済みの企業管理画面:
+- /client/login (115行)
+- /client/dashboard (652行)
+- /client/applicants (1115行)
+- /client/applicants/[id] (1533行, 5タブ)
+- /client/templates (243行)
+- /client/plan (571行)
+- /client/billing (127行)
+- /client/suspension (425行)
+- /client/culture-analysis (501行)
+- /client/settings (680行)
+
+実装済みの運営管理画面:
+- /admin/login (129行)
+- /admin/dashboard (289行)
+- /admin/companies (773行)
+- /admin/companies/[id] (1162行)
+- /admin/applicants (591行)
+- /admin/applicants/[id] (832行)
+- /admin/questions (382行)
+- /admin/billing (473行)
+- /admin/security (840行)
+- /admin/settings (792行)
+
+実質未実装（空or骨格のみ）:
+- /admin/applicant-data (3行)
+- /admin/question-bank (3行)
+- /admin/satisfaction (3行)
+- /admin/suspension (3行)
+- /client/jobs (16行)
+- /client/questions (16行)
+
+実装済みの応募者フロー:
+- /interview/[slug]/page.tsx 開始・同意 (328行)
+- /interview/[slug]/verify SMS認証 (268行)
+- /interview/[slug]/form 履歴書フォーム (477行)
+- /interview/[slug]/prepare デバイスチェック (337行)
+- /interview/[slug]/practice 練習画面 (508行)
+- /interview/[slug]/session AI面接 (661行)
+- /interview/[slug]/uploading 送信中 (310行)
+- /interview/[slug]/feedback フィードバック (110行)
+- /interview/[slug]/diagnosis 性格診断 (853行)
+- /interview/[slug]/complete 完了 (393行)
+- /interview/[slug]/terms 利用規約 (141行)
+- /interview/[slug]/cancelled キャンセル (40行)
+- /interview/[slug]/ended 途中終了 (45行)
+- /survey/[slug] 社風アンケート (415行)
+
+コード修正完了:
+- types/database.ts: PLAN_CONFIG(light/standard/pro), 料金, グレード, 評価軸キー, dataRetentionDays:180, isDemo
+- scoreToGrade: 5段階化済み（ただし2箇所に重複定義あり、バッジ色分けがD/E未対応）
+- プランUI: 6ファイル32箇所修正済み
+- CSVエクスポート: プラン判定修正済み
+- form/page.tsx: console.log削除, is_demo対応
+
+### API実装状況
+- 実装済み: /api/health (1本のみ)
+- 未実装: 65本
+
+### 未導入パッケージ
+openai, twilio, @aws-sdk/client-s3, idb
+
+### 未解決課題
+- P-05: 質問データのDB化
+- P-06: csvDownload仕様確認
+- P-07: admin/applicantsのURL構造統一
+- P-08: admin/question-bankの空ファイル処理
+- P-09: HTTPセキュリティヘッダー
+- P-10: 未導入パッケージ追加
+- P-11: ドメイン・メール・DPA等
+- P-12: camelCase/snake_case変換レイヤー
+- P-13: SCREEN_DESIGN.md反映
 
 ## 実装ルール
 - 設計書に定義されていない機能は勝手に追加しない
+- ファイルの変更前に必ず確認を取る
 - エラーハンドリングは統一形式を厳守
 - RLSポリシーを必ず考慮する
-- 環境変数は .env.local で管理（NEXT_PUBLIC_ のみクライアント公開）
-
-
-## Current Progress (2026-02-13)
-- Phase 1: Complete (27 Supabase tables, RLS policies, authentication)
-- Phase 2 Client Admin UI:
-  - Applicant list page: DONE (full Japanese, filtering, pagination)
-  - Applicant detail page (5 tabs): DONE
-  - Template email settings: DONE (CRUD, variable preview)
-  - Plan management: DONE (simple version, data fetching works)
-  - Billing history: DONE (Japanese UI)
-  - Suspension/cancellation request: DONE (Japanese UI, form)
-  - DB: companies table updated with plan, auto_upgrade_enabled, monthly_interview_count, monthly_interview_limit columns
-- Phase 2 Remaining: Enrich plan management UI, onboarding guide, CSV export
-- Phase 3-6: Not started
+- 環境変数は .env.local で管理
+- console.log/console.errorは本番コードに残さない

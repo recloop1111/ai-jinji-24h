@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
 import { useTemplates, type Template } from '../../contexts/TemplatesContext'
 import { Download as DownloadIcon, Eye as EyeIcon, EyeOff as EyeOffIcon, Search as SearchEmptyIcon, Phone as PhoneIcon, Mail as MailIcon, Filter as FilterIcon, ChevronDown as ChevronDownIcon } from 'lucide-react'
+import { scoreToGrade, gradeColor } from '@/lib/utils/scoreToGrade'
 
 // currentStatus: preparing=準備中(システム), completed=完了(システム)
 // status: null=未対応(面接完了後・結果未設定時の初期値), considering=検討中, second_pass=二次通過, rejected=不採用(企業担当者が手動管理)
@@ -39,15 +40,6 @@ const CURRENT_STATUS_FILTER_OPTIONS: { value: CurrentStatusFilterValue; label: s
   { value: 'completed', label: '完了' },
   { value: 'abandoned', label: '途中離脱' },
 ]
-
-function scoreToGrade(score: number): string {
-  if (score >= 80) return 'A'
-  if (score >= 65) return 'B'
-  if (score >= 50) return 'C'
-  if (score >= 35) return 'D'
-  return 'E'
-}
-
 
 // 管理者認証モーダルコンポーネント
 function AdminAuthModal({
@@ -808,11 +800,7 @@ function ApplicantsContent() {
                   {a.currentStatus === 'completed' && a.score != null && (
                     <span className="inline-flex items-center gap-1">
                       {a.score}点
-                      <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold ${
-                        scoreToGrade(a.score) === 'A' ? 'bg-emerald-500 text-white' :
-                        scoreToGrade(a.score) === 'B' ? 'bg-sky-500 text-white' :
-                        scoreToGrade(a.score) === 'C' ? 'bg-amber-500 text-white' : 'bg-rose-500 text-white'
-                      }`}>
+                      <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold ${gradeColor(scoreToGrade(a.score))}`}>
                         {scoreToGrade(a.score)}
                       </span>
                     </span>
