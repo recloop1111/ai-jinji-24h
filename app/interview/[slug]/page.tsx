@@ -29,6 +29,7 @@ export default function InterviewPage() {
     logo_url: string | null
     interview_slug: string
     is_suspended: boolean
+    is_demo: boolean
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [consent, setConsent] = useState(false)
@@ -45,7 +46,7 @@ export default function InterviewPage() {
     try {
       const { data, error } = await supabase
         .from('companies')
-        .select('id, name, logo_url, interview_slug, is_suspended')
+        .select('id, name, logo_url, interview_slug, is_suspended, is_demo')
         .eq('interview_slug', slug)
         .single()
 

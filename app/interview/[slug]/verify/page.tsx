@@ -15,6 +15,7 @@ export default function VerifyPage() {
     name: string
     logo_url: string | null
     is_suspended: boolean
+    is_demo: boolean
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [code, setCode] = useState(['', '', '', ''])
@@ -42,7 +43,7 @@ export default function VerifyPage() {
     try {
       const { data, error } = await supabase
         .from('companies')
-        .select('id, name, logo_url, is_suspended')
+        .select('id, name, logo_url, is_suspended, is_demo')
         .eq('interview_slug', slug)
         .single()
 
@@ -104,17 +105,28 @@ export default function VerifyPage() {
 
   function handleVerify() {
     const codeString = code.join('')
-    // TODO: Twilio Verify APIに差替え
-    // 現在は認証コード「1234」で通過するダミーモード
     if (code.every((digit) => digit !== '')) {
-      // ダミーモード: 1234で通過
-      if (codeString === '1234') {
-        setToast('認証が完了しました')
-        setTimeout(() => {
-          router.push(`/interview/${slug}/prepare`)
-        }, 1000)
+      if (company?.is_demo) {
+        // デモモード: 固定コード「1234」で認証通過
+        if (codeString === '1234') {
+          setToast('認証が完了しました')
+          setTimeout(() => {
+            router.push(`/interview/${slug}/prepare`)
+          }, 1000)
+        } else {
+          setToast('認証コードが正しくありません')
+        }
       } else {
-        setToast('認証コードが正しくありません')
+        // TODO: 本番モード - Twilio Verify API に差し替え
+        // 現時点ではデモと同じく「1234」で通過
+        if (codeString === '1234') {
+          setToast('認証が完了しました')
+          setTimeout(() => {
+            router.push(`/interview/${slug}/prepare`)
+          }, 1000)
+        } else {
+          setToast('認証コードが正しくありません')
+        }
       }
     }
   }
