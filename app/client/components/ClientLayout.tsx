@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { LayoutGrid as DashboardIcon, Users as UsersIcon, Briefcase as BriefcaseIcon, MessageSquare as QuestionsIcon, Mail as MailIcon, FileText as PlanIcon, CircleDollarSign as BillingIcon, Settings as SettingsIcon, Pause as SuspensionIcon, User as PersonIcon, Menu as MenuIcon, X as CloseIcon, Copy as CopyIcon } from 'lucide-react'
+import { LayoutGrid as DashboardIcon, Users as UsersIcon, Briefcase as BriefcaseIcon, MessageSquare as QuestionsIcon, Mail as MailIcon, FileText as PlanIcon, CircleDollarSign as BillingIcon, Settings as SettingsIcon, Pause as SuspensionIcon, HeartHandshake as CultureIcon, User as PersonIcon, Menu as MenuIcon, X as CloseIcon, Copy as CopyIcon } from 'lucide-react'
 
 // TODO: 実際の企業URLに差替え
 const INTERVIEW_URL = 'https://ai-jinji-24h.vercel.app/interview/demo-company'
@@ -11,6 +11,7 @@ const INTERVIEW_URL = 'https://ai-jinji-24h.vercel.app/interview/demo-company'
 const navigation = [
   { name: 'ダッシュボード', href: '/client/dashboard', icon: DashboardIcon },
   { name: '応募者一覧', href: '/client/applicants', icon: UsersIcon },
+  { name: '社風分析', href: '/client/culture-analysis', icon: CultureIcon },
   { name: '求人管理', href: '/client/jobs', icon: BriefcaseIcon },
   { name: '面接質問設定', href: '/client/questions', icon: QuestionsIcon },
   { name: 'メールテンプレート', href: '/client/templates', icon: MailIcon },

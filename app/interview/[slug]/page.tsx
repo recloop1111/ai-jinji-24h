@@ -17,14 +17,6 @@ const LANGUAGES = [
   { code: 'pt', label: 'Português' },
 ]
 
-// Supabaseから取得できない場合のダミーデータ
-const dummyCompany = {
-  id: 'dummy-company-id',
-  name: '株式会社サンプル',
-  logo_url: null,
-  is_suspended: false,
-}
-
 export default function InterviewPage() {
   const params = useParams()
   const router = useRouter()
@@ -35,7 +27,7 @@ export default function InterviewPage() {
     id: string
     name: string
     logo_url: string | null
-    is_suspended: boolean
+    interview_slug: string
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [consent, setConsent] = useState(false)
@@ -50,29 +42,37 @@ export default function InterviewPage() {
   async function fetchCompany() {
     setLoading(true)
     try {
+      console.log('Querying companies with slug:', slug)
+      console.log('.select("id, name, logo_url, interview_slug")')
+      console.log('.eq("interview_slug", slug)')
+      console.log('eq column name: interview_slug')
+      console.log('eq value:', slug)
+      
       const { data, error } = await supabase
         .from('companies')
-        .select('id, name, logo_url, is_suspended')
+        .select('id, name, logo_url, interview_slug')
         .eq('interview_slug', slug)
         .single()
 
+      console.log('Query result - data:', data)
+      console.log('Query result - error:', error)
+
       if (error || !data) {
-        // Supabaseから取得できない場合はデフォルト値を使用
-        setCompany(dummyCompany)
+        console.error('[InterviewPage] 企業情報取得エラー:', error)
+        setCompany(null)
       } else {
         setCompany(data)
       }
     } catch (error) {
-      // TODO: 段階4 - Supabase接続を本実装する
-      console.warn('Supabase企業情報取得スキップ（段階3デモ）:', error)
-      // エラー時はデフォルト値を使用（画面遷移や表示がブロックされないようにする）
-      setCompany(dummyCompany)
+      console.error('[InterviewPage] 企業情報取得例外:', error)
+      setCompany(null)
     }
     setLoading(false)
   }
 
   function handleNext() {
     if (consent) {
+      // TODO: reCAPTCHA v3
       router.push(`/interview/${slug}/form`)
     }
   }
@@ -113,28 +113,45 @@ export default function InterviewPage() {
     )
   }
 
-  // companyがnullの場合はダミーデータを使用（エラー画面は表示しない）
-  const displayCompany = company || dummyCompany
-  // TODO: Phase 4 - 本番ではダミーデータを削除し、無効なURLは正しくエラー表示する
-
-  if (displayCompany.is_suspended) {
+  if (!company) {
     return (
       <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen flex items-center justify-center px-4">
         <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 text-center max-w-lg w-full">
           <div className="flex justify-center mb-4">
-            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-500">
               <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="16" x2="12" y2="12"/>
-              <line x1="12" y1="8" x2="12.01" y2="8"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
           </div>
+          <h2 className="text-lg font-bold text-gray-900 mb-2">この面接URLは無効です</h2>
           <p className="text-gray-600 text-sm sm:text-base">
-            現在、面接の受付を一時停止しております。恐れ入りますが、しばらく経ってから再度お試しください。
+            正しいURLをご確認ください。
           </p>
         </div>
       </div>
     )
   }
+
+  // TODO: is_suspendedチェックを復活させる場合は、selectにis_suspendedを追加
+  // if (company.is_suspended) {
+  //   return (
+  //     <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen flex items-center justify-center px-4">
+  //       <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 text-center max-w-lg w-full">
+  //         <div className="flex justify-center mb-4">
+  //           <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500">
+  //             <circle cx="12" cy="12" r="10"/>
+  //             <line x1="12" y1="16" x2="12" y2="12"/>
+  //             <line x1="12" y1="8" x2="12.01" y2="8"/>
+  //           </svg>
+  //         </div>
+  //         <p className="text-gray-600 text-sm sm:text-base">
+  //           現在、面接の受付を一時停止しております。恐れ入りますが、しばらく経ってから再度お試しください。
+  //         </p>
+  //       </div>
+  //     </div>
+  //   )
+  // }
 
   return (
     <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen pb-8">
@@ -155,9 +172,15 @@ export default function InterviewPage() {
       </div>
 
       {/* ロゴと会社名 */}
-      <div className="pt-4 pb-3">
-        <h1 className="text-blue-700 font-bold text-base text-center">AI人事24h</h1>
-        <p className="text-gray-600 text-xs text-center mb-3">{displayCompany.name}</p>
+      <div className="pt-4 pb-3 flex flex-col items-center">
+        {company.logo_url ? (
+          <>
+            <img src={company.logo_url} alt={company.name} className="w-12 h-12 rounded object-cover" />
+            <p className="text-gray-600 text-sm mt-2">{company.name}</p>
+          </>
+        ) : (
+          <h1 className="text-gray-800 font-bold text-lg">{company.name}</h1>
+        )}
       </div>
 
       {/* メインカード */}

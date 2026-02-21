@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+import { CULTURE_FIT_QUESTIONS, distributeQuestionsSimple } from '@/lib/constants/questions'
 
 const LANGUAGES = [
   { code: 'ja', label: '日本語' },
@@ -16,6 +18,7 @@ export default function SessionPage() {
   const params = useParams()
   const router = useRouter()
   const slug = params.slug as string
+  const supabase = createClient()
 
   const [interviewState, setInterviewState] = useState<'idle' | 'listen' | 'think' | 'speak' | 'react'>('idle')
   const [blinking, setBlinking] = useState(false)
@@ -26,11 +29,85 @@ export default function SessionPage() {
   const [hasStream, setHasStream] = useState(false)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [selectedLanguage, setSelectedLanguage] = useState('ja')
+  const [interviewId, setInterviewId] = useState<string | null>(null)
+  const [applicantId, setApplicantId] = useState<string | null>(null)
+  const [companyId, setCompanyId] = useState<string | null>(null)
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [totalQuestions, setTotalQuestions] = useState(0)
+  const [answeredQuestions, setAnsweredQuestions] = useState(0)
+  const [isEnding, setIsEnding] = useState(false)
+  const [questionList, setQuestionList] = useState<string[]>([])
+  const [cultureAnalysisEnabled, setCultureAnalysisEnabled] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const timeoutRefs = useRef<NodeJS.Timeout[]>([])
 
   const MAX_INTERVIEW_SECONDS = 40 * 60
+
+  // sessionStorageから情報取得と面接開始
+  useEffect(() => {
+    const storedApplicantId = sessionStorage.getItem(`interview_${slug}_applicant_id`)
+    const storedCompanyId = sessionStorage.getItem(`interview_${slug}_company_id`)
+    
+    if (storedApplicantId) setApplicantId(storedApplicantId)
+    if (storedCompanyId) setCompanyId(storedCompanyId)
+
+    // 応募者情報からjob_idを取得
+    if (storedApplicantId) {
+      supabase
+        .from('applicants')
+        .select('job_id')
+        .eq('id', storedApplicantId)
+        .single()
+        .then(({ data, error }) => {
+          if (!error && data) {
+            setJobId(data.job_id)
+          }
+        })
+    }
+
+    // 面接開始: interviewsテーブルにINSERT
+    async function startInterview() {
+      if (!storedApplicantId || !storedCompanyId) {
+        console.warn('[SessionPage] applicant_idまたはcompany_idが取得できません')
+        return
+      }
+
+      try {
+        const { data: applicantData } = await supabase
+          .from('applicants')
+          .select('job_id')
+          .eq('id', storedApplicantId)
+          .single()
+
+        const resolvedJobId = applicantData?.job_id || null
+
+        const { data, error } = await supabase
+          .from('interviews')
+          .insert({
+            applicant_id: storedApplicantId,
+            company_id: storedCompanyId,
+            job_id: resolvedJobId,
+            started_at: new Date().toISOString(),
+            status: 'in_progress',
+          })
+          .select()
+          .single()
+
+        if (error) {
+          console.error('[SessionPage] 面接開始エラー:', error)
+        } else if (data) {
+          setInterviewId(data.id)
+          setJobId(resolvedJobId)
+          sessionStorage.setItem(`interview_${slug}_interview_id`, data.id)
+        }
+      } catch (error) {
+        console.error('[SessionPage] 面接開始例外:', error)
+      }
+    }
+
+    startInterview()
+  }, [slug, supabase])
 
   // カメラ取得
   useEffect(() => {
@@ -139,38 +216,246 @@ export default function SessionPage() {
     }
   }, [showConnectionBanner])
 
-  // TODO: OpenAI Realtime API接続後に実データへ差替え
-  // TODO: 段階4 - Supabase接続を本実装する
+  // 質問をjob_questionsテーブルから取得し、社風分析質問を分散配置
   useEffect(() => {
-    const t1 = setTimeout(() => {
-      setAiSpeechText('本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？')
-    }, 3000)
-    const t2 = setTimeout(() => {
-      setAiSpeechText('')
-    }, 10000)
-    return () => {
-      clearTimeout(t1)
-      clearTimeout(t2)
+    async function fetchQuestions() {
+      if (!jobId || !companyId) return
+
+      try {
+        // 会社の社風分析設定を取得
+        const { data: companyData } = await supabase
+          .from('companies')
+          .select('culture_analysis_enabled')
+          .eq('id', companyId)
+          .single()
+
+        const isCultureEnabled = companyData?.culture_analysis_enabled ?? false
+        setCultureAnalysisEnabled(isCultureEnabled)
+
+        // カスタム質問を取得
+        const { data, error } = await supabase
+          .from('job_questions')
+          .select('question_text, sort_order')
+          .eq('job_id', jobId)
+          .order('sort_order', { ascending: true })
+
+        if (!error && data && data.length > 0) {
+          const customQuestions = data.map(q => q.question_text)
+
+          // 社風分析ONの場合、社風分析質問を分散配置
+          let finalQuestions: string[]
+          if (isCultureEnabled) {
+            const cultureQuestions = CULTURE_FIT_QUESTIONS.map(q => q.question)
+            finalQuestions = distributeQuestionsSimple(customQuestions, cultureQuestions)
+          } else {
+            finalQuestions = customQuestions
+          }
+
+          console.log('[SessionPage] 最終質問順序:', finalQuestions)
+          setQuestionList(finalQuestions)
+          setTotalQuestions(finalQuestions.length)
+          // 最初の質問を表示
+          setAiSpeechText(finalQuestions[0])
+        } else {
+          // デフォルト質問
+          setQuestionList(['本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？'])
+          setTotalQuestions(1)
+          setAiSpeechText('本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？')
+        }
+      } catch (error) {
+        console.error('[SessionPage] 質問取得エラー:', error)
+        setQuestionList(['本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？'])
+        setTotalQuestions(1)
+        setAiSpeechText('本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？')
+      }
     }
-  }, [])
+
+    if (jobId && companyId) {
+      const t1 = setTimeout(() => {
+        fetchQuestions()
+      }, 3000)
+      const t2 = setTimeout(() => {
+        setAiSpeechText('')
+        // 質問が表示されたら回答済みカウントを増やす（デモ用）
+        setAnsweredQuestions((prev) => Math.min(prev + 1, totalQuestions))
+      }, 10000)
+      return () => {
+        clearTimeout(t1)
+        clearTimeout(t2)
+      }
+    }
+  }, [jobId, companyId, supabase, totalQuestions])
 
   // 面接タイマー（40分で自動終了）
   useEffect(() => {
-    if (elapsedSeconds >= MAX_INTERVIEW_SECONDS) {
-      handleEndInterview()
+    if (elapsedSeconds >= MAX_INTERVIEW_SECONDS && !isEnding) {
+      handleEndInterview('時間切れ')
       return
     }
     const timer = setInterval(() => {
       setElapsedSeconds((prev) => prev + 1)
     }, 1000)
     return () => clearInterval(timer)
-  }, [elapsedSeconds])
+  }, [elapsedSeconds, isEnding, totalQuestions, answeredQuestions])
 
-  function handleEndInterview() {
+  // ブラウザ離脱時の処理
+  useEffect(() => {
+    const handleBeforeUnload = async (e: BeforeUnloadEvent) => {
+      if (interviewId && applicantId && !isEnding) {
+        // ブラウザ離脱時の警告を表示
+        e.preventDefault()
+        e.returnValue = '面接を終了しますか？'
+        
+        // pagehideイベントで確実に送信（beforeunloadは送信が保証されないため）
+        // 実際の送信はpagehideイベントで行う
+        return e.returnValue
+      }
+    }
+
+    const handlePageHide = async () => {
+      if (interviewId && applicantId && !isEnding) {
+        try {
+          // interviewsテーブルを更新
+          const endData = {
+            interviewId,
+            applicantId,
+            endReason: '自主終了',
+            elapsedSeconds,
+            totalQuestions,
+            answeredQuestions,
+          }
+          
+          // navigator.sendBeaconで非同期に終了処理を送信
+          // TODO: APIエンドポイント /api/interview/end を作成して、そこでSupabase更新を行う
+          const blob = new Blob([JSON.stringify(endData)], { type: 'application/json' })
+          navigator.sendBeacon(`/api/interview/end?interview_id=${interviewId}&applicant_id=${applicantId}`, blob)
+          
+          // 直接Supabase更新も試行（sendBeaconが失敗する可能性があるため）
+          // 注意: この方法は確実ではないため、APIエンドポイントの実装を推奨
+          await supabase
+            .from('interviews')
+            .update({
+              status: 'completed',
+              ended_at: new Date().toISOString(),
+              duration_seconds: elapsedSeconds,
+              total_questions: totalQuestions,
+              answered_questions: answeredQuestions,
+              end_reason: '自主終了',
+            })
+            .eq('id', interviewId)
+          
+          await supabase
+            .from('applicants')
+            .update({
+              status: '途中離脱',
+              result: '不採用', // 途中離脱の場合は自動的に不採用に設定
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', applicantId)
+        } catch (error) {
+          console.error('[SessionPage] ブラウザ離脱時の更新エラー:', error)
+        }
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('pagehide', handlePageHide)
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener('pagehide', handlePageHide)
+    }
+  }, [interviewId, applicantId, elapsedSeconds, totalQuestions, answeredQuestions, isEnding, supabase])
+
+  async function handleEndInterview(endReason: '全質問完了' | '時間切れ' | '自主終了' = '自主終了') {
+    if (isEnding) return // 重複実行を防止
+    setIsEnding(true)
+
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
     }
-    router.push(`/interview/${slug}/uploading`)
+
+    // 面接終了: interviewsテーブルをUPDATE
+    if (interviewId && applicantId) {
+      try {
+        // 全質問完了かどうかを判定（回答済み質問数が全質問数以上の場合）
+        const isAllQuestionsAnswered = answeredQuestions >= totalQuestions && totalQuestions > 0
+        const finalEndReason = endReason === '全質問完了' || (endReason === '時間切れ' && isAllQuestionsAnswered)
+          ? '全質問完了'
+          : endReason === '時間切れ'
+          ? '時間切れ'
+          : '自主終了'
+
+        console.log('[SessionPage] 面接終了処理:', {
+          endReason,
+          finalEndReason,
+          totalQuestions,
+          answeredQuestions,
+          isAllQuestionsAnswered,
+        })
+
+        // interviewsテーブルを更新
+        const { error: interviewError } = await supabase
+          .from('interviews')
+          .update({
+            status: 'completed',
+            ended_at: new Date().toISOString(),
+            duration_seconds: elapsedSeconds,
+            total_questions: totalQuestions,
+            answered_questions: answeredQuestions,
+            end_reason: finalEndReason,
+          })
+          .eq('id', interviewId)
+
+        if (interviewError) {
+          console.error('[SessionPage] 面接終了エラー:', interviewError)
+        } else {
+          console.log('[SessionPage] interviewsテーブル更新成功')
+        }
+
+        // applicantsテーブルのstatusを更新
+        const applicantStatus = finalEndReason === '全質問完了' || finalEndReason === '時間切れ'
+          ? '完了'
+          : '途中離脱'
+
+        // 途中離脱の場合は result も自動的に '不採用' に設定
+        const updateData: any = {
+          status: applicantStatus,
+          updated_at: new Date().toISOString(),
+        }
+        if (applicantStatus === '途中離脱') {
+          updateData.result = '不採用'
+        }
+
+        const { error: applicantError } = await supabase
+          .from('applicants')
+          .update(updateData)
+          .eq('id', applicantId)
+
+        if (applicantError) {
+          console.error('[SessionPage] 応募者ステータス更新エラー:', applicantError)
+        } else {
+          console.log('[SessionPage] applicantsテーブル更新成功:', { applicantStatus })
+        }
+
+        // 終了理由に応じて画面遷移を分岐
+        // 全質問完了または時間切れ（全質問回答済み）→ 完了画面へ
+        // それ以外（自主終了、時間切れで未完了）→ 途中終了画面へ
+        if (finalEndReason === '全質問完了' || (finalEndReason === '時間切れ' && isAllQuestionsAnswered)) {
+          // TODO: Cloudflare R2に録画保存
+          router.push(`/interview/${slug}/uploading`)
+        } else {
+          // 途中離脱の場合は途中終了画面へ
+          router.push(`/interview/${slug}/ended`)
+        }
+      } catch (error) {
+        console.error('[SessionPage] 面接終了例外:', error)
+        // エラー時も途中終了画面へ遷移（安全側に倒す）
+        router.push(`/interview/${slug}/ended`)
+      }
+    } else {
+      // interviewIdがない場合も途中終了画面へ
+      router.push(`/interview/${slug}/ended`)
+    }
   }
 
   // 状態に応じたbox-shadowの色とアニメーション設定
@@ -349,7 +634,7 @@ export default function SessionPage() {
         <button
           onClick={() => {
             if (window.confirm('面接を終了しますか？終了後は再開できません。')) {
-              handleEndInterview()
+              handleEndInterview('自主終了')
             }
           }}
           className="hidden md:block fixed bottom-6 right-6 z-10 text-red-400 hover:text-red-300 text-sm px-4 py-2 transition-colors"
@@ -362,7 +647,7 @@ export default function SessionPage() {
           <button
             onClick={() => {
               if (window.confirm('面接を終了しますか？終了後は再開できません。')) {
-                handleEndInterview()
+                handleEndInterview('自主終了')
               }
             }}
             className="text-red-400 text-xs transition-colors"

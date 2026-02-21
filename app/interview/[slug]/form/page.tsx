@@ -37,14 +37,6 @@ const EDUCATION_OPTIONS = [
   { value: 'other', label: 'その他' },
 ]
 
-// Supabaseから取得できない場合のダミーデータ
-const dummyCompany = {
-  id: 'dummy-company-id',
-  name: '株式会社サンプル',
-  logo_url: null,
-  is_suspended: false,
-}
-// TODO: Phase 4 - 本番ではダミーデータを削除
 
 export default function FormPage() {
   const params = useParams()
@@ -56,16 +48,16 @@ export default function FormPage() {
   const [jobTypes, setJobTypes] = useState<{ value: string; label: string; employmentType: string }[]>([])
   const [loading, setLoading] = useState(true)
 
-  const [lastName, setLastName] = useState('')
-  const [firstName, setFirstName] = useState('')
-  const [lastNameKana, setLastNameKana] = useState('')
-  const [firstNameKana, setFirstNameKana] = useState('')
+  const [lastName, setLastName] = useState('テスト')
+  const [firstName, setFirstName] = useState('太郎')
+  const [lastNameKana, setLastNameKana] = useState('テスト')
+  const [firstNameKana, setFirstNameKana] = useState('タロウ')
   const [age, setAge] = useState('')
   const [gender, setGender] = useState('')
-  const [phone, setPhone] = useState('')
-  const [email, setEmail] = useState('')
-  const [prefecture, setPrefecture] = useState('')
-  const [education, setEducation] = useState('')
+  const [phone, setPhone] = useState('09012345678')
+  const [email, setEmail] = useState('debug@test.com')
+  const [prefecture, setPrefecture] = useState('東京都')
+  const [education, setEducation] = useState('university')
   const [employmentType, setEmploymentType] = useState('')
   const [industryExperience, setIndustryExperience] = useState('')
   const [jobId, setJobId] = useState('')
@@ -89,21 +81,30 @@ export default function FormPage() {
 
     // 企業情報取得
     try {
-      const { data: company, error } = await supabase
+      const { data: company, error: companyError } = await supabase
         .from('companies')
         .select('id')
         .eq('interview_slug', slug)
         .single()
 
-      const displayCompany = company || dummyCompany
-      setCompanyId(displayCompany.id)
+      if (companyError || !company) {
+        console.error('[FormPage] 企業情報取得エラー:', companyError)
+        setLoading(false)
+        return
+      }
+
+      setCompanyId(company.id)
 
       // 求人一覧取得（jobsテーブル）
-      const { data: jobsData } = await supabase
+      const { data: jobsData, error: jobsError } = await supabase
         .from('jobs')
         .select('id, title, employment_type')
-        .eq('company_id', displayCompany.id)
+        .eq('company_id', company.id)
         .eq('is_active', true)
+
+      if (jobsError) {
+        console.error('[FormPage] 求人一覧取得エラー:', jobsError)
+      }
 
       if (jobsData && jobsData.length > 0) {
         setJobTypes(
@@ -113,24 +114,9 @@ export default function FormPage() {
             employmentType: j.employment_type || '',
           }))
         )
-      } else {
-        // ダミー求人を追加
-        setJobTypes([
-          { value: 'dummy-job-1', label: '営業 × 正社員', employmentType: 'fulltime' },
-          { value: 'dummy-job-2', label: '事務 × アルバイト', employmentType: 'parttime' },
-          { value: 'dummy-job-3', label: 'エンジニア・技術職 × 正社員', employmentType: 'fulltime' },
-        ])
       }
     } catch (error) {
-      // TODO: 段階4 - Supabase接続を本実装する
-      console.warn('Supabase取得スキップ（段階3デモ）:', error)
-      // エラー時はダミーデータを使用
-      setCompanyId(dummyCompany.id)
-      setJobTypes([
-        { value: 'dummy-job-1', label: '営業 × 正社員', employmentType: 'fulltime' },
-        { value: 'dummy-job-2', label: '事務 × アルバイト', employmentType: 'parttime' },
-        { value: 'dummy-job-3', label: 'エンジニア・技術職 × 正社員', employmentType: 'fulltime' },
-      ])
+      console.error('[FormPage] 初期化エラー:', error)
     }
 
     setLoading(false)
@@ -185,57 +171,91 @@ export default function FormPage() {
   async function handleSubmit() {
     if (!validate()) return
     if (!companyId) {
-      // ダミーIDを使用
-      setCompanyId(dummyCompany.id)
+      console.error('[FormPage] companyIdが取得できません')
+      return
     }
 
     setSubmitting(true)
     const selectedJob = jobTypes.find((j) => j.value === jobId)
 
+    // Supabaseクライアントの作成方法を確認
+    console.log('[FormPage] Import:', 'import { createClient } from "@/lib/supabase/client"')
+    console.log('[FormPage] Supabase client creation:', 'const supabase = createClient()')
+    console.log('[FormPage] Supabase client:', supabase)
+    console.log('[FormPage] Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
+    
+    // Session情報を取得
     try {
+      const { data: { session } } = await supabase.auth.getSession()
+      console.log('[FormPage] Supabase session:', session)
+    } catch (sessionError) {
+      console.error('[FormPage] Session取得エラー:', sessionError)
+    }
+
+    try {
+      // employment_type: フォームで選択された「就業形態（新卒/中途）」の値を常に設定
+      // 値は 'new_graduate' (新卒) または 'mid_career' (中途)
+      const insertData = {
+        // NOT NULL カラム（必須）
+        company_id: companyId,
+        last_name: lastName.trim(),
+        first_name: firstName.trim(),
+        last_name_kana: lastNameKana.trim(),
+        first_name_kana: firstNameKana.trim(),
+        birth_date: (() => {
+          const now = new Date()
+          const birthYear = now.getFullYear() - parseInt(age, 10)
+          return `${birthYear}-01-01`
+        })(),
+        gender: gender,
+        phone_number: phone,
+        email: email.trim(),
+        selection_status: 'pending', // 準備中（面接前の初期状態）
+        status: '準備中', // 面接の進行状況（準備中・完了・途中離脱）
+        result: '未対応', // 選考結果（未対応・検討中・二次通過・不採用）
+        duplicate_flag: false,
+        inappropriate_flag: false,
+        // NULL可能カラム（任意）
+        age: parseInt(age, 10) || null,
+        prefecture: prefecture || null,
+        education: education || null,
+        employment_type: employmentType || null, // フォームで選択された値を常に設定
+        industry_experience: industryExperience || null,
+        job_id: jobId || null,
+        work_history: workHistory.trim() || null,
+        qualifications: qualifications.trim() || null,
+      }
+
+      console.log('[FormPage] Insert data:', insertData)
+      console.log('[FormPage] employment_type value:', employmentType)
+      console.log('[FormPage] employment_type in insertData:', insertData.employment_type)
+      
       const { data, error } = await supabase
         .from('applicants')
-        .insert({
-          company_id: companyId,
-          last_name: lastName.trim(),
-          first_name: firstName.trim(),
-          last_name_kana: lastNameKana.trim(),
-          first_name_kana: firstNameKana.trim(),
-          birth_date: (() => {
-            const now = new Date()
-            const birthYear = now.getFullYear() - parseInt(age, 10)
-            return `${birthYear}-01-01`
-          })(),
-          age: parseInt(age, 10),
-          gender: gender,
-          phone_number: phone,
-          email: email.trim(),
-          prefecture: prefecture,
-          education: education,
-          employment_type: selectedJob?.employmentType === 'fulltime' ? employmentType : null,
-          industry_experience: industryExperience,
-          job_id: jobId || null,
-          // TODO: desired_employment_form カラム追加後にinsertに含める
-          work_history: workHistory.trim() || null,
-          qualifications: qualifications.trim() || null,
-          selection_status: 'pending',
-          duplicate_flag: false,
-          inappropriate_flag: false,
-        })
+        .insert(insertData)
         .select()
         .single()
 
-      // TODO: Phase 4 - Supabaseから企業の求人データを取得し、募集中の求人のみ選択肢に表示する
+      console.log('[FormPage] Insert result - data:', data)
+      console.log('[FormPage] Insert result - error:', error)
+
+      if (error) {
+        console.error('[FormPage] 応募者情報保存エラー:', error)
+        setErrors({ submit: '情報の保存に失敗しました。もう一度お試しください。' })
+        setSubmitting(false)
+        return
+      }
+
       if (data) {
         sessionStorage.setItem(`interview_${slug}_applicant_id`, data.id)
+        sessionStorage.setItem(`interview_${slug}_company_id`, companyId)
+        router.push(`/interview/${slug}/verify?phone=${encodeURIComponent(phone)}`)
       }
     } catch (error) {
-      // TODO: 段階4 - Supabase接続を本実装する
-      console.warn('Supabase保存スキップ（段階3デモ）:', error)
+      console.error('[FormPage] 応募者情報保存例外:', error)
+      setErrors({ submit: '情報の保存に失敗しました。もう一度お試しください。' })
+      setSubmitting(false)
     }
-
-    // Supabase保存の成否に関わらず、次の画面に遷移
-    router.push(`/interview/${slug}/verify?phone=${encodeURIComponent(phone)}`)
   }
 
   if (loading) {

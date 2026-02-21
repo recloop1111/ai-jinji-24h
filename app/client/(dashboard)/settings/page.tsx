@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { Save as SaveIcon, Upload as UploadIcon, Eye as EyeIcon, EyeOff as EyeOffIcon, LogOut } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -96,7 +96,7 @@ type CompanyForm = {
   phone: string
 }
 
-export default function SettingsPage() {
+function SettingsContent() {
   const router = useRouter()
   const { companyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
   const supabase = createClient()
@@ -668,5 +668,13 @@ export default function SettingsPage() {
         onConfirm={handleAdminPasswordChange}
       />
     </div>
+  )
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="text-gray-500">読み込み中...</div></div>}>
+      <SettingsContent />
+    </Suspense>
   )
 }

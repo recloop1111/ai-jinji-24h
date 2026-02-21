@@ -1,52 +1,36 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { Search, Download, Users, CheckCircle, Clock, BarChart3, XCircle, Phone, Mail } from 'lucide-react'
+import Link from 'next/link'
 
-// TODO: 実データに差替え
-const DUMMY_APPLICANTS = [
-  { id: '1', name: '佐藤 太郎', email: 'taro.sato@example.com', phone: '090-1111-2222', company: '株式会社ABC', companyId: '1', industry: '飲食', pattern: '正社員×新卒', patternType: 'fulltime', status: 'completed', score: 85, date: '2025-02-14', time: '14:00', applicantResult: 'second_pass' },
-  { id: '2', name: '田中 美咲', email: 'misaki.tanaka@example.com', phone: '090-2222-3333', company: '株式会社ABC', companyId: '1', industry: '飲食', pattern: '正社員×中途×経験者', patternType: 'fulltime', status: 'completed', score: 72, date: '2025-02-14', time: '11:30', applicantResult: 'considering' },
-  { id: '3', name: '鈴木 健太', email: 'kenta.suzuki@example.com', phone: '090-3333-4444', company: '株式会社テックフロンティア', companyId: '2', industry: 'IT', pattern: '正社員×中途×未経験', patternType: 'fulltime', status: 'completed', score: 58, date: '2025-02-13', time: '16:00', applicantResult: 'rejected' },
-  { id: '4', name: '高橋 遥', email: 'haruka.takahashi@example.com', phone: '090-4444-5555', company: '株式会社テックフロンティア', companyId: '2', industry: 'IT', pattern: '正社員×新卒', patternType: 'fulltime', status: 'completed', score: 91, date: '2025-02-13', time: '10:00', applicantResult: 'second_pass' },
-  { id: '5', name: '伊藤 大輝', email: 'daiki.ito@example.com', phone: '090-5555-6666', company: '山田商事株式会社', companyId: '3', industry: '不動産', pattern: 'アルバイト×経験者', patternType: 'parttime', status: 'completed', score: 45, date: '2025-02-12', time: '13:00', applicantResult: 'rejected' },
-  { id: '6', name: '渡辺 さくら', email: 'sakura.watanabe@example.com', phone: '090-6666-7777', company: '株式会社ABC', companyId: '1', industry: '飲食', pattern: '正社員×新卒', patternType: 'fulltime', status: 'waiting', score: null, date: null, time: null, applicantResult: null },
-  { id: '7', name: '山本 翔太', email: 'shota.yamamoto@example.com', phone: '090-7777-8888', company: '株式会社グローバルHR', companyId: '4', industry: '人材', pattern: '正社員×中途×経験者', patternType: 'fulltime', status: 'waiting', score: null, date: null, time: null, applicantResult: null },
-  { id: '8', name: '中村 愛', email: 'ai.nakamura@example.com', phone: '090-8888-9999', company: '株式会社スタートアップラボ', companyId: '5', industry: '建築', pattern: 'アルバイト×未経験', patternType: 'parttime', status: 'in-progress', score: null, date: '2025-02-15', time: '09:30', applicantResult: null },
-  { id: '9', name: '小林 誠', email: 'makoto.kobayashi@example.com', phone: '090-9999-0000', company: '株式会社テックフロンティア', companyId: '2', industry: 'IT', pattern: '正社員×中途×経験者', patternType: 'fulltime', status: 'completed', score: 78, date: '2025-02-11', time: '15:00', applicantResult: 'considering' },
-  { id: '10', name: '加藤 由美', email: 'yumi.kato@example.com', phone: '080-1111-0000', company: '山田商事株式会社', companyId: '3', industry: '不動産', pattern: 'アルバイト×未経験', patternType: 'parttime', status: 'withdrawn', score: null, date: '2025-02-10', time: '11:00', applicantResult: null },
-  { id: '11', name: '吉田 拓海', email: 'takumi.yoshida@example.com', phone: '080-2222-1111', company: '株式会社ABC', companyId: '1', industry: '飲食', pattern: '正社員×中途×未経験', patternType: 'fulltime', status: 'interrupted', score: null, date: '2025-02-09', time: '14:30', applicantResult: null },
-  { id: '12', name: '松本 結衣', email: 'yui.matsumoto@example.com', phone: '080-3333-2222', company: '株式会社グローバルHR', companyId: '4', industry: '人材', pattern: '正社員×新卒', patternType: 'fulltime', status: 'completed', score: 36, date: '2025-02-08', time: '10:00', applicantResult: 'rejected' },
-]
-
-type StatusFilter = 'all' | 'completed' | 'waiting' | 'in-progress' | 'withdrawn' | 'interrupted'
+type StatusFilter = 'all' | '準備中' | '完了' | '途中離脱'
 type ScoreFilter = 'all' | '80+' | '60-79' | '40-59' | '40-'
 type PeriodFilter = 'all' | 'this_month' | 'last_month' | '3months'
-type ApplicantResultFilter = 'all' | 'second_pass' | 'rejected' | 'considering'
+type ResultFilter = 'all' | 'pending' | 'considering' | 'second_pass' | 'rejected' | 'hired'
 
-const INDUSTRY_OPTIONS = [
-  { value: 'all', label: 'すべての業種' },
-  { value: '飲食', label: '飲食' },
-  { value: 'IT', label: 'IT' },
-  { value: '不動産', label: '不動産' },
-  { value: '人材', label: '人材' },
-  { value: '建築', label: '建築' },
-]
-
-
-function getPatternBadgeClass(patternType: string): string {
-  return patternType === 'fulltime'
-    ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-    : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+type Applicant = {
+  id: string
+  name: string
+  email: string
+  phone: string
+  company_id: string
+  company_name: string
+  status: string
+  selection_status: string | null
+  created_at: string
+  interview_scheduled_at: string | null
+  total_score: number | null
+  recommendation_rank: string | null
+  culture_fit_score: number | null
 }
 
 function getStatusConfig(status: string): { dotClass: string; textClass: string; label: string } {
   const map: Record<string, { dotClass: string; textClass: string; label: string }> = {
-    completed: { dotClass: 'bg-emerald-400', textClass: 'text-emerald-400', label: '面接完了' },
-    waiting: { dotClass: 'bg-amber-400', textClass: 'text-amber-400', label: '面接待ち' },
-    'in-progress': { dotClass: 'bg-blue-400 animate-pulse', textClass: 'text-blue-400', label: '面接中' },
-    withdrawn: { dotClass: 'bg-gray-500', textClass: 'text-gray-500', label: '辞退' },
-    interrupted: { dotClass: 'bg-red-400', textClass: 'text-red-400', label: '中断' },
+    '完了': { dotClass: 'bg-emerald-400', textClass: 'text-emerald-400', label: '完了' },
+    '準備中': { dotClass: 'bg-amber-400', textClass: 'text-amber-400', label: '準備中' },
+    '途中離脱': { dotClass: 'bg-red-400', textClass: 'text-red-400', label: '途中離脱' },
   }
   return map[status] ?? { dotClass: 'bg-gray-500', textClass: 'text-gray-500', label: status }
 }
@@ -59,49 +43,129 @@ function getScoreBadgeClass(score: number | null): string {
   return 'bg-red-500/10 text-red-400 border border-red-500/20'
 }
 
-// TODO: 実データに差替え（サマリー数値）
-const SUMMARY = {
-  total: 342,
-  completedThisMonth: 89,
-  completedGrowth: 12,
-  waiting: 15,
-  avgScore: 68.5,
-  withdrawnInterrupted: 23,
-  withdrawnPercent: 6.7,
+function getResultLabel(result: string | null): string {
+  const map: Record<string, string> = {
+    pending: '未対応',
+    considering: '検討中',
+    second_pass: '二次通過',
+    rejected: '不採用',
+    hired: '内定',
+  }
+  return map[result || 'pending'] || '未対応'
 }
 
-const ITEMS_PER_PAGE = 12
-const TOTAL_PAGES = Math.ceil(SUMMARY.total / ITEMS_PER_PAGE) // 29 pages for 342 items
+function getResultBadgeClass(result: string | null): string {
+  const map: Record<string, string> = {
+    pending: 'bg-gray-500/10 text-gray-400 border border-gray-500/20',
+    considering: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
+    second_pass: 'bg-sky-500/10 text-sky-400 border border-sky-500/20',
+    rejected: 'bg-red-500/10 text-red-400 border border-red-500/20',
+    hired: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+  }
+  return map[result || 'pending'] || map.pending
+}
 
-export default function ApplicantsPage() {
+const ITEMS_PER_PAGE = 20
+
+export default function AdminApplicantsPage() {
+  const supabase = createClient()
+  const [applicants, setApplicants] = useState<Applicant[]>([])
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
+  const [loading, setLoading] = useState(true)
+
   const [searchQuery, setSearchQuery] = useState('')
-  const [industryFilter, setIndustryFilter] = useState('all')
+  const [companyFilter, setCompanyFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [scoreFilter, setScoreFilter] = useState<ScoreFilter>('all')
-  const [applicantResultFilter, setApplicantResultFilter] = useState<ApplicantResultFilter>('all')
+  const [resultFilter, setResultFilter] = useState<ResultFilter>('all')
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
 
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true)
+      try {
+        const { data: applicantsData, error: appError } = await supabase
+          .from('applicants')
+          .select('*')
+          .order('created_at', { ascending: false })
+
+        if (appError) {
+          console.error('[AdminApplicants] Applicants fetch error:', appError.message)
+        }
+
+        const { data: companiesData } = await supabase
+          .from('companies')
+          .select('id, name')
+
+        const { data: resultsData } = await supabase
+          .from('interview_results')
+          .select('applicant_id, total_score, detail_json, culture_fit_score')
+
+        const resultsMap: Record<string, any> = {}
+        if (resultsData) {
+          resultsData.forEach((r: any) => {
+            resultsMap[r.applicant_id] = r
+          })
+        }
+
+        const companiesMap: Record<string, string> = {}
+        if (companiesData) {
+          companiesData.forEach((c: any) => {
+            companiesMap[c.id] = c.name
+          })
+        }
+
+        const merged: Applicant[] = (applicantsData || []).map((a: any) => {
+          const ir = resultsMap[a.id] || null
+          return {
+            id: a.id,
+            name: `${a.last_name || ''} ${a.first_name || ''}`.trim() || a.name || '名前不明',
+            email: a.email || '',
+            phone: a.phone || '',
+            company_id: a.company_id,
+            company_name: companiesMap[a.company_id] || '不明',
+            status: a.status || '準備中',
+            selection_status: a.selection_status || 'pending',
+            created_at: a.created_at,
+            interview_scheduled_at: a.interview_scheduled_at,
+            total_score: ir?.total_score ?? null,
+            recommendation_rank: ir?.detail_json?.recommendation_rank ?? null,
+            culture_fit_score: ir?.culture_fit_score ?? null,
+          }
+        })
+
+        setApplicants(merged)
+        setCompanies(companiesData || [])
+      } catch (err: any) {
+        console.error('[AdminApplicants] Error:', err?.message || err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchData()
+  }, [supabase])
+
   const filteredApplicants = useMemo(() => {
-    return DUMMY_APPLICANTS.filter((a) => {
+    return applicants.filter((a) => {
       const q = searchQuery.trim().toLowerCase()
       const matchSearch = !q || a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q)
-      const matchIndustry = industryFilter === 'all' || a.industry === industryFilter
+      const matchCompany = companyFilter === 'all' || a.company_id === companyFilter
       const matchStatus = statusFilter === 'all' || a.status === statusFilter
       const matchScore =
         scoreFilter === 'all' ||
-        (a.score !== null &&
-          ((scoreFilter === '80+' && a.score >= 80) ||
-            (scoreFilter === '60-79' && a.score >= 60 && a.score < 80) ||
-            (scoreFilter === '40-59' && a.score >= 40 && a.score < 60) ||
-            (scoreFilter === '40-' && a.score < 40)))
-      const matchResult = applicantResultFilter === 'all' || a.applicantResult === applicantResultFilter
+        (a.total_score !== null &&
+          ((scoreFilter === '80+' && a.total_score >= 80) ||
+            (scoreFilter === '60-79' && a.total_score >= 60 && a.total_score < 80) ||
+            (scoreFilter === '40-59' && a.total_score >= 40 && a.total_score < 60) ||
+            (scoreFilter === '40-' && a.total_score < 40)))
+      const matchResult = resultFilter === 'all' || a.selection_status === resultFilter
       const matchPeriod = (() => {
         if (periodFilter === 'all') return true
-        if (!a.date) return false
-        const d = new Date(a.date)
+        if (!a.created_at) return false
+        const d = new Date(a.created_at)
         const now = new Date()
         if (periodFilter === 'this_month') return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
         if (periodFilter === 'last_month') {
@@ -114,9 +178,25 @@ export default function ApplicantsPage() {
         }
         return true
       })()
-      return matchSearch && matchIndustry && matchStatus && matchScore && matchPeriod && matchResult
+      return matchSearch && matchCompany && matchStatus && matchScore && matchPeriod && matchResult
     })
-  }, [searchQuery, industryFilter, statusFilter, scoreFilter, applicantResultFilter, periodFilter])
+  }, [applicants, searchQuery, companyFilter, statusFilter, scoreFilter, resultFilter, periodFilter])
+
+  const totalPages = Math.ceil(filteredApplicants.length / ITEMS_PER_PAGE)
+  const paginatedApplicants = filteredApplicants.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE)
+
+  const summary = useMemo(() => {
+    const total = applicants.length
+    const completed = applicants.filter((a) => a.status === '完了').length
+    const waiting = applicants.filter((a) => a.status === '準備中').length
+    const withdrawn = applicants.filter((a) => a.status === '途中離脱').length
+    const completedWithScore = applicants.filter((a) => a.status === '完了' && a.total_score !== null)
+    const avgScore = completedWithScore.length > 0
+      ? (completedWithScore.reduce((sum, a) => sum + (a.total_score || 0), 0) / completedWithScore.length).toFixed(1)
+      : '—'
+    const withdrawnPercent = total > 0 ? ((withdrawn / total) * 100).toFixed(1) : '0'
+    return { total, completed, waiting, withdrawn, avgScore, withdrawnPercent }
+  }, [applicants])
 
   const showToast = (msg: string) => {
     setToastMessage(msg)
@@ -125,14 +205,33 @@ export default function ApplicantsPage() {
   }
 
   const handleCsvExport = () => {
-    // TODO: サーバーサイドCSV生成
     showToast('CSV出力機能は今後実装予定です')
+  }
+
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return '—'
+    const d = new Date(dateStr)
+    return d.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  }
+
+  const formatTime = (dateStr: string | null) => {
+    if (!dateStr) return ''
+    const d = new Date(dateStr)
+    return d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="animate-spin h-8 w-8 border-2 border-indigo-500 border-t-transparent rounded-full" />
+      </div>
+    )
   }
 
   return (
     <>
       <div className="space-y-6 min-w-0 max-w-[100vw] pb-10">
-        {/* セクション1: ページヘッダー */}
+        {/* ページヘッダー */}
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-white">応募者管理</h1>
@@ -148,39 +247,37 @@ export default function ApplicantsPage() {
           </button>
         </div>
 
-        {/* セクション2: サマリーカード5枚 */}
+        {/* サマリーカード */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
             <Users className="absolute top-4 right-4 w-8 h-8 text-blue-400/50" />
-            <p className="text-3xl font-bold text-white">{SUMMARY.total}</p>
+            <p className="text-3xl font-bold text-white">{summary.total}</p>
             <p className="text-sm text-gray-400 mt-0.5">全応募者数</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
             <CheckCircle className="absolute top-4 right-4 w-8 h-8 text-emerald-400/50" />
-            <p className="text-3xl font-bold text-white">{SUMMARY.completedThisMonth}</p>
-            <p className="text-sm text-gray-400 mt-0.5">今月の面接完了</p>
-            <p className="text-xs text-emerald-400 mt-1">前月比 +{SUMMARY.completedGrowth}%</p>
+            <p className="text-3xl font-bold text-white">{summary.completed}</p>
+            <p className="text-sm text-gray-400 mt-0.5">面接完了</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
             <Clock className="absolute top-4 right-4 w-8 h-8 text-amber-400/50" />
-            <p className="text-3xl font-bold text-white">{SUMMARY.waiting}</p>
+            <p className="text-3xl font-bold text-white">{summary.waiting}</p>
             <p className="text-sm text-gray-400 mt-0.5">面接待ち</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
             <BarChart3 className="absolute top-4 right-4 w-8 h-8 text-purple-400/50" />
-            <p className="text-3xl font-bold text-white">{SUMMARY.avgScore}</p>
+            <p className="text-3xl font-bold text-white">{summary.avgScore}</p>
             <p className="text-sm text-gray-400 mt-0.5">平均スコア</p>
-            <p className="text-xs text-gray-500 mt-1">点 / 100点満点</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden">
             <XCircle className="absolute top-4 right-4 w-8 h-8 text-red-400/50" />
-            <p className="text-3xl font-bold text-white">{SUMMARY.withdrawnInterrupted}</p>
-            <p className="text-sm text-gray-400 mt-0.5">辞退・中断</p>
-            <p className="text-xs text-red-400 mt-1">全体の{SUMMARY.withdrawnPercent}%</p>
+            <p className="text-3xl font-bold text-white">{summary.withdrawn}</p>
+            <p className="text-sm text-gray-400 mt-0.5">途中離脱</p>
+            <p className="text-xs text-red-400 mt-1">全体の{summary.withdrawnPercent}%</p>
           </div>
         </div>
 
-        {/* セクション3: 検索・フィルターバー */}
+        {/* 検索・フィルターバー */}
         <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-4 mb-6">
           <div className="flex flex-wrap items-center gap-3">
             <div className="relative flex-1 min-w-[200px] lg:max-w-[288px]">
@@ -188,37 +285,34 @@ export default function ApplicantsPage() {
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
                 placeholder="応募者名・メールで検索"
                 className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50 transition-all"
               />
             </div>
             <select
-              value={industryFilter}
-              onChange={(e) => setIndustryFilter(e.target.value)}
+              value={companyFilter}
+              onChange={(e) => { setCompanyFilter(e.target.value); setCurrentPage(1) }}
               className="bg-white/[0.05] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-gray-300 appearance-none cursor-pointer focus:outline-none focus:border-blue-500/50"
             >
-              {INDUSTRY_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
+              <option value="all">すべての企業</option>
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+              onChange={(e) => { setStatusFilter(e.target.value as StatusFilter); setCurrentPage(1) }}
               className="bg-white/[0.05] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-gray-300 appearance-none cursor-pointer focus:outline-none focus:border-blue-500/50"
             >
               <option value="all">すべてのステータス</option>
-              <option value="completed">面接完了</option>
-              <option value="waiting">面接待ち</option>
-              <option value="in-progress">面接中</option>
-              <option value="withdrawn">辞退</option>
-              <option value="interrupted">中断</option>
+              <option value="完了">完了</option>
+              <option value="準備中">準備中</option>
+              <option value="途中離脱">途中離脱</option>
             </select>
             <select
               value={scoreFilter}
-              onChange={(e) => setScoreFilter(e.target.value as ScoreFilter)}
+              onChange={(e) => { setScoreFilter(e.target.value as ScoreFilter); setCurrentPage(1) }}
               className="bg-white/[0.05] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-gray-300 appearance-none cursor-pointer focus:outline-none focus:border-blue-500/50"
             >
               <option value="all">すべてのスコア</option>
@@ -228,18 +322,20 @@ export default function ApplicantsPage() {
               <option value="40-">40点未満</option>
             </select>
             <select
-              value={applicantResultFilter}
-              onChange={(e) => setApplicantResultFilter(e.target.value as ApplicantResultFilter)}
+              value={resultFilter}
+              onChange={(e) => { setResultFilter(e.target.value as ResultFilter); setCurrentPage(1) }}
               className="bg-white/[0.05] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-gray-300 appearance-none cursor-pointer focus:outline-none focus:border-blue-500/50"
             >
               <option value="all">すべての結果</option>
+              <option value="pending">未対応</option>
+              <option value="considering">検討中</option>
               <option value="second_pass">二次通過</option>
               <option value="rejected">不採用</option>
-              <option value="considering">検討中</option>
+              <option value="hired">内定</option>
             </select>
             <select
               value={periodFilter}
-              onChange={(e) => setPeriodFilter(e.target.value as PeriodFilter)}
+              onChange={(e) => { setPeriodFilter(e.target.value as PeriodFilter); setCurrentPage(1) }}
               className="bg-white/[0.05] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-gray-300 appearance-none cursor-pointer focus:outline-none focus:border-blue-500/50"
             >
               <option value="all">全期間</option>
@@ -250,50 +346,42 @@ export default function ApplicantsPage() {
           </div>
         </div>
 
-        {/* セクション4: 応募者一覧テーブル（lg以上） */}
+        {/* 応募者一覧テーブル（lg以上） */}
         <div className="hidden lg:block bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px]">
+            <table className="w-full min-w-[1000px]">
               <thead>
                 <tr className="bg-white/[0.03] border-b border-white/[0.06]">
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">応募者名</th>
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">企業名</th>
-                  <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">パターン</th>
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">ステータス</th>
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">スコア</th>
+                  <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">推薦度</th>
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">結果</th>
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">面接日時</th>
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">操作</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredApplicants.length === 0 ? (
+                {paginatedApplicants.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="text-sm text-gray-500 py-16 text-center">
                       該当する応募者がありません
                     </td>
                   </tr>
                 ) : (
-                  filteredApplicants.map((a) => {
+                  paginatedApplicants.map((a) => {
                     const statusConfig = getStatusConfig(a.status)
-                    const scoreBadgeClass = getScoreBadgeClass(a.score)
+                    const scoreBadgeClass = getScoreBadgeClass(a.total_score)
                     return (
-                      <tr
-                        key={a.id}
-                        className="border-b border-white/[0.04] hover:bg-white/[0.03] transition-all duration-150"
-                      >
+                      <tr key={a.id} className="border-b border-white/[0.04] hover:bg-white/[0.03] transition-all duration-150">
                         <td className="py-4 px-5">
                           <div>
                             <p className="text-sm font-medium text-white">{a.name}</p>
                             <p className="text-xs text-gray-500">{a.email}</p>
                           </div>
                         </td>
-                        <td className="py-4 px-5 text-sm text-gray-300">{a.company}</td>
-                        <td className="py-4 px-5">
-                          <span className={`inline-flex text-xs rounded-lg px-2 py-0.5 ${getPatternBadgeClass(a.patternType)}`}>
-                            {a.pattern}
-                          </span>
-                        </td>
+                        <td className="py-4 px-5 text-sm text-gray-300">{a.company_name}</td>
                         <td className="py-4 px-5">
                           <div className={`inline-flex items-center gap-2 ${statusConfig.textClass}`}>
                             <span className={`w-2 h-2 rounded-full ${statusConfig.dotClass}`} />
@@ -301,42 +389,49 @@ export default function ApplicantsPage() {
                           </div>
                         </td>
                         <td className="py-4 px-5">
-                          {a.score !== null ? (
+                          {a.total_score !== null ? (
                             <span className={`inline-flex text-sm font-semibold rounded-lg px-2.5 py-1 ${scoreBadgeClass}`}>
-                              {a.score}
+                              {a.total_score}
                             </span>
                           ) : (
                             <span className="text-sm font-semibold text-gray-600">—</span>
                           )}
                         </td>
                         <td className="py-4 px-5">
-                          {a.applicantResult ? (
-                            <span className={`inline-flex text-xs rounded-lg px-2.5 py-1 font-medium ${
-                              a.applicantResult === 'second_pass' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' :
-                              a.applicantResult === 'rejected' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
-                              'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                            }`}>
-                              {a.applicantResult === 'second_pass' ? '二次通過' : a.applicantResult === 'rejected' ? '不採用' : '検討中'}
-                            </span>
+                          {a.recommendation_rank ? (
+                            <span className="text-sm font-semibold text-gray-300">{a.recommendation_rank}</span>
                           ) : (
                             <span className="text-sm text-gray-600">—</span>
                           )}
                         </td>
                         <td className="py-4 px-5">
-                          {a.date && a.time ? (
-                            <div>
-                              <p className="text-sm text-gray-300">{a.date}</p>
-                              <p className="text-xs text-gray-500">{a.time}</p>
-                            </div>
-                          ) : (
-                            <span className="text-sm text-gray-600">未実施</span>
-                          )}
+                          <span className={`inline-flex text-xs rounded-lg px-2.5 py-1 font-medium ${getResultBadgeClass(a.selection_status)}`}>
+                            {getResultLabel(a.selection_status)}
+                          </span>
+                        </td>
+                        <td className="py-4 px-5">
+                          <div>
+                            <p className="text-sm text-gray-300">{formatDate(a.interview_scheduled_at || a.created_at)}</p>
+                            {a.interview_scheduled_at && (
+                              <p className="text-xs text-gray-500">{formatTime(a.interview_scheduled_at)}</p>
+                            )}
+                          </div>
                         </td>
                         <td className="py-4 px-5">
                           <div className="flex items-center gap-3">
-                            <a href={`tel:${a.phone}`} className="text-gray-400 hover:text-emerald-400 transition-colors" title="電話"><Phone className="w-4 h-4" /></a>
-                            <a href={`mailto:${a.email}`} className="text-gray-400 hover:text-blue-400 transition-colors" title="メール"><Mail className="w-4 h-4" /></a>
-                            <a href={`/admin/applicants/${a.id}`} className="text-xs text-blue-400 hover:text-blue-300">詳細</a>
+                            {a.phone && (
+                              <a href={`tel:${a.phone}`} className="text-gray-400 hover:text-emerald-400 transition-colors" title="電話">
+                                <Phone className="w-4 h-4" />
+                              </a>
+                            )}
+                            {a.email && (
+                              <a href={`mailto:${a.email}`} className="text-gray-400 hover:text-blue-400 transition-colors" title="メール">
+                                <Mail className="w-4 h-4" />
+                              </a>
+                            )}
+                            <Link href={`/admin/applicants/${a.id}`} className="text-xs text-blue-400 hover:text-blue-300">
+                              詳細
+                            </Link>
                           </div>
                         </td>
                       </tr>
@@ -347,22 +442,22 @@ export default function ApplicantsPage() {
             </table>
           </div>
 
-          {/* セクション5: ページネーション */}
+          {/* ページネーション */}
           {filteredApplicants.length > 0 && (
             <div className="flex items-center justify-between px-5 py-4 border-t border-white/[0.04]">
               <p className="text-sm text-gray-500">
-                全{SUMMARY.total}名中 {((currentPage - 1) * ITEMS_PER_PAGE) + 1}〜{Math.min(currentPage * ITEMS_PER_PAGE, SUMMARY.total)}名を表示
+                全{filteredApplicants.length}名中 {((currentPage - 1) * ITEMS_PER_PAGE) + 1}〜{Math.min(currentPage * ITEMS_PER_PAGE, filteredApplicants.length)}名を表示
               </p>
               <div className="flex items-center gap-1 flex-wrap justify-end">
                 <button
                   type="button"
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage <= 1}
-                  className="w-9 h-9 text-sm bg-white/[0.05] text-gray-400 hover:bg-white/[0.08] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+                  className="px-3 py-2 text-sm bg-white/[0.05] text-gray-400 hover:bg-white/[0.08] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
                 >
                   前へ
                 </button>
-                {[1, 2, 3].map((p) => (
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => i + 1).map((p) => (
                   <button
                     key={p}
                     type="button"
@@ -374,21 +469,25 @@ export default function ApplicantsPage() {
                     {p}
                   </button>
                 ))}
-                <span className="w-9 h-9 flex items-center justify-center text-sm text-gray-500">…</span>
+                {totalPages > 5 && (
+                  <>
+                    <span className="w-9 h-9 flex items-center justify-center text-sm text-gray-500">…</span>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage(totalPages)}
+                      className={`w-9 h-9 text-sm rounded-lg transition-colors ${
+                        currentPage === totalPages ? 'bg-blue-600 text-white' : 'bg-white/[0.05] text-gray-400 hover:bg-white/[0.08]'
+                      }`}
+                    >
+                      {totalPages}
+                    </button>
+                  </>
+                )}
                 <button
                   type="button"
-                  onClick={() => setCurrentPage(TOTAL_PAGES)}
-                  className={`w-9 h-9 text-sm rounded-lg transition-colors ${
-                    currentPage === TOTAL_PAGES ? 'bg-blue-600 text-white' : 'bg-white/[0.05] text-gray-400 hover:bg-white/[0.08]'
-                  }`}
-                >
-                  {TOTAL_PAGES}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage((p) => Math.min(TOTAL_PAGES, p + 1))}
-                  disabled={currentPage >= TOTAL_PAGES}
-                  className="w-9 h-9 text-sm bg-white/[0.05] text-gray-400 hover:bg-white/[0.08] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="px-3 py-2 text-sm bg-white/[0.05] text-gray-400 hover:bg-white/[0.08] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
                 >
                   次へ
                 </button>
@@ -399,23 +498,20 @@ export default function ApplicantsPage() {
 
         {/* モバイル・タブレット: カード形式 */}
         <div className="lg:hidden space-y-3">
-          {filteredApplicants.length === 0 ? (
+          {paginatedApplicants.length === 0 ? (
             <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-8 text-center text-sm text-gray-500">
               該当する応募者がありません
             </div>
           ) : (
-            filteredApplicants.map((a) => {
+            paginatedApplicants.map((a) => {
               const statusConfig = getStatusConfig(a.status)
-              const scoreBadgeClass = getScoreBadgeClass(a.score)
+              const scoreBadgeClass = getScoreBadgeClass(a.total_score)
               return (
-                <div
-                  key={a.id}
-                  className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 mb-3"
-                >
+                <div key={a.id} className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4">
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div>
                       <p className="text-sm font-medium text-white">{a.name}</p>
-                      <p className="text-xs text-gray-500">{a.company}</p>
+                      <p className="text-xs text-gray-500">{a.company_name}</p>
                     </div>
                     <div className={`inline-flex items-center gap-1.5 shrink-0 ${statusConfig.textClass}`}>
                       <span className={`w-2 h-2 rounded-full ${statusConfig.dotClass}`} />
@@ -423,30 +519,34 @@ export default function ApplicantsPage() {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 mb-3">
-                    {a.score !== null ? (
+                    {a.total_score !== null ? (
                       <span className={`inline-flex text-sm font-semibold rounded-lg px-2.5 py-1 ${scoreBadgeClass}`}>
-                        {a.score}点
+                        {a.total_score}点
                       </span>
                     ) : (
                       <span className="text-sm text-gray-600">—</span>
                     )}
-                    {a.applicantResult ? (
-                      <span className={`inline-flex text-xs rounded-lg px-2.5 py-1 font-medium ${
-                        a.applicantResult === 'second_pass' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' :
-                        a.applicantResult === 'rejected' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
-                        'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                      }`}>
-                        {a.applicantResult === 'second_pass' ? '二次通過' : a.applicantResult === 'rejected' ? '不採用' : '検討中'}
-                      </span>
-                    ) : null}
-                    <span className="text-xs text-gray-500">
-                      {a.date && a.time ? `${a.date} ${a.time}` : '未実施'}
+                    {a.recommendation_rank && (
+                      <span className="text-xs text-gray-400">推薦: {a.recommendation_rank}</span>
+                    )}
+                    <span className={`inline-flex text-xs rounded-lg px-2.5 py-1 font-medium ${getResultBadgeClass(a.selection_status)}`}>
+                      {getResultLabel(a.selection_status)}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <a href={`tel:${a.phone}`} className="text-gray-400 hover:text-emerald-400 transition-colors" title="電話"><Phone className="w-4 h-4" /></a>
-                    <a href={`mailto:${a.email}`} className="text-gray-400 hover:text-blue-400 transition-colors" title="メール"><Mail className="w-4 h-4" /></a>
-                    <a href={`/admin/applicants/${a.id}`} className="text-xs text-blue-400 hover:text-blue-300">詳細を見る</a>
+                    {a.phone && (
+                      <a href={`tel:${a.phone}`} className="text-gray-400 hover:text-emerald-400 transition-colors" title="電話">
+                        <Phone className="w-4 h-4" />
+                      </a>
+                    )}
+                    {a.email && (
+                      <a href={`mailto:${a.email}`} className="text-gray-400 hover:text-blue-400 transition-colors" title="メール">
+                        <Mail className="w-4 h-4" />
+                      </a>
+                    )}
+                    <Link href={`/admin/applicants/${a.id}`} className="text-xs text-blue-400 hover:text-blue-300">
+                      詳細を見る
+                    </Link>
                   </div>
                 </div>
               )
@@ -455,22 +555,22 @@ export default function ApplicantsPage() {
           {filteredApplicants.length > 0 && (
             <div className="flex items-center justify-between pt-4 pb-2">
               <p className="text-sm text-gray-500">
-                全{SUMMARY.total}名中 1〜{filteredApplicants.length}名を表示
+                全{filteredApplicants.length}名中 {((currentPage - 1) * ITEMS_PER_PAGE) + 1}〜{Math.min(currentPage * ITEMS_PER_PAGE, filteredApplicants.length)}名を表示
               </p>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage <= 1}
-                  className="w-9 h-9 text-sm bg-white/[0.05] text-gray-400 rounded-lg disabled:opacity-50"
+                  className="px-3 py-2 text-sm bg-white/[0.05] text-gray-400 rounded-lg disabled:opacity-50"
                 >
                   前へ
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCurrentPage((p) => Math.min(TOTAL_PAGES, p + 1))}
-                  disabled={currentPage >= TOTAL_PAGES}
-                  className="w-9 h-9 text-sm bg-white/[0.05] text-gray-400 rounded-lg disabled:opacity-50"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="px-3 py-2 text-sm bg-white/[0.05] text-gray-400 rounded-lg disabled:opacity-50"
                 >
                   次へ
                 </button>

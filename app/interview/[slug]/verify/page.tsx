@@ -4,14 +4,6 @@ import { useState, useRef, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-// Supabaseから取得できない場合のダミーデータ
-const dummyCompany = {
-  id: 'dummy-company-id',
-  name: '株式会社サンプル',
-  logo_url: null,
-  is_suspended: false,
-}
-
 export default function VerifyPage() {
   const params = useParams()
   const router = useRouter()
@@ -55,14 +47,14 @@ export default function VerifyPage() {
         .single()
 
       if (error || !data) {
-        setCompany(dummyCompany)
+        console.error('[VerifyPage] 企業情報取得エラー:', error)
+        setCompany(null)
       } else {
         setCompany(data)
       }
     } catch (error) {
-      // TODO: 段階4 - Supabase接続を本実装する
-      console.warn('Supabase取得スキップ（段階3デモ）:', error)
-      setCompany(dummyCompany)
+      console.error('[VerifyPage] 企業情報取得例外:', error)
+      setCompany(null)
     }
     setLoading(false)
   }
@@ -111,21 +103,19 @@ export default function VerifyPage() {
   }
 
   function handleVerify() {
-    // TODO: Phase 4 - Supabase経由でのSMS送信・認証コード検証
-    // 段階3ではどの4桁を入力しても認証成功とする
+    const codeString = code.join('')
+    // TODO: Twilio Verify APIに差替え
+    // 現在は認証コード「1234」で通過するダミーモード
     if (code.every((digit) => digit !== '')) {
-      try {
-        // TODO: 段階4 - Supabase接続を本実装する
-        // ここでSupabase/API呼び出しを行う予定
-      } catch (error) {
-        // TODO: 段階4 - Supabase接続を本実装する
-        console.warn('Supabase認証スキップ（段階3デモ）:', error)
+      // ダミーモード: 1234で通過
+      if (codeString === '1234') {
+        setToast('認証が完了しました')
+        setTimeout(() => {
+          router.push(`/interview/${slug}/prepare`)
+        }, 1000)
+      } else {
+        setToast('認証コードが正しくありません')
       }
-      
-      setToast('認証が完了しました')
-      setTimeout(() => {
-        router.push(`/interview/${slug}/prepare`)
-      }, 1000)
     }
   }
 
@@ -169,7 +159,7 @@ export default function VerifyPage() {
     )
   }
 
-  const displayCompany = company || dummyCompany
+  const displayCompany = company || { id: '', name: '企業名', logo_url: null, is_suspended: false }
   const isCodeComplete = code.every((digit) => digit !== '')
 
   return (

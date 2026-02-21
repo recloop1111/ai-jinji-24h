@@ -3,9 +3,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { Plus, FileText, Check, ChevronUp, ChevronDown, Pencil, X } from 'lucide-react'
+import { Plus, FileText, Check, ChevronUp, ChevronDown, Pencil, X, Lock } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
+import { CULTURE_FIT_QUESTIONS, distributeQuestionsSimple } from '@/lib/constants/questions'
 
 type Question = {
   id: string
@@ -90,23 +91,26 @@ const JOB_TYPES = ['営業', '事務', '経理・財務', '人事・総務', '�
 type JobTypeKey = (typeof JOB_TYPES)[number]
 
 const JOB_TYPE_TEMPLATES: Record<JobTypeKey, { name: string; questions: string[] }> = {
-  '営業': { name: '営業', questions: ['これまでの営業経験について教えてください。どのような商材を扱い、どのような成果を上げましたか？', '目標を達成できなかった経験はありますか？その時どのように対処しましたか？', 'お客様との信頼関係を構築するために、普段どのようなことを心がけていますか？', 'チームで営業に取り組んだ経験があれば教えてください。あなたの役割は何でしたか？', '新規開拓で工夫していることを教えてください。'] },
-  '事務': { name: '事務', questions: ['これまでの事務経験について教えてください。', 'パソコンの基本操作（Word、Excel）はどの程度できますか？', '電話対応や来客対応の経験はありますか？', '複数の業務を同時にお願いすることもありますが、優先順位をつけて作業するのは得意ですか？', '書類作成やデータ入力で心がけていることを教えてください。'] },
-  '経理・財務': { name: '経理・財務', questions: ['経理・財務の業務経験について教えてください。', '会計ソフトや経理システムの使用経験はありますか？', '月次決算や年次決算の業務経験があれば教えてください。', '数字の正確性を保つために、どのような工夫をしていますか？', '税務や法規制の知識について、どの程度理解していますか？'] },
-  '人事・総務': { name: '人事・総務', questions: ['人事・総務の業務経験について教えてください。', '採用活動や面接の経験はありますか？', '社内規程の作成や管理の経験があれば教えてください。', '従業員からの相談や問い合わせ対応で心がけていることを教えてください。', '労務管理や給与計算の経験はありますか？'] },
-  '企画・マーケティング': { name: '企画・マーケティング', questions: ['これまでの企画・マーケティング経験について教えてください。', 'キャンペーンやプロモーションの企画・実行経験があれば教えてください。', '市場調査や競合分析でどのようなことを行ってきましたか？', 'データを分析して施策を改善した経験を教えてください。', 'クリエイティブな発想をどのように生み出していますか？'] },
-  'エンジニア・技術職': { name: 'エンジニア・技術職', questions: ['プログラミングを始めたきっかけと、これまでに学んだ言語やフレームワークを教えてください。', 'これまでの開発経験や、取り組んできたプロジェクトを教えてください。', 'チームで開発した経験はありますか？その中であなたはどのような役割を担いましたか？', '技術的に難しい課題に直面した時、どのように解決しましたか？', '新しい技術をどのように習得していますか？'] },
-  'デザイナー': { name: 'デザイナー', questions: ['デザインを始めたきっかけと、これまでに取り組んできた作品について教えてください。', '使用しているデザインツールやソフトウェアを教えてください。', 'クライアントの要望をデザインに落とし込む際のプロセスを教えてください。', 'デザインのトレンドをどのようにキャッチアップしていますか？', 'ポートフォリオの中で最も力を入れた作品と、その理由を教えてください。'] },
-  '販売・接客': { name: '販売・接客', questions: ['これまでの販売・接客経験について教えてください。', 'お客様に商品を勧める際に心がけていることは何ですか？', '接客中に困った経験と、その時の対応を教えてください。', '売上目標に向けてどのように取り組んでいますか？', 'お客様に満足いただくために工夫していることを教えてください。'] },
-  '製造・工場': { name: '製造・工場', questions: ['製造業での業務経験について教えてください。', '品質管理で心がけていることを教えてください。', '安全対策で特に気をつけていることを教えてください。', '生産ラインで改善した経験があれば教えてください。', 'チームで目標達成に向けて取り組んだ経験を教えてください。'] },
-  '物流・配送': { name: '物流・配送', questions: ['物流・配送の業務経験について教えてください。', '荷物の積み下ろしや配達ルートで効率化した経験はありますか？', '配達中のトラブルや遅延が発生した時、どのように対応しますか？', '安全運転や事故防止で心がけていることを教えてください。', '体力的にきついと感じる場面はありますか。どのように乗り越えていますか？'] },
-  '医療・介護': { name: '医療・介護', questions: ['医療・介護の仕事を志した理由を教えてください。', '利用者様や患者様との信頼関係をどのように築いていますか？', '体力的・精神的な負担がある中で、どのようにセルフケアをしていますか？', 'チーム医療・多職種連携で大切にしていることを教えてください。', '今後この仕事で実現したいことはありますか？'] },
-  '教育・講師': { name: '教育・講師', questions: ['教育の仕事を志した理由を教えてください。', '生徒や保護者とのコミュニケーションで心がけていることは何ですか？', '授業や指導で工夫していることを教えてください。', '生徒が理解できない時のフォロー方法を教えてください。', '自分自身の学びや研鑽で続けていることはありますか？'] },
-  '飲食・調理': { name: '飲食・調理', questions: ['飲食業で働いてみようと思ったきっかけを教えてください。', '忙しい時間帯での接客で心がけていることを教えてください。', '食品の衛生管理で意識している点はありますか？', 'クレーム対応で工夫していることがあれば教えてください。', 'チームで働く上で大切にしていることを教えてください。'] },
-  '建設・施工管理': { name: '建設・施工管理', questions: ['建設業・不動産業に興味を持ったきっかけを教えてください。', '安全対策で特に気をつけていることを教えてください。', '現場でのトラブル発生時、どのように対応しますか？', '図面や仕様書の読み方について、これまでの経験を教えてください。', '3年後、5年後にどのようなスキルを身につけたいですか？'] },
-  'カスタマーサポート': { name: 'カスタマーサポート', questions: ['これまでの顧客対応経験を教えてください。', 'クレーム対応で心がけていることを教えてください。', '難しい要望にどう対応しますか？', 'チームでの情報共有で工夫していることを教えてください。', 'ストレス管理の方法を教えてください。'] },
-  'その他': { name: 'その他', questions: ['これまでのご経歴を簡単に教えてください。', '志望動機を教えてください。', 'あなたの強みと弱みを教えてください。', 'チームで働いた経験を教えてください。', '5年後のキャリアプランを教えてください。'] },
+  '営業': { name: '営業', questions: ['これまでの営業経験について教えてください。どのような商材を扱い、どのような成果を上げましたか？', '目標を達成できなかった経験はありますか？その時どのように対処しましたか？', 'お客様との信頼関係を構築するために、普段どのようなことを心がけていますか？', 'チームで営業に取り組んだ経験があれば教えてください。あなたの役割は何でしたか？', '新規開拓で工夫していることを教えてください。', '競合他社との差別化をどのようにアピールしていますか？', 'これまでで最も難しかった商談と、その結果を教えてください。', '当社を志望した理由を教えてください。'] },
+  '事務': { name: '事務', questions: ['これまでの事務経験について教えてください。', 'パソコンの基本操作（Word、Excel）はどの程度できますか？', '電話対応や来客対応の経験はありますか？', '複数の業務を同時にお願いすることもありますが、優先順位をつけて作業するのは得意ですか？', '書類作成やデータ入力で心がけていることを教えてください。', 'ミスを防ぐために工夫していることはありますか？', '業務改善の提案をした経験があれば教えてください。', '当社を志望した理由を教えてください。'] },
+  '経理・財務': { name: '経理・財務', questions: ['経理・財務の業務経験について教えてください。', '会計ソフトや経理システムの使用経験はありますか？', '月次決算や年次決算の業務経験があれば教えてください。', '数字の正確性を保つために、どのような工夫をしていますか？', '税務や法規制の知識について、どの程度理解していますか？', '監査対応の経験はありますか？', '業務効率化のために取り組んだことを教えてください。', '当社を志望した理由を教えてください。'] },
+  '人事・総務': { name: '人事・総務', questions: ['人事・総務の業務経験について教えてください。', '採用活動や面接の経験はありますか？', '社内規程の作成や管理の経験があれば教えてください。', '従業員からの相談や問い合わせ対応で心がけていることを教えてください。', '労務管理や給与計算の経験はありますか？', '社内イベントや研修の企画経験があれば教えてください。', '機密情報の取り扱いで気をつけていることを教えてください。', '当社を志望した理由を教えてください。'] },
+  '企画・マーケティング': { name: '企画・マーケティング', questions: ['これまでの企画・マーケティング経験について教えてください。', 'キャンペーンやプロモーションの企画・実行経験があれば教えてください。', '市場調査や競合分析でどのようなことを行ってきましたか？', 'データを分析して施策を改善した経験を教えてください。', 'クリエイティブな発想をどのように生み出していますか？', 'プロジェクトの予算管理の経験はありますか？', '失敗した企画とその学びを教えてください。', '当社を志望した理由を教えてください。'] },
+  'エンジニア・技術職': { name: 'エンジニア・技術職', questions: ['プログラミングを始めたきっかけと、これまでに学んだ言語やフレームワークを教えてください。', 'これまでの開発経験や、取り組んできたプロジェクトを教えてください。', 'チームで開発した経験はありますか？その中であなたはどのような役割を担いましたか？', '技術的に難しい課題に直面した時、どのように解決しましたか？', '新しい技術をどのように習得していますか？', 'コードレビューで心がけていることを教えてください。', '本番環境でのトラブル対応経験があれば教えてください。', '当社を志望した理由を教えてください。'] },
+  'デザイナー': { name: 'デザイナー', questions: ['デザインを始めたきっかけと、これまでに取り組んできた作品について教えてください。', '使用しているデザインツールやソフトウェアを教えてください。', 'クライアントの要望をデザインに落とし込む際のプロセスを教えてください。', 'デザインのトレンドをどのようにキャッチアップしていますか？', 'ポートフォリオの中で最も力を入れた作品と、その理由を教えてください。', 'フィードバックを受けた時、どのように対応しますか？', 'デザインと使いやすさのバランスをどのように考えていますか？', '当社を志望した理由を教えてください。'] },
+  '販売・接客': { name: '販売・接客', questions: ['これまでの販売・接客経験について教えてください。', 'お客様に商品を勧める際に心がけていることは何ですか？', '接客中に困った経験と、その時の対応を教えてください。', '売上目標に向けてどのように取り組んでいますか？', 'お客様に満足いただくために工夫していることを教えてください。', 'クレーム対応で心がけていることを教えてください。', 'チームワークを大切にするために意識していることはありますか？', '当社を志望した理由を教えてください。'] },
+  '製造・工場': { name: '製造・工場', questions: ['製造業での業務経験について教えてください。', '品質管理で心がけていることを教えてください。', '安全対策で特に気をつけていることを教えてください。', '生産ラインで改善した経験があれば教えてください。', 'チームで目標達成に向けて取り組んだ経験を教えてください。', '機械の操作やメンテナンスの経験はありますか？', '納期に追われた時、どのように対応しましたか？', '当社を志望した理由を教えてください。'] },
+  '物流・配送': { name: '物流・配送', questions: ['物流・配送の業務経験について教えてください。', '荷物の積み下ろしや配達ルートで効率化した経験はありますか？', '配達中のトラブルや遅延が発生した時、どのように対応しますか？', '安全運転や事故防止で心がけていることを教えてください。', '体力的にきついと感じる場面はありますか。どのように乗り越えていますか？', 'お客様との対面でのコミュニケーションで心がけていることはありますか？', '時間管理で工夫していることを教えてください。', '当社を志望した理由を教えてください。'] },
+  '医療・介護': { name: '医療・介護', questions: ['医療・介護の仕事を志した理由を教えてください。', '利用者様や患者様との信頼関係をどのように築いていますか？', '体力的・精神的な負担がある中で、どのようにセルフケアをしていますか？', 'チーム医療・多職種連携で大切にしていることを教えてください。', '今後この仕事で実現したいことはありますか？', '緊急時の対応経験があれば教えてください。', 'ご家族への対応で心がけていることを教えてください。', '当社を志望した理由を教えてください。'] },
+  '教育・講師': { name: '教育・講師', questions: ['教育の仕事を志した理由を教えてください。', '生徒や保護者とのコミュニケーションで心がけていることは何ですか？', '授業や指導で工夫していることを教えてください。', '生徒が理解できない時のフォロー方法を教えてください。', '自分自身の学びや研鑽で続けていることはありますか？', '問題のある生徒への対応経験を教えてください。', '授業の準備にどの程度時間をかけていますか？', '当社を志望した理由を教えてください。'] },
+  '飲食・調理': { name: '飲食・調理', questions: ['飲食業で働いてみようと思ったきっかけを教えてください。', '忙しい時間帯での接客で心がけていることを教えてください。', '食品の衛生管理で意識している点はありますか？', 'クレーム対応で工夫していることがあれば教えてください。', 'チームで働く上で大切にしていることを教えてください。', 'メニュー開発や提案の経験はありますか？', 'お店の売上向上のために取り組んだことはありますか？', '当社を志望した理由を教えてください。'] },
+  '建設・施工管理': { name: '建設・施工管理', questions: ['建設業・不動産業に興味を持ったきっかけを教えてください。', '安全対策で特に気をつけていることを教えてください。', '現場でのトラブル発生時、どのように対応しますか？', '図面や仕様書の読み方について、これまでの経験を教えてください。', '3年後、5年後にどのようなスキルを身につけたいですか？', '協力業者とのコミュニケーションで心がけていることを教えてください。', '工期短縮やコスト削減の工夫をした経験はありますか？', '当社を志望した理由を教えてください。'] },
+  'カスタマーサポート': { name: 'カスタマーサポート', questions: ['これまでの顧客対応経験を教えてください。', 'クレーム対応で心がけていることを教えてください。', '難しい要望にどう対応しますか？', 'チームでの情報共有で工夫していることを教えてください。', 'ストレス管理の方法を教えてください。', 'お客様満足度向上のために取り組んだことを教えてください。', '電話・メール・チャットなど、対応媒体の得意分野はありますか？', '当社を志望した理由を教えてください。'] },
+  'その他': { name: 'その他', questions: ['これまでのご経歴を簡単に教えてください。', '志望動機を教えてください。', 'あなたの強みと弱みを教えてください。', 'チームで働いた経験を教えてください。', '5年後のキャリアプランを教えてください。', '仕事で最もやりがいを感じた経験を教えてください。', '困難な状況をどのように乗り越えましたか？', '当社でどのように貢献したいですか？'] },
 }
+
+const DEFAULT_CUSTOM_QUESTIONS_WITH_CULTURE = 5
+const DEFAULT_CUSTOM_QUESTIONS_WITHOUT_CULTURE = 8
 
 type QuestionEditorProps = {
   companyId: string
@@ -138,6 +142,7 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
   const [insertAt, setInsertAt] = useState(0)
   const [toast, setToast] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [cultureAnalysisEnabled, setCultureAnalysisEnabled] = useState(false)
 
   const isDark = theme === 'dark'
 
@@ -202,6 +207,22 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     }
     fetchJobs()
   }, [resolvedCompanyId, initialJobId, supabase])
+
+  useEffect(() => {
+    if (!resolvedCompanyId) {
+      setCultureAnalysisEnabled(false)
+      return
+    }
+    async function fetchCultureAnalysisFlag() {
+      const { data } = await supabase
+        .from('companies')
+        .select('culture_analysis_enabled')
+        .eq('id', resolvedCompanyId)
+        .single()
+      setCultureAnalysisEnabled(data?.culture_analysis_enabled ?? false)
+    }
+    fetchCultureAnalysisFlag()
+  }, [resolvedCompanyId, supabase])
 
   useEffect(() => {
     if (selectedJobId) {
@@ -334,8 +355,94 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     }
   }
 
+  const MAX_TOTAL_QUESTIONS = 10
+  const cultureQuestionCount = cultureAnalysisEnabled ? CULTURE_FIT_QUESTIONS.length : 0
+  const maxCustomQuestions = MAX_TOTAL_QUESTIONS - cultureQuestionCount
+  const totalQuestionCount = cultureQuestionCount + patternQuestions.length
+
+  // 統合質問リスト: カスタム質問と社風分析質問を分散配置した順序で表示
+  type IntegratedQuestion = {
+    id: string
+    question: string
+    type: 'custom' | 'culture'
+    originalIndex: number
+    label?: string
+    traits?: string
+  }
+
+  const integratedQuestions = useMemo<IntegratedQuestion[]>(() => {
+    if (!cultureAnalysisEnabled) {
+      return patternQuestions.map((q, i) => ({
+        id: q.id,
+        question: q.question,
+        type: 'custom' as const,
+        originalIndex: i,
+      }))
+    }
+
+    // 社風分析ON時: distributeQuestionsSimpleのロジックで配置位置を計算
+    const customCount = patternQuestions.length
+    const cultureCount = CULTURE_FIT_QUESTIONS.length
+    const totalSlots = customCount + cultureCount
+
+    if (totalSlots === 0) return []
+
+    // 社風分析質問を挿入する位置を計算
+    const culturePositions: number[] = []
+    for (let i = 0; i < cultureCount; i++) {
+      const pos = Math.round((i + 1) * totalSlots / (cultureCount + 1))
+      culturePositions.push(pos)
+    }
+
+    const result: IntegratedQuestion[] = []
+    let customIdx = 0
+    let cultureIdx = 0
+
+    for (let i = 0; i < totalSlots; i++) {
+      if (culturePositions.includes(i) && cultureIdx < cultureCount) {
+        const cfq = CULTURE_FIT_QUESTIONS[cultureIdx]
+        result.push({
+          id: cfq.id,
+          question: cfq.question,
+          type: 'culture',
+          originalIndex: cultureIdx,
+          label: cfq.label,
+          traits: cfq.traits,
+        })
+        cultureIdx++
+      } else if (customIdx < customCount) {
+        result.push({
+          id: patternQuestions[customIdx].id,
+          question: patternQuestions[customIdx].question,
+          type: 'custom',
+          originalIndex: customIdx,
+        })
+        customIdx++
+      } else if (cultureIdx < cultureCount) {
+        const cfq = CULTURE_FIT_QUESTIONS[cultureIdx]
+        result.push({
+          id: cfq.id,
+          question: cfq.question,
+          type: 'culture',
+          originalIndex: cultureIdx,
+          label: cfq.label,
+          traits: cfq.traits,
+        })
+        cultureIdx++
+      }
+    }
+
+    return result
+  }, [cultureAnalysisEnabled, patternQuestions])
+
   const handleAddQuestion = () => {
     if (!selectedJobId) return
+    if (totalQuestionCount >= MAX_TOTAL_QUESTIONS) {
+      showToast(cultureAnalysisEnabled 
+        ? `質問は最大${MAX_TOTAL_QUESTIONS}問までです（社風分析${cultureQuestionCount}問を含む）` 
+        : `質問は最大${MAX_TOTAL_QUESTIONS}問までです`)
+      return
+    }
     const newQuestion: Question = { id: `temp-${Date.now()}`, question: '' }
     setPatternQuestions((prev) => [...prev, newQuestion])
   }
@@ -392,11 +499,14 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     if (!window.confirm('現在の質問を全てテンプレートに置き換えますか？')) return
     const templateKey = JOB_TYPES.includes(selectedJob.title as JobTypeKey) ? (selectedJob.title as JobTypeKey) : 'その他'
     const template = JOB_TYPE_TEMPLATES[templateKey]
-    const newQuestions: Question[] = template.questions.map((q, i) => ({ id: `temp-${Date.now()}-${i}`, question: q }))
+    // 社風分析ON: 先頭5問のみ使用（社風分析3問 + カスタム5問 = 8問）、OFF: 8問全て使用
+    const defaultCount = cultureAnalysisEnabled ? DEFAULT_CUSTOM_QUESTIONS_WITH_CULTURE : DEFAULT_CUSTOM_QUESTIONS_WITHOUT_CULTURE
+    const questionsToUse = template.questions.slice(0, defaultCount)
+    const newQuestions: Question[] = questionsToUse.map((q, i) => ({ id: `temp-${Date.now()}-${i}`, question: q }))
     setPatternQuestions(newQuestions)
     setTemplateModalOpen(false)
     setSelectedTemplateQuestionIds(new Set())
-    showToast(`${template.name}テンプレートで全て置き換えました`)
+    showToast(`${template.name}テンプレートで全て置き換えました（${defaultCount}問）`)
   }
 
   const handleSaveCommonQuestions = async () => {
@@ -695,7 +805,38 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
           </div>
 
           <div className={`mb-8 rounded-xl border p-6 ${cn.card}`}>
-            <h2 className={`text-base font-semibold mb-4 ${cn.title}`}>求人別質問</h2>
+            <h2 className={`text-base font-semibold mb-2 ${cn.title}`}>
+              面接質問
+            </h2>
+            <p className={`text-sm mb-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+              アイスブレイク（{commonQuestionsIcebreak.length}問）の後に以下の質問が順番に出題されます。{cultureAnalysisEnabled && '社風分析質問は固定位置で表示されます。'}
+            </p>
+            <p className={`text-sm mb-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+              質問数: {totalQuestionCount} / {MAX_TOTAL_QUESTIONS}問（アイスブレイク除く）
+              {cultureAnalysisEnabled && ` ｜ 社風分析: ${cultureQuestionCount}問（固定）/ カスタム: ${patternQuestions.length}問`}
+            </p>
+            {totalQuestionCount > MAX_TOTAL_QUESTIONS && (
+              <div className={`rounded-lg p-3 mb-4 ${isDark ? 'bg-red-900/30 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
+                <p className={`text-sm ${isDark ? 'text-red-300' : 'text-red-800'}`}>
+                  ⚠ 質問数が上限を超えています。面接で全質問に到達できない可能性があります。質問を削除してください。
+                </p>
+              </div>
+            )}
+            {totalQuestionCount === MAX_TOTAL_QUESTIONS && (
+              isDark ? (
+                <div className="bg-yellow-900/30 border border-yellow-700 rounded-lg p-3 mb-4">
+                  <p className="text-sm text-yellow-300">
+                    ⚠ 質問を10問に設定した場合、応募者の回答時間によっては最終質問まで到達できない可能性があります。推奨は8問以下です。
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                  <p className="text-sm text-yellow-800">
+                    ⚠ 質問を10問に設定した場合、応募者の回答時間によっては最終質問まで到達できない可能性があります。推奨は8問以下です。
+                  </p>
+                </div>
+              )
+            )}
             <div className={`flex border-b mb-4 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
               {patternTabs.map((tab) => (
                 <button
@@ -721,28 +862,131 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
             ) : (
               <>
                 <div className="space-y-4">
-                  {patternQuestions.map((q, i) => (
-                    <div key={q.id} className={`rounded-xl border p-5 transition-all ${cn.innerCard} ${!isDark && 'shadow-sm hover:shadow-md'}`}>
-                      <div className="flex items-start gap-3">
-                        <div className="flex flex-col gap-0.5 shrink-0">
-                          <button type="button" onClick={() => handleMoveQuestion(i, 'up')} disabled={i === 0} className={`p-1 disabled:opacity-30 disabled:cursor-not-allowed ${isDark ? 'text-gray-500 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}><ChevronUp className="w-5 h-5" /></button>
-                          <button type="button" onClick={() => handleMoveQuestion(i, 'down')} disabled={i === patternQuestions.length - 1} className={`p-1 disabled:opacity-30 disabled:cursor-not-allowed ${isDark ? 'text-gray-500 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}><ChevronDown className="w-5 h-5" /></button>
+                  {integratedQuestions.map((q, i) => {
+                    const isCultureQuestion = q.type === 'culture'
+                    
+                    if (isCultureQuestion) {
+                      return (
+                        <div 
+                          key={q.id} 
+                          className={`rounded-xl border-l-4 border p-5 transition-all ${
+                            isDark 
+                              ? 'bg-purple-500/5 border-purple-500/30 border-l-purple-400' 
+                              : 'bg-purple-50/50 border-purple-200 border-l-purple-400'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="flex flex-col gap-0.5 shrink-0 opacity-0 pointer-events-none">
+                              <div className="p-1"><ChevronUp className="w-5 h-5" /></div>
+                              <div className="p-1"><ChevronDown className="w-5 h-5" /></div>
+                            </div>
+                            <span className={`shrink-0 mt-1 inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
+                              isDark ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-700'
+                            }`}>
+                              {i + 1}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className={`text-xs font-semibold ${isDark ? 'text-purple-400' : 'text-purple-700'}`}>{q.label}</span>
+                                <span className={`text-xs px-2 py-0.5 rounded-full ${isDark ? 'bg-purple-500/10 text-purple-400' : 'bg-purple-100 text-purple-600'}`}>
+                                  {q.traits}
+                                </span>
+                              </div>
+                              {isDark ? (
+                                <textarea
+                                  defaultValue={q.question}
+                                  rows={2}
+                                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-lg text-gray-300 px-3 py-2 text-sm focus:border-purple-500/50 outline-none resize-none"
+                                />
+                              ) : (
+                                <p className="text-sm leading-relaxed text-slate-700">{q.question}</p>
+                              )}
+                              <p className={`text-xs mt-2 ${isDark ? 'text-purple-400/60' : 'text-purple-500'}`}>
+                                社風分析用質問（固定）
+                              </p>
+                            </div>
+                            {isDark ? (
+                              <button type="button" className="shrink-0 p-2 text-gray-700 cursor-not-allowed">
+                                <X className="w-5 h-5" />
+                              </button>
+                            ) : (
+                              <div className="shrink-0 p-2 opacity-0 pointer-events-none">
+                                <X className="w-5 h-5" />
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <span className={`shrink-0 mt-1 inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${isDark ? 'bg-white/10 text-gray-300' : 'bg-blue-100 text-blue-700'}`}>{i + 1}</span>
-                        <div className="flex-1 min-w-0">
-                          <textarea value={q.question} onChange={(e) => handleQuestionChange(q.id, e.target.value)} placeholder="質問文を入力してください" rows={2} className={`w-full px-4 py-2.5 border rounded-xl text-sm resize-none focus:outline-none focus:ring-2 ${cn.input}`} />
+                      )
+                    }
+                    
+                    return (
+                      <div key={q.id} className={`rounded-xl border p-5 transition-all ${cn.innerCard} ${!isDark && 'shadow-sm hover:shadow-md'}`}>
+                        <div className="flex items-start gap-3">
+                          <div className="flex flex-col gap-0.5 shrink-0">
+                            <button 
+                              type="button" 
+                              onClick={() => handleMoveQuestion(q.originalIndex, 'up')} 
+                              disabled={q.originalIndex === 0} 
+                              className={`p-1 disabled:opacity-30 disabled:cursor-not-allowed ${isDark ? 'text-gray-500 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}
+                            >
+                              <ChevronUp className="w-5 h-5" />
+                            </button>
+                            <button 
+                              type="button" 
+                              onClick={() => handleMoveQuestion(q.originalIndex, 'down')} 
+                              disabled={q.originalIndex === patternQuestions.length - 1} 
+                              className={`p-1 disabled:opacity-30 disabled:cursor-not-allowed ${isDark ? 'text-gray-500 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}
+                            >
+                              <ChevronDown className="w-5 h-5" />
+                            </button>
+                          </div>
+                          <span className={`shrink-0 mt-1 inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${isDark ? 'bg-white/10 text-gray-300' : 'bg-blue-100 text-blue-700'}`}>
+                            {i + 1}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <textarea 
+                              value={q.question} 
+                              onChange={(e) => handleQuestionChange(q.id, e.target.value)} 
+                              placeholder="質問文を入力してください" 
+                              rows={2} 
+                              className={`w-full px-4 py-2.5 border rounded-xl text-sm resize-none focus:outline-none focus:ring-2 ${cn.input}`} 
+                            />
+                          </div>
+                          <button 
+                            type="button" 
+                            onClick={() => handleDeleteQuestion(q.id)} 
+                            className={`shrink-0 p-2 rounded-lg transition-colors ${isDark ? 'text-gray-500 hover:text-red-400 hover:bg-red-500/10' : 'text-slate-400 hover:text-red-600 hover:bg-red-50'}`} 
+                            aria-label="削除"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
                         </div>
-                        <button type="button" onClick={() => handleDeleteQuestion(q.id)} className={`shrink-0 p-2 rounded-lg transition-colors ${isDark ? 'text-gray-500 hover:text-red-400 hover:bg-red-500/10' : 'text-slate-400 hover:text-red-600 hover:bg-red-50'}`} aria-label="削除">
-                          <X className="w-5 h-5" />
-                        </button>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
 
-                <button type="button" onClick={handleAddQuestion} className={`mt-6 w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed text-sm font-medium rounded-xl transition-colors ${cn.btnAdd}`}>
-                  <Plus className="w-5 h-5" />質問を追加
-                </button>
+                <div className="mt-6">
+                  <button 
+                    type="button" 
+                    onClick={handleAddQuestion} 
+                    disabled={totalQuestionCount >= MAX_TOTAL_QUESTIONS}
+                    className={`w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed text-sm font-medium rounded-xl transition-colors ${
+                      totalQuestionCount >= MAX_TOTAL_QUESTIONS
+                        ? isDark 
+                          ? 'border-gray-700 text-gray-600 cursor-not-allowed opacity-50' 
+                          : 'border-gray-300 text-gray-400 cursor-not-allowed opacity-50'
+                        : cn.btnAdd
+                    }`}
+                  >
+                    <Plus className="w-5 h-5" />質問を追加
+                  </button>
+                  {totalQuestionCount >= MAX_TOTAL_QUESTIONS && (
+                    <p className={`mt-2 text-center text-sm ${isDark ? 'text-gray-400' : 'text-gray-400'}`}>
+                      質問は最大{cultureAnalysisEnabled ? maxCustomQuestions : MAX_TOTAL_QUESTIONS}問までです{cultureAnalysisEnabled && `（社風分析含め合計${MAX_TOTAL_QUESTIONS}問）`}
+                    </p>
+                  )}
+                </div>
               </>
             )}
           </div>

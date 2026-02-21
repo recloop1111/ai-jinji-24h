@@ -1,171 +1,42 @@
 'use client'
 
-import { useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/client'
 import { ChevronLeft as ChevronLeftIcon, Play as PlayIcon } from 'lucide-react'
+import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, ResponsiveContainer } from 'recharts'
 
-// TODO: 実データに差替え
 const DUMMY = {
-  name: '山田 太郎',
-  email: 'yamada@example.com',
-  phone: '090-1234-5678',
-  furigana: 'やまだ たろう',
-  jobType: '店舗マネージャー',
-  appliedAt: '2025-02-14 10:00',
-  status: 'second_pass',
-  memo: '',
-  // タブ1: サマリー（構造化AI面接サマリー）
   aiSummary: {
     profile: '飲食業界で5年の店長経験を持つ、数値管理と現場改善に強い実行力重視の人材。',
-    career:
-      '大学卒業後、大手飲食チェーンに入社し、入社2年目で副店長、3年目で店長に昇進。担当店舗では月間売上を前年比115%に改善し、人手不足の状況下で3ヶ月間に5名の新規採用を実現した。8名のスタッフのシフト管理・教育にも携わり、現場マネジメントの実務経験が豊富。',
-    impression:
-      '質問の意図を正確に汲み取り、具体的な数値を交えて簡潔に回答する傾向がある。特に過去の実績に関する質問では、課題→施策→結果の構造で論理的に語れており、説得力が高い。一方で、想定外の質問にはやや回答に時間がかかる場面が見られた。',
-    strengthsAndConcerns:
-      '最大の強みは、現場で培った問題解決力と数値に基づく説明力。即戦力としてマネジメント業務への適性が高い。懸念点は、3〜5年後のキャリアビジョンが漠然としており、長期定着への確信が持ちにくい点。また、チームワークに関する具体的なエピソードが少なく、協調性の実態は面接だけでは判断しきれない。',
+    career: '大学卒業後、大手飲食チェーンに入社し、入社2年目で副店長、3年目で店長に昇進。担当店舗では月間売上を前年比115%に改善し、人手不足の状況下で3ヶ月間に5名の新規採用を実現した。8名のスタッフのシフト管理・教育にも携わり、現場マネジメントの実務経験が豊富。',
+    impression: '質問の意図を正確に汲み取り、具体的な数値を交えて簡潔に回答する傾向がある。特に過去の実績に関する質問では、課題→施策→結果の構造で論理的に語れており、説得力が高い。一方で、想定外の質問にはやや回答に時間がかかる場面が見られた。',
+    strengthsAndConcerns: '最大の強みは、現場で培った問題解決力と数値に基づく説明力。即戦力としてマネジメント業務への適性が高い。懸念点は、3〜5年後のキャリアビジョンが漠然としており、長期定着への確信が持ちにくい点。また、チームワークに関する具体的なエピソードが少なく、協調性の実態は面接だけでは判断しきれない。',
   },
   recommendGrade: 'B',
-  recommendReason:
-    '実務経験とコミュニケーションが高く即戦力として期待できる。キャリアビジョンの明確化が課題。',
-  summaryScores: {
-    total: 78,
-    communication: 'A',
-    experienceMatch: 'B',
-    growthPotential: 'A',
-  },
-  // タブ2: AI レポート
-  personalityType: '実行型リーダー',
-  personalityDesc:
-    '目標達成に向けて計画的に行動し、チームを率いる力がある。決断力が高い反面、他者の意見を取り入れる柔軟性にやや欠ける場面がある。組織内ではプロジェクト推進役として機能しやすい。',
-  personalityForCompany:
-    '管理職やリーダーポジションに適性あり。ただし、チーム内の合意形成プロセスに課題が出る可能性がある。',
+  recommendReason: '実務経験とコミュニケーションが高く即戦力として期待できる。キャリアビジョンの明確化が課題。',
   radarAxis: [
-    { label: 'コミュニケーション', value: 78, comment: '質問意図の理解力が高く、簡潔で的確な回答ができている' },
-    { label: '論理的思考', value: 65, comment: '結論→理由→具体例の構成は概ねできているが、仮説構築にやや弱さがある' },
-    { label: 'カルチャーフィット', value: 80, comment: '企業の価値観・働き方への共感が具体的に語れている' },
-    { label: '仕事への意欲', value: 85, comment: '自発的にプロジェクトを推進した経験を複数語っており、意欲が高い' },
-    { label: '課題対応力', value: 58, comment: '困難な状況の質問でやや回答に詰まる場面があった' },
-    { label: '成長可能性', value: 70, comment: '過去経験からの学びはあるが、自己認識の深さにやや欠ける' },
+    { label: 'コミュニケーション', value: 78 },
+    { label: '論理的思考', value: 65 },
+    { label: '仕事意欲', value: 85 },
+    { label: 'カルチャーフィット', value: 80 },
+    { label: '課題対応力', value: 58 },
+    { label: '成長可能性', value: 70 },
   ],
-  strengths: [
-    {
-      title: '数値に基づく説明力',
-      desc: '売上やスタッフ数など具体的な数値を交えて実績を説明する力がある',
-    },
-    {
-      title: '課題解決への主体性',
-      desc: '問題に対して自ら解決策を考え実行した経験を複数持つ',
-    },
-    {
-      title: 'マネジメント経験',
-      desc: '5名以上のチームを管理した実績があり、リーダーシップがある',
-    },
-  ],
-  weaknesses: [
-    {
-      title: 'キャリアビジョンの不明確さ',
-      desc: '3〜5年後の目標について具体性が薄く、長期定着に不安がある',
-    },
-    {
-      title: 'チームワークの具体性不足',
-      desc: '協調性をアピールしているが、具体的なエピソードが少ない',
-    },
-  ],
-  // タブ3: スコア詳細
-  totalScore: 78,
-  averageScore: 72,
-  itemScores: [
-    { label: 'コミュニケーション', score: 78, max: 100, comment: '質問意図の理解力が高く、簡潔で的確な回答ができている' },
-    { label: '論理的思考', score: 65, max: 100, comment: '結論→理由→具体例の構成は概ねできているが、仮説構築にやや弱さがある' },
-    { label: 'カルチャーフィット', score: 80, max: 100, comment: '企業の価値観・働き方への共感が具体的に語れている' },
-    { label: '仕事への意欲', score: 85, max: 100, comment: '自発的にプロジェクトを推進した経験を複数語っており、意欲が高い' },
-    { label: '課題対応力', score: 58, max: 100, comment: '困難な状況の質問でやや回答に詰まる場面があった' },
-    { label: '成長可能性', score: 70, max: 100, comment: '過去経験からの学びはあるが、自己認識の深さにやや欠ける' },
-  ],
-  // タブ4: 面接会話要約
-  conversationBlocks: [
-    {
-      theme: '自己紹介・経歴',
-      grade: 'A',
-      questionSummary: 'これまでのご経歴を簡単に教えてください',
-      answerSummary:
-        '大学卒業後、飲食チェーンに入社し5年間勤務。入社2年目で副店長、3年目で店長に昇進。担当店舗の月間売上を15%向上させた実績がある。スタッフ8名のシフト管理・教育も担当。',
-      evalPoint: '具体的な数値と時系列が明確で、経歴の全体像が掴みやすい回答。',
-    },
-    {
-      theme: '志望動機',
-      grade: 'B',
-      questionSummary: 'なぜ当社に応募されたのですか',
-      answerSummary:
-        '現職での店舗運営経験を活かし、より大きな組織でマネジメントに関わりたいと考えた。御社の急成長フェーズに惹かれ、自分の経験が貢献できると感じた。',
-      evalPoint: '意欲は伝わるが、当社固有の魅力への言及が薄く、汎用的な志望動機の印象。',
-    },
-    {
-      theme: '過去の実績・成功体験',
-      grade: 'A',
-      questionSummary: '最も成果を上げた経験を教えてください',
-      answerSummary:
-        '人手不足で売上が低迷していた店舗に配属された際、採用プロセスを見直し3ヶ月で5名の採用に成功。同時にオペレーションを効率化し、売上を前年比115%に改善した。',
-      evalPoint: '課題→施策→結果の構造で語れており、再現性のある成果として評価できる。',
-    },
-    {
-      theme: '困難な状況への対応',
-      grade: 'C',
-      questionSummary: '仕事で最も困難だった経験とどう乗り越えたかを教えてください',
-      answerSummary: 'スタッフ間の人間関係のトラブルが発生し、退職者が出かけた。個別面談を実施して解決を図った。',
-      evalPoint: 'エピソードはあるが具体的な行動と結果の説明が不足しており、深掘りが必要な回答。',
-    },
-    {
-      theme: 'キャリアビジョン',
-      grade: 'C',
-      questionSummary: '3〜5年後のキャリアプランを教えてください',
-      answerSummary:
-        'マネジメントのスキルをさらに磨き、将来的にはエリアマネージャーのような立場で複数店舗を統括したい。',
-      evalPoint: '方向性は示しているが、具体的なステップや数値目標がなく、ビジョンの解像度が低い。',
-    },
-  ],
-  // タブ5: 録画・生データ
-  recordingDuration: '25:30',
-  recordingAt: '2025-02-14 14:30',
-  qaLogs: [
-    { role: 'ai', text: 'これまでのご経歴を簡単に教えてください。', time: '14:30:15' },
-    {
-      role: 'applicant',
-      text: '大学卒業後、飲食チェーンに入社し5年間勤務しました。入社2年目で副店長、3年目で店長に昇進し、担当店舗の月間売上を15%向上させました。スタッフ8名のシフト管理・教育も担当しています。',
-      time: '14:30:42',
-    },
-    { role: 'ai', text: 'なぜ当社に応募されたのですか。', time: '14:31:58' },
-    {
-      role: 'applicant',
-      text: '現職での店舗運営経験を活かし、より大きな組織でマネジメントに関わりたいと考えました。御社の急成長フェーズに惹かれ、自分の経験が貢献できると感じたためです。',
-      time: '14:32:25',
-    },
-    { role: 'ai', text: '最も成果を上げた経験を教えてください。', time: '14:33:40' },
-    {
-      role: 'applicant',
-      text: '人手不足で売上が低迷していた店舗に配属された際、採用プロセスを見直し3ヶ月で5名の採用に成功しました。同時にオペレーションを効率化し、売上を前年比115%に改善しました。',
-      time: '14:34:12',
-    },
-    { role: 'ai', text: '仕事で最も困難だった経験とどう乗り越えたかを教えてください。', time: '14:35:30' },
-    {
-      role: 'applicant',
-      text: 'スタッフ間の人間関係のトラブルが発生し、退職者が出かけたことがありました。個別面談を実施して解決を図りました。',
-      time: '14:36:05',
-    },
-    { role: 'ai', text: '3〜5年後のキャリアプランを教えてください。', time: '14:37:20' },
-    {
-      role: 'applicant',
-      text: 'マネジメントのスキルをさらに磨き、将来的にはエリアマネージャーのような立場で複数店舗を統括したいと考えています。',
-      time: '14:37:48',
-    },
+  conversationLog: [
+    { number: 1, question: 'これまでのご経歴を簡単に教えてください。', answer: '大学卒業後、大手飲食チェーンに入社し5年間勤務しております。入社2年目で副店長、3年目で店長に昇進しました。', answerDuration: '2分30秒' },
+    { number: 2, question: 'なぜ当社に応募されたのですか。', answer: '現職での店舗運営経験を活かし、より大きな組織でマネジメントに関わりたいと考えました。', answerDuration: '1分45秒' },
+    { number: 3, question: '最も成果を上げた経験を教えてください。', answer: '人手不足で売上が低迷していた店舗に配属された際、採用プロセスを見直し3ヶ月で5名の採用に成功しました。', answerDuration: '2分15秒' },
   ],
 }
 
 const STATUS_OPTIONS = [
+  { value: 'pending', label: '未対応' },
   { value: 'considering', label: '検討中' },
-  { value: 'second_pass', label: '二次通過' },
+  { value: 'second_pass', label: '二次選考' },
   { value: 'rejected', label: '不採用' },
+  { value: 'hired', label: '内定' },
 ]
 
 const RECOMMEND_LEGEND = [
@@ -175,44 +46,34 @@ const RECOMMEND_LEGEND = [
   { grade: 'D', label: '非推奨', desc: '現時点では要件を満たしていない' },
 ] as const
 
-const ANSWER_QUALITY_LEGEND = [
-  { grade: 'A', label: '優れた回答' },
-  { grade: 'B', label: '良好な回答' },
-  { grade: 'C', label: '改善の余地あり' },
-  { grade: 'D', label: '不十分な回答' },
-] as const
+type TabKey = 'summary' | 'detail' | 'conversation' | 'recording' | 'questions' | 'rawdata' | 'selection'
 
-type TabKey = 'summary' | 'report' | 'score' | 'conversation' | 'recording'
-
-
-function StatusBadge({ status }: { status: string }) {
-  const classes: Record<string, string> = {
-    considering: 'bg-amber-50 text-amber-700 border border-amber-200/80 shadow-sm',
-    second_pass: 'bg-sky-50 text-sky-700 border border-sky-200/80 shadow-sm',
-    rejected: 'bg-rose-50 text-rose-700 border border-rose-200/80 shadow-sm',
+function CurrentStatusBadge({ status }: { status: string }) {
+  const statusMap: Record<string, { label: string; className: string }> = {
+    '準備中': { label: '準備中', className: 'bg-gray-600 text-gray-100' },
+    '完了': { label: '完了', className: 'bg-emerald-600 text-white' },
+    '途中離脱': { label: '途中離脱', className: 'bg-amber-600 text-white' },
   }
-  const label = STATUS_OPTIONS.find((o) => o.value === status)?.label || status
+  const config = statusMap[status] || { label: status, className: 'bg-gray-600 text-gray-100' }
   return (
-    <span
-      className={`inline-flex px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide ${classes[status] || 'bg-slate-100 text-slate-600 border border-slate-200'}`}
-    >
-      {label}
+    <span className={`inline-flex px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide ${config.className}`}>
+      {config.label}
     </span>
   )
 }
 
 const GRADE_STYLES: Record<string, string> = {
-  A: 'bg-emerald-500 text-white shadow-md shadow-emerald-500/25',
-  B: 'bg-sky-500 text-white shadow-md shadow-sky-500/25',
-  C: 'bg-amber-500 text-white shadow-md shadow-amber-500/25',
-  D: 'bg-rose-500 text-white shadow-md shadow-rose-500/25',
+  A: 'bg-emerald-500 text-white',
+  B: 'bg-sky-500 text-white',
+  C: 'bg-amber-500 text-white',
+  D: 'bg-rose-500 text-white',
 }
 
 function GradeBadge({ grade, size = 'md' }: { grade: string; size?: 'sm' | 'md' }) {
   const isSm = size === 'sm'
   return (
     <span
-      className={`inline-flex items-center justify-center rounded-full font-bold shrink-0 ${GRADE_STYLES[grade] || 'bg-slate-500 text-white shadow-md'} ${
+      className={`inline-flex items-center justify-center rounded-full font-bold shrink-0 ${GRADE_STYLES[grade] || 'bg-gray-500 text-white'} ${
         isSm ? 'w-7 h-7 text-xs' : 'w-16 h-16 text-2xl'
       }`}
     >
@@ -221,19 +82,19 @@ function GradeBadge({ grade, size = 'md' }: { grade: string; size?: 'sm' | 'md' 
   )
 }
 
-function RecommendLegend() {
+function RecommendLegendDark() {
   return (
-    <div className="mt-5 rounded-2xl bg-slate-50 border border-slate-200/90 px-5 py-4 shadow-sm">
-      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">採用推奨度の目安</p>
+    <div className="mt-5 rounded-2xl bg-gray-800 border border-gray-700 px-5 py-4">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">採用推奨度の目安</p>
       <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {RECOMMEND_LEGEND.map(({ grade, label, desc }) => (
-          <div key={grade} className="flex items-start gap-3 rounded-xl bg-white/80 px-3 py-2.5 border border-slate-100">
+          <div key={grade} className="flex items-start gap-3 rounded-xl bg-gray-700/50 px-3 py-2.5 border border-gray-600">
             <span className={`mt-0.5 inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold shrink-0 ${GRADE_STYLES[grade]}`}>
               {grade}
             </span>
             <div className="min-w-0">
-              <dt className="text-xs font-semibold text-slate-700">{label}</dt>
-              <dd className="text-xs text-slate-500 mt-0.5 leading-snug">{desc}</dd>
+              <dt className="text-xs font-semibold text-gray-200">{label}</dt>
+              <dd className="text-xs text-gray-400 mt-0.5 leading-snug">{desc}</dd>
             </div>
           </div>
         ))}
@@ -242,45 +103,122 @@ function RecommendLegend() {
   )
 }
 
-function AnswerQualityLegend() {
-  return (
-    <div className="mb-6 rounded-2xl bg-slate-50 border border-slate-200/90 px-5 py-4 shadow-sm flex flex-wrap items-center gap-x-5 gap-y-2.5">
-      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider shrink-0">回答の質の目安</span>
-      {ANSWER_QUALITY_LEGEND.map(({ grade, label }) => (
-        <span key={grade} className="inline-flex items-center gap-2 text-xs font-medium text-slate-700">
-          <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${GRADE_STYLES[grade]}`}>
-            {grade}
-          </span>
-          {label}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-function getProgressBarColor(score: number, max: number) {
-  const pct = (score / max) * 100
-  if (pct >= 80) return 'bg-emerald-500'
-  if (pct >= 55) return 'bg-blue-500'
-  if (pct >= 30) return 'bg-amber-500'
-  return 'bg-red-500'
-}
-
-export default function ApplicantDetailPage() {
+export default function AdminApplicantDetailPage() {
   const params = useParams()
-  const id = params.id as string // TODO: 実データに差替え
+  const router = useRouter()
+  const id = params.id as string
+  const supabase = createClient()
+
   const [activeTab, setActiveTab] = useState<TabKey>('summary')
-  const [selectedStatus, setSelectedStatus] = useState(DUMMY.status)
-  const [selectionMemo, setSelectionMemo] = useState(DUMMY.memo)
+  const [applicant, setApplicant] = useState<any>(null)
+  const [interviewResult, setInterviewResult] = useState<any>(null)
+  const [cultureProfile, setCultureProfile] = useState<any>(null)
+  const [cultureAnalysisEnabled, setCultureAnalysisEnabled] = useState<boolean>(false)
+  const [companyName, setCompanyName] = useState<string>('')
+  const [loading, setLoading] = useState(true)
+
+  const [selectionStatus, setSelectionStatus] = useState<string>('pending')
+  const [selectionMemo, setSelectionMemo] = useState<string>('')
+  const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'summary', label: '概要' },
-    { key: 'report', label: 'AI レポート' },
-    { key: 'score', label: 'スコア詳細' },
-    { key: 'conversation', label: '質問別評価' },
-    { key: 'recording', label: '録画・生データ' },
+    { key: 'detail', label: '詳細評価' },
+    { key: 'conversation', label: '会話ログ' },
+    { key: 'recording', label: '録画再生' },
+    { key: 'questions', label: '質問別評価' },
+    { key: 'rawdata', label: '生データ' },
+    { key: 'selection', label: '選考管理' },
   ]
+
+  useEffect(() => {
+    async function fetchData() {
+      if (!id) {
+        setLoading(false)
+        return
+      }
+      setLoading(true)
+      try {
+        const { data: applicantData, error: applicantError } = await supabase
+          .from('applicants')
+          .select('*')
+          .eq('id', id)
+          .single()
+
+        if (applicantError) {
+          console.error('[AdminApplicantDetail] Applicant fetch error:', applicantError.message)
+          setApplicant(null)
+        } else if (applicantData) {
+          setApplicant(applicantData)
+          setSelectionStatus(applicantData.selection_status || 'pending')
+          setSelectionMemo(applicantData.selection_memo || '')
+
+          const { data: irData } = await supabase
+            .from('interview_results')
+            .select('*')
+            .eq('applicant_id', id)
+            .maybeSingle()
+          if (irData) {
+            setInterviewResult(irData)
+          }
+
+          if (applicantData.company_id) {
+            const { data: companyData } = await supabase
+              .from('companies')
+              .select('name, culture_analysis_enabled')
+              .eq('id', applicantData.company_id)
+              .maybeSingle()
+            if (companyData) {
+              setCompanyName(companyData.name || '')
+              setCultureAnalysisEnabled(companyData.culture_analysis_enabled === true)
+            }
+
+            const { data: profileData } = await supabase
+              .from('culture_profiles')
+              .select('*')
+              .eq('company_id', applicantData.company_id)
+              .limit(1)
+              .maybeSingle()
+            if (profileData) {
+              setCultureProfile(profileData)
+            }
+          }
+        }
+      } catch (err: any) {
+        console.error('[AdminApplicantDetail] Error:', err?.message || err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchData()
+  }, [id, supabase])
+
+  const handleSaveSelection = async () => {
+    if (!id) return
+    setSaving(true)
+    try {
+      const { error } = await supabase
+        .from('applicants')
+        .update({
+          selection_status: selectionStatus,
+          selection_memo: selectionMemo,
+        })
+        .eq('id', id)
+      if (error) {
+        console.error('[AdminApplicantDetail] Save error:', error.message)
+        setToast('保存に失敗しました')
+      } else {
+        setToast('保存しました')
+      }
+    } catch (err: any) {
+      console.error('[AdminApplicantDetail] Save error:', err?.message || err)
+      setToast('保存に失敗しました')
+    } finally {
+      setSaving(false)
+      setTimeout(() => setToast(''), 2500)
+    }
+  }
 
   const cx = 100
   const cy = 100
@@ -292,76 +230,67 @@ export default function ApplicantDetailPage() {
   const radarPoints = DUMMY.radarAxis.map((d, i) => getPoint(i, (d.value / 100) * maxR))
   const radarPath = radarPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-400" />
+      </div>
+    )
+  }
+
+  if (!applicant) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+        <p className="text-gray-400">応募者が見つかりませんでした</p>
+        <Link href="/admin/applicants" className="text-indigo-400 hover:underline">
+          応募者一覧に戻る
+        </Link>
+      </div>
+    )
+  }
+
   return (
     <div className="min-w-0 max-w-[100vw] pb-10 sm:pb-12">
-      <div className="rounded-2xl bg-slate-50/70 sm:bg-slate-50/50 border border-slate-200/60 p-4 sm:p-6 shadow-inner min-h-[200px]">
+      <div className="rounded-2xl bg-gray-800/50 border border-gray-700 p-4 sm:p-6 min-h-[200px]">
         <div className="space-y-6 sm:space-y-8">
           {/* ヘッダー */}
           <div>
             <Link
               href="/admin/applicants"
-              className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-indigo-600 font-medium mb-4 transition-colors rounded-lg hover:bg-white/60 px-2 py-1 -mx-2 -my-1"
+              className="inline-flex items-center gap-2 text-sm text-gray-400 hover:text-indigo-400 font-medium mb-4 transition-colors rounded-lg hover:bg-gray-700/50 px-2 py-1 -mx-2 -my-1"
             >
               <ChevronLeftIcon className="w-4 h-4 shrink-0" />
               応募者一覧に戻る
             </Link>
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-5">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
-                  <h1 className="text-xl sm:text-2xl font-bold text-slate-900 truncate tracking-tight">{DUMMY.name}</h1>
-                  <StatusBadge status={DUMMY.status} />
+                  <h1 className="text-xl sm:text-2xl font-bold text-gray-100 truncate tracking-tight">
+                    {applicant.name}
+                  </h1>
+                  <CurrentStatusBadge status={applicant.status} />
                 </div>
-                <dl className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-slate-600">
+                <p className="text-sm text-gray-400 mt-1">{companyName}</p>
+                <dl className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-gray-300">
                   <div className="flex gap-2 min-w-0">
-                    <dt className="text-slate-500 shrink-0">メール</dt>
-                    <dd className="truncate">{DUMMY.email}</dd>
+                    <dt className="text-gray-500 shrink-0">メール</dt>
+                    <dd className="truncate">{applicant.email}</dd>
                   </div>
                   <div className="flex gap-2">
-                    <dt className="text-slate-500 shrink-0">電話</dt>
-                    <dd>{DUMMY.phone}</dd>
+                    <dt className="text-gray-500 shrink-0">電話</dt>
+                    <dd>{applicant.phone}</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="text-gray-500 shrink-0">面接日時</dt>
+                    <dd>{applicant.interview_scheduled_at ? new Date(applicant.interview_scheduled_at).toLocaleString('ja-JP') : '-'}</dd>
                   </div>
                 </dl>
-              </div>
-              {/* 選考ステータス（常時表示） */}
-              <div className="w-full sm:w-72 shrink-0 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-md shadow-slate-200/50">
-                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">選考ステータス</h3>
-                <div className="space-y-3">
-                  <select
-                    value={selectedStatus}
-                    onChange={(e) => setSelectedStatus(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all"
-                  >
-                    {STATUS_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                  <textarea
-                    value={selectionMemo}
-                    onChange={(e) => setSelectionMemo(e.target.value)}
-                    rows={3}
-                    className="w-full px-3 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all resize-none"
-                    placeholder="選考メモを入力..."
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // TODO: Supabase API 実装時に差替え
-                      setToast('保存しました')
-                      setTimeout(() => setToast(''), 2500)
-                    }}
-                    className="w-full px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition-all shadow-md shadow-indigo-500/20"
-                  >
-                    保存
-                  </button>
-                </div>
               </div>
             </div>
           </div>
 
           {/* タブバー */}
-          <div className="rounded-2xl bg-white/80 border border-slate-200/80 p-1.5 shadow-sm overflow-x-auto">
+          <div className="rounded-2xl bg-gray-800 border border-gray-700 p-1.5 overflow-x-auto">
             <nav className="flex gap-1 min-w-max" role="tablist">
               {tabs.map((tab) => (
                 <button
@@ -371,8 +300,8 @@ export default function ApplicantDetailPage() {
                   onClick={() => setActiveTab(tab.key)}
                   className={`px-4 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all ${
                     activeTab === tab.key
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/25'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      ? 'bg-indigo-600 text-white'
+                      : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
                   }`}
                 >
                   {tab.label}
@@ -381,340 +310,520 @@ export default function ApplicantDetailPage() {
             </nav>
           </div>
 
-      {/* タブ1: 概要 */}
-      {activeTab === 'summary' && (
-        <div className="space-y-8">
-          <div className="rounded-2xl bg-blue-50/90 border-l-4 border-blue-500 p-6 sm:p-7 shadow-md shadow-slate-200/50 border border-blue-100/50">
-            <h2 className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-5">AI 面接分析</h2>
-            <div className="space-y-5 text-sm sm:text-base text-slate-700 leading-relaxed">
-              <section>
-                <p className="font-semibold text-gray-700 mb-1">人物像</p>
-                <p className="font-bold text-slate-800">{DUMMY.aiSummary.profile}</p>
-              </section>
-              <section>
-                <p className="font-semibold text-gray-700 mb-1.5">経歴・実績</p>
-                <p>{DUMMY.aiSummary.career}</p>
-              </section>
-              <section>
-                <p className="font-semibold text-gray-700 mb-1.5">面接での印象</p>
-                <p>{DUMMY.aiSummary.impression}</p>
-              </section>
-              <section>
-                <p className="font-semibold text-gray-700 mb-1.5">強みと懸念点</p>
-                <p>{DUMMY.aiSummary.strengthsAndConcerns}</p>
-              </section>
-            </div>
-          </div>
-          <div>
-            <div className="flex flex-col sm:flex-row sm:items-start gap-6 p-5 rounded-2xl bg-white border border-slate-200/80 shadow-md shadow-slate-200/50">
-              <span
-                className={`inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-2xl text-4xl font-bold shrink-0 ${GRADE_STYLES[DUMMY.recommendGrade]}`}
-              >
-                {DUMMY.recommendGrade}
-              </span>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-slate-900">推奨</p>
-                <p className="text-sm text-slate-600 mt-1 max-w-xl leading-relaxed">{DUMMY.recommendReason}</p>
-              </div>
-            </div>
-            <RecommendLegend />
-          </div>
-          <div className="grid grid-cols-2 gap-4 sm:gap-5">
-            <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-5 sm:p-6 hover:shadow-lg transition-shadow">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">総合スコア</p>
-              <p className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
-                {DUMMY.summaryScores.total} <span className="text-lg font-normal text-slate-500">/ 100</span>
-              </p>
-            </div>
-            <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-5 sm:p-6 hover:shadow-lg transition-shadow">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">コミュニケーション</p>
-              <p className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">{DUMMY.summaryScores.communication}</p>
-            </div>
-            <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-5 sm:p-6 hover:shadow-lg transition-shadow">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">経験マッチ度</p>
-              <p className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">{DUMMY.summaryScores.experienceMatch}</p>
-            </div>
-            <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-5 sm:p-6 hover:shadow-lg transition-shadow">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">成長ポテンシャル</p>
-              <p className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">{DUMMY.summaryScores.growthPotential}</p>
-            </div>
-          </div>
-        </div>
-      )}
+          {/* タブ1: 概要 */}
+          {activeTab === 'summary' && (
+            <div className="space-y-8">
+              {(applicant?.status === '途中離脱' || applicant?.status === '準備中') ? (
+                <div className="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center">
+                  <p className="text-gray-400 font-medium">面接が完了していないため、AI分析レポートは生成されていません</p>
+                </div>
+              ) : (
+                <>
+                  {/* AIサマリー */}
+                  <div className="rounded-2xl bg-indigo-900/30 border-l-4 border-indigo-500 p-6 sm:p-7 border border-indigo-800/50">
+                    <h2 className="text-xs font-semibold text-indigo-400 uppercase tracking-wider mb-5">AI 面接分析</h2>
+                    <div className="space-y-5 text-sm sm:text-base text-gray-300 leading-relaxed">
+                      <section>
+                        <p className="font-semibold text-gray-200 mb-1">人物像</p>
+                        <p className="font-bold text-gray-100">{DUMMY.aiSummary.profile}</p>
+                      </section>
+                      <section>
+                        <p className="font-semibold text-gray-200 mb-1.5">経歴・実績</p>
+                        <p>{DUMMY.aiSummary.career}</p>
+                      </section>
+                      <section>
+                        <p className="font-semibold text-gray-200 mb-1.5">面接での印象</p>
+                        <p>{DUMMY.aiSummary.impression}</p>
+                      </section>
+                      <section>
+                        <p className="font-semibold text-gray-200 mb-1.5">強みと懸念点</p>
+                        <p>{DUMMY.aiSummary.strengthsAndConcerns}</p>
+                      </section>
+                    </div>
+                  </div>
 
-      {/* タブ2: AI レポート */}
-      {activeTab === 'report' && (
-        <div className="space-y-8">
-          <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
-            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">パーソナリティタイプ（企業向け）</h2>
-            <p className="text-lg font-bold text-slate-900 mb-3 tracking-tight">{DUMMY.personalityType}</p>
-            <p className="text-sm text-slate-600 leading-relaxed mb-4">{DUMMY.personalityDesc}</p>
-            <p className="text-sm text-slate-700 bg-slate-50 rounded-xl p-4 border border-slate-200/80">
-              {DUMMY.personalityForCompany}
-            </p>
-          </div>
-          <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
-            <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7 shrink-0">
-              <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-5">企業向け6軸レーダーチャート</h2>
-              <div className="flex justify-center p-4 bg-slate-50/50 rounded-2xl">
-                <svg viewBox="0 0 200 200" className="w-48 h-48 sm:w-56 sm:h-56 drop-shadow-sm">
-                  <defs>
-                    <linearGradient id="radarFill" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.35" />
-                      <stop offset="100%" stopColor="#6366f1" stopOpacity="0.35" />
-                    </linearGradient>
-                  </defs>
-                  {[1, 2, 3, 4, 5].map((l) => {
-                    const r = (l / 5) * maxR
-                    const pts = [0, 1, 2, 3, 4, 5].map((i) => getPoint(i, r))
-                    const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
-                    return (
-                      <path
-                        key={l}
-                        d={path}
-                        fill="none"
-                        stroke="rgb(148 163 184 / 0.5)"
-                        strokeWidth="1.2"
-                      />
-                    )
-                  })}
-                  {[0, 1, 2, 3, 4, 5].map((i) => {
-                    const p = getPoint(i, maxR)
-                    return (
-                      <line
-                        key={i}
-                        x1={cx}
-                        y1={cy}
-                        x2={p.x}
-                        y2={p.y}
-                        stroke="rgb(148 163 184 / 0.5)"
-                        strokeWidth="1.2"
-                      />
-                    )
-                  })}
-                  <path d={radarPath} fill="url(#radarFill)" stroke="#0ea5e9" strokeWidth="2.5" />
-                  {DUMMY.radarAxis.map((d, i) => {
-                    const p = getPoint(i, maxR + 14)
-                    return (
-                      <text
-                        key={i}
-                        x={p.x}
-                        y={p.y}
-                        textAnchor="middle"
-                        fill="#475569"
-                        fontSize="11"
-                        fontWeight="600"
-                      >
-                        {d.label}
-                      </text>
-                    )
-                  })}
-                </svg>
-              </div>
-            </div>
-            <div className="flex-1 min-w-0 space-y-4">
-              {DUMMY.radarAxis.map((d, i) => (
-                <div key={i} className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-4 hover:shadow-lg transition-shadow">
-                  <div className="flex justify-between items-baseline mb-1.5">
-                    <span className="text-sm font-medium text-slate-900">{d.label}</span>
-                    <span className="text-sm font-bold text-slate-700 tabular-nums">{d.value}</span>
-                  </div>
-                  <p className="text-xs text-slate-500 leading-relaxed">{d.comment}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
-            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">強み</h2>
-            <ul className="space-y-5">
-              {DUMMY.strengths.map((s, i) => (
-                <li key={i} className="pl-4 border-l-2 border-emerald-200">
-                  <p className="text-sm font-semibold text-slate-900">{s.title}</p>
-                  <p className="text-sm text-slate-600 mt-1 leading-relaxed">{s.desc}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
-            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">弱み・改善点</h2>
-            <p className="text-xs text-slate-500 mb-4">応募者には見せない企業専用の情報</p>
-            <ul className="space-y-5">
-              {DUMMY.weaknesses.map((w, i) => (
-                <li key={i} className="pl-4 border-l-2 border-amber-200">
-                  <p className="text-sm font-semibold text-slate-900">{w.title}</p>
-                  <p className="text-sm text-slate-600 mt-1 leading-relaxed">{w.desc}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
-
-      {/* タブ3: スコア詳細 */}
-      {activeTab === 'score' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 sm:p-8">
-            <p className="text-sm text-gray-500 font-medium tracking-wide uppercase text-center mb-4">総合スコア</p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-8">
-              <div className="relative shrink-0">
-                <svg viewBox="0 0 120 120" className="w-[120px] h-[120px] -rotate-90">
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="54"
-                    fill="none"
-                    stroke="#e5e7eb"
-                    strokeWidth="6"
-                  />
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="54"
-                    fill="none"
-                    stroke="#6366f1"
-                    strokeWidth="6"
-                    strokeLinecap="round"
-                    strokeDasharray={2 * Math.PI * 54}
-                    strokeDashoffset={2 * Math.PI * 54 * (1 - DUMMY.totalScore / 100)}
-                  />
-                </svg>
-                <span className="absolute inset-0 flex items-center justify-center text-2xl font-extrabold text-gray-900">
-                  {DUMMY.totalScore}
-                </span>
-              </div>
-              <div className="flex flex-col items-center sm:items-start gap-4">
-                <p className="text-6xl font-extrabold text-gray-900 tracking-tight">
-                  {DUMMY.totalScore} <span className="text-2xl text-gray-400 font-normal">/ 100</span>
-                </p>
-                <div className="w-full max-w-[200px]">
-                  <div className="h-2 bg-gray-200 rounded-full relative">
-                    <span
-                      className="absolute top-1/2 w-2.5 h-2.5 -translate-y-1/2 -translate-x-1/2 rounded-full bg-gray-400"
-                      style={{ left: `${DUMMY.averageScore}%` }}
-                    />
-                    <span
-                      className="absolute top-1/2 w-2.5 h-2.5 -translate-y-1/2 -translate-x-1/2 rounded-full bg-indigo-500"
-                      style={{ left: `${DUMMY.totalScore}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between mt-2 text-xs text-gray-500">
-                    <span>同職種平均 {DUMMY.averageScore}点</span>
-                    <span>あなた {DUMMY.totalScore}点</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-            <h2 className="text-lg font-bold text-gray-800 mb-6">評価項目内訳</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              {DUMMY.itemScores.map((item, i) => (
-                <div key={i}>
-                  <div className="flex justify-between items-baseline mb-1">
-                    <span className="text-sm font-semibold text-gray-700">{item.label}</span>
-                    <span>
-                      <span className="text-indigo-600 font-bold tabular-nums">{item.score}</span>
-                      <span className="text-gray-400">/{item.max}</span>
-                    </span>
-                  </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${getProgressBarColor(item.score, item.max)}`}
-                      style={{ width: `${(item.score / item.max) * 100}%` }}
-                    />
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">{item.comment}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* タブ4: 質問別評価 */}
-      {activeTab === 'conversation' && (
-        <div>
-          <AnswerQualityLegend />
-          <div className="space-y-6">
-            {DUMMY.conversationBlocks.map((block, i) => (
-              <div
-                key={i}
-                className="bg-white rounded-2xl shadow-lg shadow-slate-200/60 border border-slate-200/80 overflow-hidden hover:shadow-xl transition-shadow"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 p-6 sm:p-7 bg-slate-50/50 border-b border-slate-200/80">
-                  <h3 className="text-base sm:text-lg font-bold text-slate-900">{block.theme}</h3>
-                  <div className="flex items-center shrink-0">
-                    <GradeBadge grade={block.grade} size="sm" />
-                  </div>
-                </div>
-                <div className="p-6 sm:p-7 space-y-5">
+                  {/* 推薦度バッジ */}
                   <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">質問要旨</p>
-                    <p className="text-sm text-slate-700 leading-relaxed">{block.questionSummary}</p>
+                    <div className="flex flex-col sm:flex-row sm:items-start gap-6 p-5 rounded-2xl bg-gray-800 border border-gray-700">
+                      <span className={`inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-2xl text-4xl font-bold shrink-0 ${GRADE_STYLES[interviewResult?.detail_json?.recommendation_rank || DUMMY.recommendGrade]}`}>
+                        {interviewResult?.detail_json?.recommendation_rank || DUMMY.recommendGrade}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-100">推奨</p>
+                        <p className="text-sm text-gray-400 mt-1 max-w-xl leading-relaxed">{DUMMY.recommendReason}</p>
+                        {interviewResult?.total_score != null && (
+                          <div className="mt-4 pt-4 border-t border-gray-700">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
+                              <div>
+                                <span className="text-sm text-gray-500">AI面接スコア: </span>
+                                <span className="text-lg font-semibold text-gray-100">{interviewResult.total_score}</span>
+                                <span className="text-sm text-gray-500"> / 100</span>
+                              </div>
+                              <div>
+                                <span className="text-sm text-gray-500">カルチャーフィット: </span>
+                                {interviewResult?.culture_fit_score != null ? (
+                                  <span className="text-lg font-semibold text-gray-100">{interviewResult.culture_fit_score}%</span>
+                                ) : (
+                                  <span className="text-gray-500">-（社風分析未設定）</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <RecommendLegendDark />
                   </div>
-                  <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">回答要約</p>
-                    <p className="text-sm text-slate-800 leading-relaxed bg-slate-50/80 rounded-xl p-4 border border-slate-100">
-                      {block.answerSummary}
-                    </p>
-                  </div>
-                  <div className="pt-2 border-t border-slate-100">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">評価ポイント</p>
-                    <p className="text-sm text-slate-600 leading-relaxed">{block.evalPoint}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      {/* タブ5: 録画・生データ */}
-      {activeTab === 'recording' && (
-        <div className="space-y-8">
-          <div>
-            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">面接録画</h2>
-            <div className="aspect-video bg-slate-900 rounded-2xl flex items-center justify-center overflow-hidden shadow-xl border border-slate-700/50">
-              {/* TODO: Cloudflare R2 から動画URLを取得して再生 */}
-              <button
-                type="button"
-                className="w-20 h-20 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white transition-all focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-slate-900"
-                aria-label="再生"
-              >
-                <PlayIcon className="w-10 h-10 ml-1" />
-              </button>
+                  {/* レーダーチャート */}
+                  <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
+                    <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 sm:p-7 shrink-0">
+                      <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-5">6軸レーダーチャート</h2>
+                      <div className="flex justify-center p-4 bg-gray-900/50 rounded-2xl">
+                        <svg viewBox="0 0 200 200" className="w-48 h-48 sm:w-56 sm:h-56">
+                          <defs>
+                            <linearGradient id="radarFillAdmin" x1="0%" y1="0%" x2="100%" y2="100%">
+                              <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.35" />
+                              <stop offset="100%" stopColor="#6366f1" stopOpacity="0.35" />
+                            </linearGradient>
+                          </defs>
+                          {[1, 2, 3, 4, 5].map((l) => {
+                            const r = (l / 5) * maxR
+                            const pts = [0, 1, 2, 3, 4, 5].map((i) => getPoint(i, r))
+                            const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
+                            return <path key={l} d={path} fill="none" stroke="#4B5563" strokeWidth="1.2" />
+                          })}
+                          {[0, 1, 2, 3, 4, 5].map((i) => {
+                            const p = getPoint(i, maxR)
+                            return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="#4B5563" strokeWidth="1.2" />
+                          })}
+                          <path d={radarPath} fill="url(#radarFillAdmin)" stroke="#0ea5e9" strokeWidth="2.5" />
+                          {DUMMY.radarAxis.map((d, i) => {
+                            const p = getPoint(i, maxR + 14)
+                            return (
+                              <text key={i} x={p.x} y={p.y} textAnchor="middle" fill="#D1D5DB" fontSize="11" fontWeight="600">
+                                {d.label}
+                              </text>
+                            )
+                          })}
+                        </svg>
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0 space-y-4">
+                      {DUMMY.radarAxis.map((d, i) => (
+                        <div key={i} className="bg-gray-800 rounded-2xl border border-gray-700 p-4">
+                          <div className="flex justify-between items-baseline mb-1.5">
+                            <span className="text-sm font-medium text-gray-200">{d.label}</span>
+                            <span className="text-sm font-bold text-gray-100 tabular-nums">{d.value}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
-            <p className="mt-4 text-sm text-slate-600">録画時間: {DUMMY.recordingDuration}</p>
-            <p className="text-sm text-slate-600">録画日時: {DUMMY.recordingAt}</p>
-          </div>
-          <div>
-            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">全文 Q&A ログ</h2>
-            <div className="space-y-4">
-              {DUMMY.qaLogs.map((log, i) => (
-                <div
-                  key={i}
-                  className={`flex ${log.role === 'ai' ? 'justify-start' : 'justify-end'}`}
-                >
-                  <div
-                    className={`max-w-[90%] sm:max-w-[85%] rounded-2xl p-4 text-sm shadow-md ${
-                      log.role === 'ai'
-                        ? 'bg-slate-100 text-slate-900 border border-slate-200/80'
-                        : 'bg-sky-50 text-slate-900 border border-sky-200/80'
-                    }`}
+          )}
+
+          {/* タブ2: 詳細評価 */}
+          {activeTab === 'detail' && (
+            <div className="space-y-6">
+              {(applicant?.status === '途中離脱' || applicant?.status === '準備中') ? (
+                <div className="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center">
+                  <p className="text-gray-400 font-medium">面接が完了していないため、詳細評価は生成されていません</p>
+                </div>
+              ) : (
+                <>
+                  {/* セクション1: AI面接評価 */}
+                  <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
+                    <div className="p-6 sm:p-7">
+                      <h3 className="text-base font-bold text-gray-100 mb-6">AI面接評価</h3>
+                      
+                      {interviewResult?.total_score != null && (
+                        <div className="mb-6">
+                          <p className="text-sm text-gray-500 mb-1">総合スコア</p>
+                          <p className="text-3xl font-bold text-gray-100">
+                            {interviewResult.total_score}<span className="text-lg font-normal text-gray-500"> / 100</span>
+                          </p>
+                        </div>
+                      )}
+
+                      {interviewResult?.detail_json?.recommendation_rank && (
+                        <div className="mb-6">
+                          <p className="text-sm text-gray-500 mb-1">推薦度</p>
+                          <p className="text-lg font-semibold text-gray-100">{interviewResult.detail_json.recommendation_rank}</p>
+                        </div>
+                      )}
+
+                      {interviewResult?.personality_type && (
+                        <div className="mb-6">
+                          <p className="text-sm text-gray-500 mb-2">性格タイプ</p>
+                          <span className="inline-block px-3 py-1.5 text-sm font-medium text-indigo-300 bg-indigo-900/50 border border-indigo-700 rounded-full">
+                            {interviewResult.personality_type}
+                          </span>
+                        </div>
+                      )}
+
+                      {interviewResult?.personality_description && (
+                        <div className="mb-6">
+                          <p className="text-sm text-gray-500 mb-1">性格説明</p>
+                          <p className="text-sm text-gray-400 leading-relaxed">{interviewResult.personality_description}</p>
+                        </div>
+                      )}
+
+                      {interviewResult?.strengths && Array.isArray(interviewResult.strengths) && interviewResult.strengths.length > 0 && (
+                        <div className="mb-6">
+                          <p className="text-sm text-gray-500 mb-2">強み</p>
+                          <ul className="list-disc list-inside space-y-1">
+                            {interviewResult.strengths.map((s: string, idx: number) => (
+                              <li key={idx} className="text-sm text-gray-300">{s}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {interviewResult?.improvement_points && Array.isArray(interviewResult.improvement_points) && interviewResult.improvement_points.length > 0 && (
+                        <div className="mb-6">
+                          <p className="text-sm text-gray-500 mb-2">改善点</p>
+                          <ul className="list-disc list-inside space-y-1">
+                            {interviewResult.improvement_points.map((p: string, idx: number) => (
+                              <li key={idx} className="text-sm text-gray-300">{p}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {interviewResult?.summary_text && (
+                        <div className="mb-6">
+                          <p className="text-sm text-gray-500 mb-2">総合所見</p>
+                          <div className="bg-gray-900 rounded-lg p-4 border border-gray-700">
+                            <p className="text-sm text-gray-300 leading-relaxed">{interviewResult.summary_text}</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {interviewResult?.feedback_text && (
+                        <div>
+                          <p className="text-sm text-gray-500 mb-2">フィードバック</p>
+                          <p className="text-sm text-gray-300 leading-relaxed">{interviewResult.feedback_text}</p>
+                        </div>
+                      )}
+
+                      {!interviewResult?.total_score && !interviewResult?.detail_json?.recommendation_rank && !interviewResult?.personality_type && (
+                        <p className="text-sm text-gray-500">AI面接評価データがありません</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <hr className="my-8 border-gray-700" />
+
+                  {/* セクション2: カルチャーフィット詳細分析セクション */}
+                  {cultureAnalysisEnabled && interviewResult?.culture_fit_score != null && interviewResult?.big_five_scores && cultureProfile && applicant?.status === '完了' && (
+                    <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
+                      <div className="p-6 sm:p-7">
+                        <h3 className="text-base font-bold text-gray-100 mb-1">カルチャーフィット詳細分析</h3>
+                        <p className="text-xs text-gray-500 mb-6">
+                          BIG FIVE性格特性理論（Goldberg, 1990）およびPerson-Organization Fit理論（Chatman, 1989）に基づく分析
+                        </p>
+                        
+                        {/* マッチング度 */}
+                        <div className="mb-8">
+                          <p className="text-3xl font-bold text-gray-100 mb-2">{interviewResult.culture_fit_score}%</p>
+                          <div className="relative">
+                            <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all bg-gradient-to-r ${
+                                  interviewResult.culture_fit_score >= 80 ? 'from-green-400 to-green-500' :
+                                  interviewResult.culture_fit_score >= 70 ? 'from-blue-400 to-blue-500' :
+                                  interviewResult.culture_fit_score >= 50 ? 'from-yellow-400 to-yellow-500' :
+                                  'from-red-400 to-red-500'
+                                }`}
+                                style={{ width: `${interviewResult.culture_fit_score}%` }}
+                              />
+                            </div>
+                            <div className="absolute top-0 left-[50%] h-3 w-px bg-gray-500" />
+                            <div className="absolute top-0 left-[70%] h-3 w-px bg-gray-500" />
+                            <div className="absolute top-0 left-[80%] h-3 w-px bg-gray-500" />
+                            <div className="flex justify-between text-[10px] text-gray-500 mt-1 px-0.5">
+                              <span>0%</span>
+                              <span style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>50%</span>
+                              <span style={{ position: 'absolute', left: '70%', transform: 'translateX(-50%)' }}>70%</span>
+                              <span style={{ position: 'absolute', left: '80%', transform: 'translateX(-50%)' }}>80%</span>
+                              <span>100%</span>
+                            </div>
+                          </div>
+                          <p className="text-sm text-gray-400 mt-3">
+                            {interviewResult.culture_fit_score >= 80 ? '非常に高いマッチング' :
+                             interviewResult.culture_fit_score >= 70 ? '良好なマッチング' :
+                             interviewResult.culture_fit_score >= 50 ? '中程度のマッチング' : 'マッチングに課題あり'}
+                          </p>
+                        </div>
+
+                        {/* BIG FIVE 比較レーダーチャート */}
+                        <div className="mb-8">
+                          <div className="h-72">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <RadarChart data={[
+                                { subject: '開放性', applicant: interviewResult.big_five_scores.openness, company: cultureProfile.avg_openness },
+                                { subject: '誠実性', applicant: interviewResult.big_five_scores.conscientiousness, company: cultureProfile.avg_conscientiousness },
+                                { subject: '外向性', applicant: interviewResult.big_five_scores.extraversion, company: cultureProfile.avg_extraversion },
+                                { subject: '協調性', applicant: interviewResult.big_five_scores.agreeableness, company: cultureProfile.avg_agreeableness },
+                                { subject: '情緒安定性', applicant: 10 - interviewResult.big_five_scores.neuroticism, company: 10 - cultureProfile.avg_neuroticism },
+                              ]}>
+                                <PolarGrid stroke="#4B5563" />
+                                <PolarAngleAxis dataKey="subject" tick={{ fill: '#D1D5DB', fontSize: 12 }} />
+                                <PolarRadiusAxis angle={90} domain={[0, 10]} tick={{ fill: '#6B7280', fontSize: 10 }} />
+                                <Radar name="応募者" dataKey="applicant" stroke="#2563eb" fill="#2563eb" fillOpacity={0.15} strokeWidth={2} />
+                                <Radar name={`企業平均（${cultureProfile.department || '全社'}/${cultureProfile.employment_type || '全職種'}）`} dataKey="company" stroke="#6B7280" fill="#6B7280" fillOpacity={0.05} strokeDasharray="5 5" strokeWidth={2} />
+                                <Legend wrapperStyle={{ fontSize: 11 }} />
+                              </RadarChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+
+                        {/* 因子別詳細テーブル */}
+                        <div className="mb-8">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm border border-gray-700 rounded-lg overflow-hidden">
+                              <thead>
+                                <tr className="bg-gray-900 border-b border-gray-700">
+                                  <th className="py-2.5 px-4 text-left font-medium text-gray-400">因子名</th>
+                                  <th className="py-2.5 px-4 text-center font-medium text-gray-400">応募者</th>
+                                  <th className="py-2.5 px-4 text-center font-medium text-gray-400">企業平均</th>
+                                  <th className="py-2.5 px-4 text-center font-medium text-gray-400">差異</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-700">
+                                {[
+                                  { label: '開放性', key: 'openness', avgKey: 'avg_openness' },
+                                  { label: '誠実性', key: 'conscientiousness', avgKey: 'avg_conscientiousness' },
+                                  { label: '外向性', key: 'extraversion', avgKey: 'avg_extraversion' },
+                                  { label: '協調性', key: 'agreeableness', avgKey: 'avg_agreeableness' },
+                                  { label: '情緒安定性', key: 'neuroticism', avgKey: 'avg_neuroticism', invert: true },
+                                ].map((factor: any) => {
+                                  const applicantValue = factor.invert 
+                                    ? (10 - interviewResult.big_five_scores[factor.key]).toFixed(1)
+                                    : interviewResult.big_five_scores[factor.key].toFixed(1)
+                                  const companyValue = factor.invert
+                                    ? (10 - cultureProfile[factor.avgKey]).toFixed(1)
+                                    : cultureProfile[factor.avgKey].toFixed(1)
+                                  const diff = (Number(applicantValue) - Number(companyValue)).toFixed(1)
+                                  const diffNum = Number(diff)
+                                  const absDiff = Math.abs(diffNum)
+                                  const diffStyle = absDiff >= 1.0 ? 'text-red-400 font-bold' :
+                                                    absDiff >= 0.5 ? 'text-yellow-400 font-medium' : 'text-gray-300'
+                                  return (
+                                    <tr key={factor.key}>
+                                      <td className="py-2.5 px-4 text-gray-300">{factor.label}</td>
+                                      <td className="py-2.5 px-4 text-center text-gray-100">{applicantValue}</td>
+                                      <td className="py-2.5 px-4 text-center text-gray-400">{companyValue}</td>
+                                      <td className={`py-2.5 px-4 text-center ${diffStyle}`}>
+                                        {diffNum > 0 ? '+' : ''}{diffNum === 0 ? '±0.0' : diff}
+                                      </td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        {/* 総合所見 */}
+                        {interviewResult.culture_fit_detail?.summary && (
+                          <div className="mb-6">
+                            <p className="text-sm text-gray-300 leading-relaxed bg-gray-900 rounded-lg p-4 border border-gray-700">
+                              {interviewResult.culture_fit_detail.summary}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* 注記 */}
+                        <p className="text-xs text-gray-500">
+                          ※ 本分析はBIG FIVE性格特性理論（Goldberg, 1990）およびPerson-Organization Fit理論（Chatman, 1989）に基づく参考指標です。最終的な採用判断は面接内容と合わせて総合的にご判断ください。
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* タブ3: 会話ログ */}
+          {activeTab === 'conversation' && (
+            <div className="space-y-6">
+              {applicant?.status === '準備中' ? (
+                <div className="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center">
+                  <p className="text-gray-400 font-medium">面接がまだ開始されていません</p>
+                </div>
+              ) : DUMMY.conversationLog.length === 0 ? (
+                <div className="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center">
+                  <p className="text-gray-400 font-medium">会話ログデータがありません</p>
+                </div>
+              ) : (
+                DUMMY.conversationLog.map((log, i) => (
+                  <div key={i} className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
+                    <div className="p-6 sm:p-7 border-b border-gray-700 bg-gray-900/50">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold text-gray-100">質問 {log.number}</span>
+                        <span className="text-xs text-gray-500">{log.answerDuration}</span>
+                      </div>
+                    </div>
+                    <div className="p-6 sm:p-7 space-y-4">
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">質問</p>
+                        <p className="text-sm text-gray-300 leading-relaxed">{log.question}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">回答</p>
+                        <p className="text-sm text-gray-200 leading-relaxed bg-gray-900/50 rounded-xl p-4 border border-gray-700">
+                          {log.answer}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* タブ4: 録画再生 */}
+          {activeTab === 'recording' && (
+            <div className="space-y-8">
+              <div>
+                <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">面接録画</h2>
+                <div className="aspect-video bg-gray-900 rounded-2xl flex items-center justify-center overflow-hidden border border-gray-700">
+                  <button
+                    type="button"
+                    className="w-20 h-20 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white transition-all focus:outline-none focus:ring-2 focus:ring-white/50"
+                    aria-label="再生"
                   >
-                    <p className="text-xs text-slate-500 mb-1.5 tabular-nums">{log.time} — {log.role === 'ai' ? 'AI' : '応募者'}</p>
-                    <p className="whitespace-pre-wrap leading-relaxed">{log.text}</p>
+                    <PlayIcon className="w-10 h-10 ml-1" />
+                  </button>
+                </div>
+                <p className="mt-4 text-sm text-gray-400">録画データがありません</p>
+              </div>
+            </div>
+          )}
+
+          {/* タブ5: 質問別評価（運営専用） */}
+          {activeTab === 'questions' && (
+            <div className="space-y-6">
+              {interviewResult?.detail_json?.questions && Array.isArray(interviewResult.detail_json.questions) && interviewResult.detail_json.questions.length > 0 ? (
+                interviewResult.detail_json.questions.map((q: any, i: number) => (
+                  <div key={i} className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
+                    <div className="p-6 sm:p-7 border-b border-gray-700 bg-gray-900/50">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold text-gray-100">質問 {i + 1}</span>
+                        {q.score != null && (
+                          <span className="text-sm font-bold text-indigo-400">{q.score}点</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="p-6 sm:p-7 space-y-4">
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">質問内容</p>
+                        <p className="text-sm text-gray-300 leading-relaxed">{q.question || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">回答</p>
+                        <p className="text-sm text-gray-200 leading-relaxed bg-gray-900/50 rounded-xl p-4 border border-gray-700">
+                          {q.answer || '-'}
+                        </p>
+                      </div>
+                      {q.evaluation && (
+                        <div>
+                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">評価コメント</p>
+                          <p className="text-sm text-gray-400 leading-relaxed">{q.evaluation}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center">
+                  <p className="text-gray-400 font-medium">質問別評価データがありません</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* タブ6: 生データ（運営専用） */}
+          {activeTab === 'rawdata' && (
+            <div className="space-y-6">
+              <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
+                <div className="p-6 sm:p-7">
+                  <h3 className="text-sm font-bold text-gray-100 mb-4">interview_results 全カラム</h3>
+                  {interviewResult ? (
+                    <pre className="bg-gray-900 text-green-400 p-4 rounded overflow-auto text-xs max-h-[600px]">
+                      {JSON.stringify(interviewResult, null, 2)}
+                    </pre>
+                  ) : (
+                    <p className="text-gray-500 text-sm">interview_results データがありません</p>
+                  )}
+                </div>
+              </div>
+              <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
+                <div className="p-6 sm:p-7">
+                  <h3 className="text-sm font-bold text-gray-100 mb-4">applicants 全カラム</h3>
+                  <pre className="bg-gray-900 text-green-400 p-4 rounded overflow-auto text-xs max-h-[600px]">
+                    {JSON.stringify(applicant, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* タブ7: 選考管理（運営専用） */}
+          {activeTab === 'selection' && (
+            <div className="space-y-6">
+              <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
+                <div className="p-6 sm:p-7">
+                  <h3 className="text-sm font-bold text-gray-100 mb-6">選考ステータス管理</h3>
+                  <div className="space-y-5">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-400 mb-2">選考ステータス</label>
+                      <select
+                        value={selectionStatus}
+                        onChange={(e) => setSelectionStatus(e.target.value)}
+                        className="w-full max-w-xs px-3 py-2.5 border border-gray-600 bg-gray-900 text-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all"
+                      >
+                        {STATUS_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-400 mb-2">選考メモ</label>
+                      <textarea
+                        value={selectionMemo}
+                        onChange={(e) => setSelectionMemo(e.target.value)}
+                        rows={5}
+                        className="w-full px-3 py-2.5 border border-gray-600 bg-gray-900 text-gray-100 placeholder-gray-500 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all resize-none"
+                        placeholder="選考メモを入力..."
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSaveSelection}
+                      disabled={saving}
+                      className="px-6 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-800 transition-all disabled:opacity-50"
+                    >
+                      {saving ? '保存中...' : '保存'}
+                    </button>
                   </div>
                 </div>
-              ))}
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          )}
         </div>
       </div>
+
+      {/* トースト */}
       {toast && (
-        <div className="fixed bottom-6 right-6 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium z-50 animate-fade-in">
+        <div className={`fixed bottom-6 right-6 px-5 py-3 rounded-xl shadow-lg text-sm font-medium z-50 animate-fade-in ${
+          toast === '保存しました' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+        }`}>
           {toast}
         </div>
       )}

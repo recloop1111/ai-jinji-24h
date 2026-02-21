@@ -1,17 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-
-// Supabaseから取得できない場合のダミーデータ
-const dummyCompany = {
-  id: 'dummy-company-id',
-  name: '株式会社サンプル',
-  logo_url: null,
-  is_suspended: false,
-}
-// TODO: Phase 4 - 本番ではダミーデータを削除
 
 // TODO: AIの分析結果からタイプを判定
 const PERSONALITY_TYPE = {
@@ -110,18 +101,89 @@ export default function CompletePage() {
   const [rating, setRating] = useState(0)
   const [hoverRating, setHoverRating] = useState(0)
   const [submitted, setSubmitted] = useState(false)
+  const [interviewId, setInterviewId] = useState<string | null>(null)
+
+  useEffect(() => {
+    // sessionStorageからinterview_idを取得、なければinterviewsテーブルから最新のものを取得
+    async function initialize() {
+      const storedInterviewId = sessionStorage.getItem(`interview_${slug}_interview_id`)
+      if (storedInterviewId) {
+        setInterviewId(storedInterviewId)
+        return storedInterviewId
+      } else {
+        // sessionStorageにない場合、applicant_idから最新のinterviewを取得
+        const applicantId = sessionStorage.getItem(`interview_${slug}_applicant_id`)
+        if (applicantId) {
+          const { data, error } = await supabase
+            .from('interviews')
+            .select('id')
+            .eq('applicant_id', applicantId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single()
+
+          if (!error && data) {
+            setInterviewId(data.id)
+            sessionStorage.setItem(`interview_${slug}_interview_id`, data.id)
+            return data.id
+          }
+        }
+      }
+      return null
+    }
+
+    initialize().then((resolvedInterviewId) => {
+      if (resolvedInterviewId) {
+        // 面接結果をinterview_resultsテーブルに保存
+        saveInterviewResults(resolvedInterviewId)
+      }
+    })
+  }, [slug])
+
+  async function saveInterviewResults(currentInterviewId: string) {
+    try {
+      // TODO: OpenAI GPT-4oでレポート生成
+      // 現在はダミーデータを使用
+      const { error } = await supabase
+        .from('interview_results')
+        .upsert({
+          interview_id: currentInterviewId,
+          total_score: 85, // ダミー値
+          feedback_text: STRENGTHS.map((s) => `${s.title}: ${s.description}`).join('\n'),
+          personality_type: PERSONALITY_TYPE.name,
+          strengths: STRENGTHS,
+          evaluation_axes: RADAR_DATA,
+        }, {
+          onConflict: 'interview_id',
+        })
+
+      if (error) {
+        console.error('[CompletePage] 面接結果保存エラー:', error)
+      }
+    } catch (error) {
+      console.error('[CompletePage] 面接結果保存例外:', error)
+    }
+  }
 
   async function handleSubmitRating() {
     if (rating === 0) return
     const applicantId = sessionStorage.getItem(`interview_${slug}_applicant_id`)
     if (!applicantId) return
     try {
-      await supabase.from('applicants').update({ satisfaction_rating: rating }).eq('id', applicantId)
+      const { error } = await supabase
+        .from('applicants')
+        .update({ satisfaction_rating: rating })
+        .eq('id', applicantId)
+
+      if (error) {
+        console.error('[CompletePage] 満足度評価保存エラー:', error)
+        return
+      }
+
+      setSubmitted(true)
     } catch (error) {
-      // エラー時も送信完了として扱う（ダミーデータの場合）
-      // TODO: Phase 4 - Supabase保存成功時のみ送信完了とするように変更
+      console.error('[CompletePage] 満足度評価保存例外:', error)
     }
-    setSubmitted(true)
   }
 
   const cx = 100
