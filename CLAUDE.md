@@ -98,7 +98,7 @@ communication / logical_thinking / initiative / desire / stress_tolerance / inte
 
 コード修正完了:
 - types/database.ts: PLAN_CONFIG(light/standard/pro), 料金, グレード, 評価軸キー, dataRetentionDays:180, isDemo
-- scoreToGrade: 5段階化済み（ただし2箇所に重複定義あり、バッジ色分けがD/E未対応）
+- scoreToGrade: lib/utils/scoreToGrade.tsに共通化済み（5段階、gradeColor対応）
 - プランUI: 6ファイル32箇所修正済み
 - CSVエクスポート: プラン判定修正済み
 - form/page.tsx: console.log削除, is_demo対応
@@ -115,7 +115,7 @@ openai, twilio, @aws-sdk/client-s3, idb
 - P-06: csvDownload仕様確認
 - P-07: admin/applicantsのURL構造統一
 - P-08: admin/question-bankの空ファイル処理
-- P-09: HTTPセキュリティヘッダー
+- P-09: HTTPセキュリティヘッダー ✅完了
 - P-10: 未導入パッケージ追加
 - P-11: ドメイン・メール・DPA等
 - P-12: camelCase/snake_case変換レイヤー
