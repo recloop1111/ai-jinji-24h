@@ -1,18 +1,18 @@
 // snake_case <-> camelCase converter
 
-function snakeToCamel(str) { return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase()) }
-function camelToSnake(str) { return str.replace(/[A-Z]/g, c => "_" + c.toLowerCase()) }
+function snakeToCamel(str: string) { return str.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase()) }
+function camelToSnake(str: string) { return str.replace(/[A-Z]/g, (c: string) => "_" + c.toLowerCase()) }
 
-export function toCamel(obj) {
-  const result = {}
+export function toCamel(obj: Record<string, unknown>) {
+  const result: Record<string, unknown> = {}
   for (const key of Object.keys(obj)) { result[snakeToCamel(key)] = obj[key] }
   return result
 }
 
-export function toSnake(obj) {
-  const result = {}
+export function toSnake(obj: Record<string, unknown>) {
+  const result: Record<string, unknown> = {}
   for (const key of Object.keys(obj)) { result[camelToSnake(key)] = obj[key] }
   return result
 }
 
-export function toCamelArray(arr) { return arr.map(item => toCamel(item)) }
+export function toCamelArray(arr: Record<string, unknown>[]) { return arr.map(item => toCamel(item)) }
