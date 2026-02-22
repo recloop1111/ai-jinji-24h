@@ -128,3 +128,23 @@ openai, twilio, @aws-sdk/client-s3, idb
 - RLSポリシーを必ず考慮する
 - 環境変数は .env.local で管理
 - console.log/console.errorは本番コードに残さない
+
+---
+
+## Workflow Orchestration
+- 大きなタスクは必ずサブタスクに分割し、1つずつ完了・検証してから次へ進む
+- TodoWriteツールでタスク管理し、完了時にステータスを更新する
+- 「完了」と言う前に必ず型チェック・動作確認を実施する
+
+## Subagent Strategy
+- 重い調査・リファクタ・テストはサブエージェントに委任する
+- メインタスクの流れを止めない
+
+## Self-Improvement Loop
+- 失敗やミスはtasks/lessons.mdに記録し、同じミスを繰り返さない
+- 新しいパターンを発見したら即座に記録する
+
+## Core Principles
+- コードはエレガントに。冗長なコピペは許容しない
+- バグを見つけたら自律的に修正し、根本原因を特定する
+- 推測で進めず、必ずファイルを読んで事実を確認する
