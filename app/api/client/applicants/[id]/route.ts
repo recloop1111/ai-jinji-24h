@@ -33,11 +33,12 @@ export async function GET(
       return apiError('NOT_FOUND', '応募者が見つかりません')
     }
 
-    // 面接情報
+    // 面接情報（applicant所有権確認済みだが、防御的にcompany_idでもスコープ）
     const { data: interview } = await supabase
       .from('interviews')
       .select('id, duration_seconds, question_count, recording_status, started_at, ended_at')
       .eq('applicant_id', id)
+      .eq('company_id', user.companyId)
       .order('created_at', { ascending: false })
       .limit(1)
       .single()

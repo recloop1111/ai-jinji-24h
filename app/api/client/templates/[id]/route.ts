@@ -18,6 +18,13 @@ export async function PATCH(
       return apiError('VALIDATION_ERROR', 'subject または body のいずれかは必須です')
     }
 
+    if (typeof body.subject === 'string' && body.subject.length > 200) {
+      return apiError('VALIDATION_ERROR', 'subject は200文字以内で入力してください')
+    }
+    if (typeof body.body === 'string' && body.body.length > 10000) {
+      return apiError('VALIDATION_ERROR', 'body は10000文字以内で入力してください')
+    }
+
     const supabase = await createClient()
 
     // テンプレートの所有権確認

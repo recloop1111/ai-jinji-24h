@@ -41,7 +41,7 @@ export async function GET() {
       plan_limit: company.plan_limit,
       monthly_count: monthlyCount ?? 0,
       auto_upgrade: company.auto_upgrade,
-      stripe_subscription_id: company.stripe_subscription_id ?? null,
+      has_subscription: !!company.stripe_subscription_id,
       billing_cycle_start: company.billing_cycle_start ?? null,
       billing_cycle_end: company.billing_cycle_end ?? null,
     })

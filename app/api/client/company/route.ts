@@ -1,4 +1,3 @@
-import { NextResponse } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createClient } from '@/lib/supabase/server'

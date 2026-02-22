@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
+import { sanitizeSearchQuery, isValidUUID, isValidDate, isValidRank } from '@/lib/api/validation'
 import { createClient } from '@/lib/supabase/server'
 import { scoreToGrade } from '@/lib/utils/scoreToGrade'
 
@@ -20,7 +21,8 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1)
     const perPage = Math.min(MAX_PER_PAGE, Math.max(1, parseInt(searchParams.get('per_page') ?? '20', 10) || 20))
     const status = searchParams.get('status') ?? 'all'
-    const search = searchParams.get('search')?.trim() ?? ''
+    const searchRaw = searchParams.get('search')?.trim() ?? ''
+    const search = sanitizeSearchQuery(searchRaw)
     const dateFrom = searchParams.get('date_from') ?? ''
     const dateTo = searchParams.get('date_to') ?? ''
     const jobTypeId = searchParams.get('job_type_id') ?? ''
@@ -35,6 +37,18 @@ export async function GET(request: NextRequest) {
       ? orderParam : 'desc'
     if (!VALID_STATUSES.includes(status as typeof VALID_STATUSES[number])) {
       return apiError('VALIDATION_ERROR', 'statusの値が不正です')
+    }
+    if (dateFrom && !isValidDate(dateFrom)) {
+      return apiError('VALIDATION_ERROR', 'date_from の形式が不正です（YYYY-MM-DD）')
+    }
+    if (dateTo && !isValidDate(dateTo)) {
+      return apiError('VALIDATION_ERROR', 'date_to の形式が不正です（YYYY-MM-DD）')
+    }
+    if (jobTypeId && !isValidUUID(jobTypeId)) {
+      return apiError('VALIDATION_ERROR', 'job_type_id の形式が不正です')
+    }
+    if (rank && !isValidRank(rank)) {
+      return apiError('VALIDATION_ERROR', 'rank の値が不正です（A〜E）')
     }
 
     const supabase = await createClient()
@@ -55,7 +69,7 @@ export async function GET(request: NextRequest) {
       query = query.eq('selection_status', status)
     }
 
-    // フィルタ: 氏名キーワード検索
+    // フィルタ: 氏名キーワード検索（サニタイズ済み）
     if (search) {
       query = query.or(`last_name.ilike.%${search}%,first_name.ilike.%${search}%`)
     }
