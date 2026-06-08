@@ -548,7 +548,7 @@ export default function CompanyDetailPage() {
                         { step: 2, text: '本人確認' },
                         { step: 3, text: 'カメラ・マイクの確認' },
                         { step: 4, text: '面接練習（約3分）' },
-                        { step: 5, text: 'AI面接（最大40分）' },
+                        { step: 5, text: 'AI面接（最大60分）' },
                       ].map((item) => (
                         <div key={item.step} className="flex items-center gap-2">
                           <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px] font-bold shrink-0">
