@@ -20,9 +20,9 @@ const DUMMY = {
     { label: 'コミュニケーション', value: 78 },
     { label: '論理的思考', value: 65 },
     { label: '仕事意欲', value: 85 },
-    { label: 'カルチャーフィット', value: 80 },
-    { label: '課題対応力', value: 58 },
-    { label: '成長可能性', value: 70 },
+    { label: 'ストレス耐性・柔軟性', value: 80 },
+    { label: '誠実性・一貫性', value: 58 },
+    { label: '主体性・行動力', value: 70 },
   ],
   conversationLog: [
     { number: 1, question: 'これまでのご経歴を簡単に教えてください。', answer: '大学卒業後、大手飲食チェーンに入社し5年間勤務しております。入社2年目で副店長、3年目で店長に昇進しました。', answerDuration: '2分30秒' },
@@ -355,14 +355,7 @@ export default function AdminApplicantDetailPage() {
                                 <span className="text-lg font-semibold text-gray-100">{interviewResult.total_score}</span>
                                 <span className="text-sm text-gray-500"> / 100</span>
                               </div>
-                              <div>
-                                <span className="text-sm text-gray-500">カルチャーフィット: </span>
-                                {interviewResult?.culture_fit_score != null ? (
-                                  <span className="text-lg font-semibold text-gray-100">{interviewResult.culture_fit_score}%</span>
-                                ) : (
-                                  <span className="text-gray-500">-（社風分析未設定）</span>
-                                )}
-                              </div>
+                              {/* v5: カルチャーフィット表示はMVP対象外（将来復活時にコメントを外す） */}
                             </div>
                           </div>
                         )}

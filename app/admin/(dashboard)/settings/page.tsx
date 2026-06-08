@@ -21,12 +21,12 @@ const API_LOGS = [
 
 // TODO: 実データに差替え
 const EVALUATION_AXES = [
-  { name: 'コミュニケーション', weight: 16.7 },
-  { name: '論理的思考', weight: 16.7 },
-  { name: 'カルチャーフィット', weight: 16.7 },
-  { name: '仕事への意欲', weight: 16.7 },
-  { name: '課題対応力', weight: 16.7 },
-  { name: '成長可能性', weight: 16.5 },
+  { name: 'コミュニケーション力', weight: 16.7 },
+  { name: '論理的思考力', weight: 16.7 },
+  { name: '主体性・行動力', weight: 16.7 },
+  { name: '志望度・意欲', weight: 16.7 },
+  { name: 'ストレス耐性・柔軟性', weight: 16.7 },
+  { name: '誠実性・一貫性', weight: 16.5 },
 ]
 
 function Toggle({

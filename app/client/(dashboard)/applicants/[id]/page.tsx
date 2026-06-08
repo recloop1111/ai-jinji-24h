@@ -39,9 +39,9 @@ const DUMMY = {
     { label: 'コミュニケーション', value: 78, comment: '質問意図の理解力が高く、簡潔で的確な回答ができている' }, // 上（-90度）
     { label: '論理的思考', value: 65, comment: '結論→理由→具体例の構成は概ねできているが、仮説構築にやや弱さがある' }, // 右上（-30度）
     { label: '仕事意欲', value: 85, comment: '自発的にプロジェクトを推進した経験を複数語っており、意欲が高い' }, // 右下（30度）
-    { label: 'カルチャーフィット', value: 80, comment: '企業の価値観・働き方への共感が具体的に語れている' }, // 下（90度）
-    { label: '課題対応力', value: 58, comment: '困難な状況の質問でやや回答に詰まる場面があった' }, // 左下（150度）
-    { label: '成長可能性', value: 70, comment: '過去経験からの学びはあるが、自己認識の深さにやや欠ける' }, // 左上（210度）
+    { label: 'ストレス耐性・柔軟性', value: 80, comment: '想定外の質問にも落ち着いて対応しており、柔軟性がある' }, // 下（90度）
+    { label: '誠実性・一貫性', value: 58, comment: '発言に一貫性があるが、深掘りされた際にやや曖昧な回答があった' }, // 左下（150度）
+    { label: '主体性・行動力', value: 70, comment: '自ら動いた経験はあるが、自己認識の深さにやや欠ける' }, // 左上（210度）
   ],
   // 概要タブ: 性格タイプ・強み・弱み（旧レポートタブから統合）
   personalityType: '実行型リーダー',
@@ -90,10 +90,10 @@ const DUMMY = {
       ],
     },
     {
-      label: 'カルチャーフィット',
+      label: 'ストレス耐性・柔軟性',
       score: 80,
       max: 100,
-      comment: '企業の価値観・働き方への共感が具体的に語れている',
+      comment: '想定外の質問にも落ち着いて対応しており、柔軟性がある',
       questions: [
         {
           grade: 'B',
@@ -775,14 +775,7 @@ export default function ApplicantDetailPage() {
                             <span className="text-lg font-semibold text-gray-800">{interviewResult.total_score}</span>
                             <span className="text-sm text-gray-500"> / 100</span>
                           </div>
-                          <div>
-                            <span className="text-sm text-gray-500">カルチャーフィット: </span>
-                            {interviewResult?.culture_fit_score != null ? (
-                              <span className="text-lg font-semibold text-gray-800">{interviewResult.culture_fit_score}%</span>
-                            ) : (
-                              <span className="text-gray-400">-（社風分析未設定）</span>
-                            )}
-                          </div>
+                          {/* v5: カルチャーフィット表示はMVP対象外（将来復活時にコメントを外す） */}
                         </div>
                       </div>
                     )}
