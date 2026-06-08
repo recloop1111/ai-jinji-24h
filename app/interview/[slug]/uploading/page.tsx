@@ -1,14 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 
 const STEPS = [
   { id: 1, label: '動画を保存中...', completedLabel: '動画を保存しました' },
   { id: 2, label: '音声を確認中...', completedLabel: '音声を確認しました' },
   { id: 3, label: '回答内容を確認中...', completedLabel: '回答内容を確認しました' },
-  { id: 4, label: 'あなたの個性を分析中...', completedLabel: 'あなたの個性を分析しました' },
-  { id: 5, label: 'レポートを作成中...', completedLabel: 'レポートを作成しました' },
+  { id: 4, label: 'レポートを作成中...', completedLabel: 'レポートを作成しました' },
 ]
 
 // 光の粒パーティクル（complete画面とトーン統一: cyan / violet）
@@ -46,25 +45,31 @@ export default function UploadingPage() {
   const slug = params.slug as string
 
   const [currentStep, setCurrentStep] = useState(0)
-  const [showComplete, setShowComplete] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  const hasNavigated = useRef(false)
+
+  const showComplete = elapsed >= 11.5
 
   // TODO: 実際のアップロード進捗に差替え
   useEffect(() => {
     const stepInterval = setInterval(() => {
-      setCurrentStep((prev) => Math.min(prev + 1, 5))
+      setCurrentStep((prev) => Math.min(prev + 1, 4))
     }, 3000)
     return () => clearInterval(stepInterval)
   }, [])
 
   useEffect(() => {
-    const timer = setInterval(() => setElapsed((e) => e + 0.1), 100)
+    const timer = setInterval(() => {
+      setElapsed((e) => e + 0.1)
+    }, 100)
     return () => clearInterval(timer)
   }, [])
 
   useEffect(() => {
-    if (elapsed >= 11.5) setShowComplete(true)
-    if (elapsed >= 12) router.push(`/interview/${slug}/complete`)
+    if (elapsed >= 12 && !hasNavigated.current) {
+      hasNavigated.current = true
+      router.push(`/interview/${slug}/complete`)
+    }
   }, [elapsed, slug, router])
 
   const progress = Math.min((elapsed / 12) * 100, 100)
