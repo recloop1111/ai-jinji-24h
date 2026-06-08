@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
 import {
@@ -60,6 +61,7 @@ function generateSlug(companySlug: string, department: string): string {
 function CultureAnalysisContent() {
   const { companyId, loading: companyIdLoading } = useCompanyId()
   const supabase = createClient()
+  const routerCulture = useRouter()
 
   const [enabled, setEnabled] = useState(false)
   const [companySlug, setCompanySlug] = useState('')
@@ -121,6 +123,14 @@ function CultureAnalysisContent() {
     if (!companyIdLoading && !companyId) setLoading(false)
   }, [companyId, companyIdLoading, fetchData])
 
+  // v5: 社風分析はMVP対象外（将来復活時にこのuseEffectとif文を削除する）
+  const MVP_CULTURE_ENABLED = false
+  useEffect(() => {
+    if (!MVP_CULTURE_ENABLED) {
+      routerCulture.replace('/client/dashboard')
+    }
+  }, [routerCulture, MVP_CULTURE_ENABLED])
+
   const handleToggle = async () => {
     if (!companyId) return
     setToggling(true)
@@ -165,6 +175,10 @@ function CultureAnalysisContent() {
         <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
       </div>
     )
+  }
+
+  if (!MVP_CULTURE_ENABLED) {
+    return null
   }
 
   return (

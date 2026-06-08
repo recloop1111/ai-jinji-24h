@@ -513,8 +513,8 @@ export default function AdminApplicantDetailPage() {
 
                   <hr className="my-8 border-gray-700" />
 
-                  {/* セクション2: カルチャーフィット詳細分析セクション */}
-                  {cultureAnalysisEnabled && interviewResult?.culture_fit_score != null && interviewResult?.big_five_scores && cultureProfile && applicant?.status === '完了' && (
+                  {/* セクション2: カルチャーフィット詳細分析セクション（v5: MVP対象外。将来復活時に false && を削除する） */}
+                  {false && cultureAnalysisEnabled && interviewResult?.culture_fit_score != null && interviewResult?.big_five_scores && cultureProfile && applicant?.status === '完了' && (
                     <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
                       <div className="p-6 sm:p-7">
                         <h3 className="text-base font-bold text-gray-100 mb-1">カルチャーフィット詳細分析</h3>

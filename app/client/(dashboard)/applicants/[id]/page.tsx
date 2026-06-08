@@ -1026,8 +1026,8 @@ export default function ApplicantDetailPage() {
               {/* セクション区切り */}
               <hr className="my-8 border-gray-200" />
 
-              {/* セクション2: カルチャーフィット詳細分析セクション */}
-              {cultureAnalysisEnabled && interviewResult?.culture_fit_score != null && interviewResult?.big_five_scores && cultureProfile && applicant?.status === '完了' && (
+              {/* セクション2: カルチャーフィット詳細分析セクション（v5: MVP対象外。将来復活時に false && を削除する） */}
+              {false && cultureAnalysisEnabled && interviewResult?.culture_fit_score != null && interviewResult?.big_five_scores && cultureProfile && applicant?.status === '完了' && (
                 <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 overflow-hidden">
                   <div className="p-6 sm:p-7">
                     {/* ① セクションタイトル */}

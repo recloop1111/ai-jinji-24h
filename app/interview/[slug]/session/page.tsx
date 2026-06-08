@@ -220,14 +220,15 @@ export default function SessionPage() {
       if (!jobId || !companyId) return
 
       try {
-        // 会社の社風分析設定を取得
-        const { data: companyData } = await supabase
-          .from('companies')
-          .select('culture_analysis_enabled')
-          .eq('id', companyId)
-          .single()
-
-        const isCultureEnabled = companyData?.culture_analysis_enabled ?? false
+        // v5: 社風分析質問の差し込みはMVP対象外
+        // 将来復活時: 以下のコメントを外して isCultureEnabled に代入する
+        // const { data: companyData } = await supabase
+        //   .from('companies')
+        //   .select('culture_analysis_enabled')
+        //   .eq('id', companyId)
+        //   .single()
+        // const isCultureEnabled = companyData?.culture_analysis_enabled ?? false
+        const isCultureEnabled = false
         setCultureAnalysisEnabled(isCultureEnabled)
 
         // カスタム質問を取得
