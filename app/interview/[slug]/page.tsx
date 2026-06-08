@@ -261,7 +261,7 @@ export default function InterviewPage() {
                 <div className="flex-1 pt-1">
                   <div className="flex flex-col">
                     <div className="text-[10px] text-blue-400 font-semibold tracking-wider">STEP 5</div>
-                    <div className="text-sm font-medium text-gray-700">AI面接（最大40分）</div>
+                    <div className="text-sm font-medium text-gray-700">AI面接（最大60分）</div>
                   </div>
                 </div>
               </div>

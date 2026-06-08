@@ -42,7 +42,9 @@ export default function SessionPage() {
   const streamRef = useRef<MediaStream | null>(null)
   const timeoutRefs = useRef<NodeJS.Timeout[]>([])
 
-  const MAX_INTERVIEW_SECONDS = 40 * 60
+  const MAX_INTERVIEW_SECONDS = 60 * 60
+  const TIME_WARNING_SECONDS = 50 * 60
+  const [showTimeWarning, setShowTimeWarning] = useState(false)
 
   // sessionStorageから情報取得と面接開始
   useEffect(() => {
@@ -280,17 +282,24 @@ export default function SessionPage() {
     }
   }, [jobId, companyId, supabase, totalQuestions])
 
-  // 面接タイマー（40分で自動終了）
+  // 面接タイマー（60分で自動終了）
   useEffect(() => {
     if (elapsedSeconds >= MAX_INTERVIEW_SECONDS && !isEnding) {
-      handleEndInterview('時間切れ')
-      return
+      setAiSpeechText('お時間となりましたので、面接を終了いたします。結果は後日、お知らせいたします。本日はありがとうございました。')
+      const endTimer = setTimeout(() => {
+        handleEndInterview('時間切れ')
+      }, 4000)
+      return () => clearTimeout(endTimer)
+    }
+    // 50分経過で残り時間アラート表示
+    if (elapsedSeconds >= TIME_WARNING_SECONDS && !showTimeWarning && !isEnding) {
+      setShowTimeWarning(true)
     }
     const timer = setInterval(() => {
       setElapsedSeconds((prev) => prev + 1)
     }, 1000)
     return () => clearInterval(timer)
-  }, [elapsedSeconds, isEnding, totalQuestions, answeredQuestions])
+  }, [elapsedSeconds, isEnding, totalQuestions, answeredQuestions, showTimeWarning])
 
   // ブラウザ離脱時の処理
   useEffect(() => {
@@ -530,7 +539,7 @@ export default function SessionPage() {
         {/* 面接経過時間（上部中央） */}
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-30 text-sm text-gray-500">
           {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:
-          {String(elapsedSeconds % 60).padStart(2, '0')} / 40:00
+          {String(elapsedSeconds % 60).padStart(2, '0')} / 60:00
         </div>
 
         {/* 応募者カメラ小窓（左上固定） */}
@@ -568,6 +577,13 @@ export default function SessionPage() {
             style={{ opacity: bannerOpacity }}
           >
             通信が不安定です。Wi-Fi環境をお試しください。
+          </div>
+        )}
+
+        {/* 残り時間アラート */}
+        {showTimeWarning && !isEnding && (
+          <div className="fixed top-12 left-1/2 transform -translate-x-1/2 z-20 bg-orange-500/90 text-white text-sm py-2 px-4 rounded-lg">
+            残り10分です。回答をまとめてください。
           </div>
         )}
 
