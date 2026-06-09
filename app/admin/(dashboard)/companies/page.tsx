@@ -29,7 +29,6 @@ const EMPLOYEE_COUNTS = ['1〜10名', '11〜50名', '51〜200名', '201〜500名
 
 const USE_PURPOSES = ['正社員採用', 'アルバイト採用', '両方'] as const
 
-const PLANS = ['スタンダード', 'プレミアム', 'エンタープライズ'] as const
 
 const FREE_EMAIL_DOMAINS = [
   'gmail.com',
@@ -55,16 +54,22 @@ function isFreeEmail(email: string): boolean {
 }
 
 type StatusFilter = 'all' | 'active' | 'suspended' | 'cancelled'
-type PlanFilter = 'all' | 'A' | 'B' | 'C' | 'custom'
+type PlanFilter = 'all' | 'pay_per_use' | 'custom'
 
-function getPlanBadgeClass(planKey: string): string {
+function getPlanBadgeClass(plan: string): string {
   const map: Record<string, string> = {
-    A: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
-    B: 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
-    C: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+    pay_per_use: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
     custom: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
   }
-  return map[planKey] ?? 'bg-gray-500/10 text-gray-400 border border-gray-500/20'
+  return map[plan] ?? 'bg-gray-500/10 text-gray-400 border border-gray-500/20'
+}
+
+function getPlanLabel(plan: string): string {
+  const map: Record<string, string> = {
+    pay_per_use: '従量課金',
+    custom: 'カスタム',
+  }
+  return map[plan] ?? plan
 }
 
 function getStatusConfig(status: string): { dotClass: string; textClass: string; label: string } {
@@ -100,7 +105,6 @@ export default function CompaniesPage() {
     industry: '',
     employeeCount: '',
     usePurpose: '',
-    plan: '',
     address: '',
     monthlyInterviews: '',
     notes: '',
@@ -123,8 +127,7 @@ export default function CompaniesPage() {
         id: c.id,
         name: c.name,
         industry: c.industry || '未設定',
-        plan: c.plan || '未設定',
-        planKey: c.plan === 'スタンダード' ? 'A' : c.plan === 'プレミアム' ? 'B' : c.plan === 'エンタープライズ' ? 'C' : 'A',
+        plan: c.plan || 'pay_per_use',
         status: c.is_suspended ? 'suspended' : c.is_active === false ? 'cancelled' : (c.status || 'active'),
         interviewsThisMonth: c.monthly_interview_count || 0,
         interviewLimit: c.monthly_interview_limit || 0,
@@ -151,7 +154,7 @@ export default function CompaniesPage() {
       const q = searchQuery.trim().toLowerCase()
       const matchSearch = !q || c.name.toLowerCase().includes(q) || (c.contactName || '').toLowerCase().includes(q)
       const matchStatus = statusFilter === 'all' || c.status === statusFilter
-      const matchPlan = planFilter === 'all' || c.planKey === planFilter
+      const matchPlan = planFilter === 'all' || c.plan === planFilter
       return matchSearch && matchStatus && matchPlan
     })
   }, [searchQuery, statusFilter, planFilter, companies])
@@ -178,7 +181,6 @@ export default function CompaniesPage() {
       industry: '',
       employeeCount: '',
       usePurpose: '',
-      plan: '',
       address: '',
       monthlyInterviews: '',
       notes: '',
@@ -203,19 +205,17 @@ export default function CompaniesPage() {
     if (!form.industry) err.industry = '業種を選択してください'
     if (!form.employeeCount) err.employeeCount = '従業員数を選択してください'
     if (!form.usePurpose) err.usePurpose = '利用目的を選択してください'
-    if (!form.plan) err.plan = 'プランを選択してください'
     setFormErrors(err)
     if (Object.keys(err).length > 0) return
 
     const supabase = createClient()
-    const planValue = form.plan === 'スタンダード' ? 'スタンダード' : form.plan === 'プレミアム' ? 'プレミアム' : form.plan === 'エンタープライズ' ? 'エンタープライズ' : form.plan
     const { error } = await supabase.from('companies').insert({
       name: form.companyName,
       contact_person: form.contactName,
       contact_email: form.contactEmail,
       phone: form.contactPhone,
       industry: form.industry,
-      plan: planValue,
+      plan: 'pay_per_use',
       status: 'active',
       is_active: true,
       is_suspended: false,
@@ -329,9 +329,7 @@ export default function CompaniesPage() {
               className="bg-white/[0.05] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-gray-300 appearance-none cursor-pointer focus:outline-none focus:border-blue-500/50"
             >
               <option value="all">すべてのプラン</option>
-              <option value="light">ライト（1〜10件）</option>
-              <option value="standard">スタンダード（11〜20件）</option>
-              <option value="pro">プロ（21〜30件）</option>
+              <option value="pay_per_use">従量課金</option>
               <option value="custom">カスタム</option>
             </select>
             <button
@@ -384,8 +382,8 @@ export default function CompaniesPage() {
                           </div>
                         </td>
                         <td className="py-4 px-5">
-                          <span className={`inline-flex text-xs rounded-lg px-2.5 py-1 ${getPlanBadgeClass(c.planKey)}`}>
-                            {c.plan}
+                          <span className={`inline-flex text-xs rounded-lg px-2.5 py-1 ${getPlanBadgeClass(c.plan)}`}>
+                            {getPlanLabel(c.plan)}
                           </span>
                         </td>
                         <td className="py-4 px-5">
@@ -508,8 +506,8 @@ export default function CompaniesPage() {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 mb-3">
-                    <span className={`inline-flex text-xs rounded-lg px-2 py-0.5 ${getPlanBadgeClass(c.planKey)}`}>
-                      {c.plan}
+                    <span className={`inline-flex text-xs rounded-lg px-2 py-0.5 ${getPlanBadgeClass(c.plan)}`}>
+                      {getPlanLabel(c.plan)}
                     </span>
                     <span className="text-xs text-gray-400">{c.interviewsThisMonth} / {c.interviewLimit} 面接</span>
                   </div>
@@ -697,18 +695,8 @@ export default function CompaniesPage() {
                   {formErrors.usePurpose && <p className="mt-1 text-xs text-red-500">{formErrors.usePurpose}</p>}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">プラン <span className="text-red-500">*</span></label>
-                  <select
-                    value={form.plan}
-                    onChange={(e) => setFormField('plan', e.target.value)}
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">選択してください</option>
-                    {PLANS.map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                  {formErrors.plan && <p className="mt-1 text-xs text-red-500">{formErrors.plan}</p>}
+                  <label className="block text-sm font-medium text-slate-700 mb-1">プラン</label>
+                  <p className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-500 bg-slate-50">従量課金（¥4,000/件）</p>
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-slate-700 mb-1">所在地</label>
