@@ -46,7 +46,7 @@ const RECOMMEND_LEGEND = [
   { grade: 'D', label: '非推奨', desc: '現時点では要件を満たしていない' },
 ] as const
 
-type TabKey = 'summary' | 'detail' | 'conversation' | 'recording' | 'questions' | 'rawdata' | 'selection'
+type TabKey = 'summary' | 'resume' | 'detail' | 'conversation' | 'recording' | 'questions' | 'rawdata' | 'selection'
 
 function CurrentStatusBadge({ status }: { status: string }) {
   const statusMap: Record<string, { label: string; className: string }> = {
@@ -124,6 +124,7 @@ export default function AdminApplicantDetailPage() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'summary', label: '概要' },
+    { key: 'resume', label: '履歴書' },
     { key: 'detail', label: '詳細評価' },
     { key: 'conversation', label: '会話ログ' },
     { key: 'recording', label: '録画再生' },
@@ -142,7 +143,7 @@ export default function AdminApplicantDetailPage() {
       try {
         const { data: applicantData, error: applicantError } = await supabase
           .from('applicants')
-          .select('*')
+          .select('*, job_listings(title)')
           .eq('id', id)
           .single()
 
@@ -262,7 +263,7 @@ export default function AdminApplicantDetailPage() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
                   <h1 className="text-xl sm:text-2xl font-bold text-gray-100 truncate tracking-tight">
-                    {applicant.name}
+                    {`${applicant.last_name || ''} ${applicant.first_name || ''}`.trim() || '名前未設定'}
                   </h1>
                   <CurrentStatusBadge status={applicant.status} />
                 </div>
@@ -274,11 +275,7 @@ export default function AdminApplicantDetailPage() {
                   </div>
                   <div className="flex gap-2">
                     <dt className="text-gray-500 shrink-0">電話</dt>
-                    <dd>{applicant.phone}</dd>
-                  </div>
-                  <div className="flex gap-2">
-                    <dt className="text-gray-500 shrink-0">面接日時</dt>
-                    <dd>{applicant.interview_scheduled_at ? new Date(applicant.interview_scheduled_at).toLocaleString('ja-JP') : '-'}</dd>
+                    <dd>{applicant.phone_number || '-'}</dd>
                   </div>
                 </dl>
               </div>
@@ -305,6 +302,71 @@ export default function AdminApplicantDetailPage() {
               ))}
             </nav>
           </div>
+
+          {/* 履歴書タブ */}
+          {activeTab === 'resume' && (
+            <div className="space-y-6">
+              <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 sm:p-7">
+                <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-6">履歴書情報</h2>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">氏名</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.last_name || applicant?.first_name ? `${applicant.last_name || ''} ${applicant.first_name || ''}`.trim() : '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">フリガナ</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.last_name_kana || applicant?.first_name_kana ? `${applicant.last_name_kana || ''} ${applicant.first_name_kana || ''}`.trim() : '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">年齢</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.age != null ? `${applicant.age}歳` : '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">性別</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.gender || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">電話番号</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.phone_number || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">メールアドレス</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.email || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">居住都道府県</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.prefecture || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">最終学歴</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.education || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">応募職種</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.job_listings?.title || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">就業形態</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.employment_type || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">業界経験</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.industry_experience || '未入力'}</dd>
+                  </div>
+                </dl>
+                <div className="mt-6 space-y-5">
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">職歴・業種</dt>
+                    <dd className="text-sm text-gray-100 bg-gray-900/50 rounded-xl p-4 border border-gray-700 whitespace-pre-wrap">{applicant?.work_history || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">保有資格</dt>
+                    <dd className="text-sm text-gray-100 bg-gray-900/50 rounded-xl p-4 border border-gray-700 whitespace-pre-wrap">{applicant?.qualifications || '未入力'}</dd>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* タブ1: 概要 */}
           {activeTab === 'summary' && (

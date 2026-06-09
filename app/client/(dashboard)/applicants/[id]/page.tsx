@@ -241,7 +241,7 @@ const ANSWER_QUALITY_LEGEND = [
   { grade: 'D', label: '不十分な回答' },
 ] as const
 
-type TabKey = 'summary' | 'detail' | 'conversation' | 'recording' | 'share'
+type TabKey = 'summary' | 'detail' | 'conversation' | 'recording' | 'share' | 'resume'
 
 function StatusBadge({ status }: { status: string | null }) {
   const classes: Record<string, string> = {
@@ -359,7 +359,7 @@ export default function ApplicantDetailPage() {
         // 応募者データを取得
         const { data: applicantData, error: applicantError } = await supabase
           .from('applicants')
-          .select('*')
+          .select('*, job_listings(title)')
           .eq('id', id)
           .single()
 
@@ -452,6 +452,7 @@ export default function ApplicantDetailPage() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'summary', label: '概要' },
+    { key: 'resume', label: '履歴書' },
     { key: 'detail', label: '詳細評価' },
     { key: 'conversation', label: '会話ログ' },
     { key: 'recording', label: '録画再生' },
@@ -722,6 +723,71 @@ export default function ApplicantDetailPage() {
               ))}
             </nav>
           </div>
+
+      {/* 履歴書タブ */}
+      {activeTab === 'resume' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
+            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-6">履歴書情報</h2>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
+              <div>
+                <dt className="text-xs font-medium text-slate-500 mb-1">氏名</dt>
+                <dd className="text-sm text-slate-900">{applicant?.last_name || applicant?.first_name ? `${applicant.last_name || ''} ${applicant.first_name || ''}`.trim() : '未入力'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500 mb-1">フリガナ</dt>
+                <dd className="text-sm text-slate-900">{applicant?.last_name_kana || applicant?.first_name_kana ? `${applicant.last_name_kana || ''} ${applicant.first_name_kana || ''}`.trim() : '未入力'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500 mb-1">年齢</dt>
+                <dd className="text-sm text-slate-900">{applicant?.age != null ? `${applicant.age}歳` : '未入力'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500 mb-1">性別</dt>
+                <dd className="text-sm text-slate-900">{applicant?.gender || '未入力'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500 mb-1">電話番号</dt>
+                <dd className="text-sm text-slate-900">{applicant?.phone_number || '未入力'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500 mb-1">メールアドレス</dt>
+                <dd className="text-sm text-slate-900">{applicant?.email || '未入力'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500 mb-1">居住都道府県</dt>
+                <dd className="text-sm text-slate-900">{applicant?.prefecture || '未入力'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500 mb-1">最終学歴</dt>
+                <dd className="text-sm text-slate-900">{applicant?.education || '未入力'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500 mb-1">応募職種</dt>
+                <dd className="text-sm text-slate-900">{applicant?.job_listings?.title || '未入力'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500 mb-1">就業形態</dt>
+                <dd className="text-sm text-slate-900">{applicant?.employment_type || '未入力'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500 mb-1">業界経験</dt>
+                <dd className="text-sm text-slate-900">{applicant?.industry_experience || '未入力'}</dd>
+              </div>
+            </dl>
+            <div className="mt-6 space-y-5">
+              <div>
+                <dt className="text-xs font-medium text-slate-500 mb-1">職歴・業種</dt>
+                <dd className="text-sm text-slate-900 bg-slate-50 rounded-xl p-4 border border-slate-200/80 whitespace-pre-wrap">{applicant?.work_history || '未入力'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-slate-500 mb-1">保有資格</dt>
+                <dd className="text-sm text-slate-900 bg-slate-50 rounded-xl p-4 border border-slate-200/80 whitespace-pre-wrap">{applicant?.qualifications || '未入力'}</dd>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* タブ1: 概要 */}
       {activeTab === 'summary' && (
