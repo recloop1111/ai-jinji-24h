@@ -10,8 +10,9 @@ export type Company = {
   name: string
   email: string
   industry: string
-  plan: 'light' | 'standard' | 'pro' | 'custom'
+  plan: 'pay_per_use' | 'custom'
   maxInterviews: number
+  monthlyInterviewLimit: number
   autoUpgrade: boolean
   isActive: boolean
   isPaused: boolean
@@ -209,12 +210,23 @@ export type QuestionBank = {
   updatedAt: string
 }
 
+/** 1面接あたりの単価（税別） */
+export const PRICE_PER_INTERVIEW = 4000
+
+/** 月間面接上限の最小値 */
+export const MIN_INTERVIEW_LIMIT = 5
+
+// ---- 後方互換のため残置（Phase 2で参照箇所を修正後に削除） ----
+
+/** @deprecated Phase 2で削除予定。PRICE_PER_INTERVIEW を使用してください */
 export const PLAN_CONFIG = {
   light: { name: 'ライト', price: 40000, maxInterviews: 10, csvDownload: false, dataRetentionDays: 180 },
   standard: { name: 'スタンダード', price: 80000, maxInterviews: 20, csvDownload: true, dataRetentionDays: null },
   pro: { name: 'プロ', price: 120000, maxInterviews: 30, csvDownload: true, dataRetentionDays: null },
 } as const
 
+/** @deprecated Phase 2で削除予定 */
 export const SETUP_FEE = 200000
 
+/** @deprecated Phase 2で削除予定 */
 export type PlanKey = keyof typeof PLAN_CONFIG
