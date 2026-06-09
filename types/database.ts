@@ -56,6 +56,7 @@ export type Interview = {
   recordingExpiresAt: string | null
   status: 'waiting' | 'in_progress' | 'completed' | 'error' | 'cancelled'
   errorReason: string | null
+  questionsSnapshot: { sort_order: number; question_text: string }[] | null
   createdAt: string
 }
 

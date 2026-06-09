@@ -38,6 +38,7 @@ export default function SessionPage() {
   const [isEnding, setIsEnding] = useState(false)
   const [questionList, setQuestionList] = useState<string[]>([])
   const [cultureAnalysisEnabled, setCultureAnalysisEnabled] = useState(false)
+  const snapshotSaved = useRef(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const timeoutRefs = useRef<NodeJS.Timeout[]>([])
@@ -282,6 +283,23 @@ export default function SessionPage() {
       }
     }
   }, [jobId, companyId, supabase, totalQuestions])
+
+  // interviewIdとquestionListが揃ったら questions_snapshot を1回だけ保存
+  useEffect(() => {
+    if (!interviewId || questionList.length === 0 || snapshotSaved.current) return
+    snapshotSaved.current = true
+
+    const snapshot = questionList.map((q, i) => ({
+      sort_order: i + 1,
+      question_text: q,
+    }))
+
+    supabase
+      .from('interviews')
+      .update({ questions_snapshot: snapshot })
+      .eq('id', interviewId)
+      .then(() => {})
+  }, [interviewId, questionList, supabase])
 
   // 面接タイマー（60分で自動終了）
   useEffect(() => {
