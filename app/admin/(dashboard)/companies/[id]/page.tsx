@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Link as LinkIcon, User, Info, X, Check } from 'lucide-react'
+import { ArrowLeft, Link as LinkIcon, User, Info, X } from 'lucide-react'
 import JobManager from '@/components/shared/JobManager'
 import QuestionEditor from '@/components/shared/QuestionEditor'
 
@@ -16,45 +15,6 @@ const EVALUATION_AXES = [
   { name: '主体性・意欲', weight: 20 },
   { name: '組織適合性（チームフィット）', weight: 15 },
   { name: 'ストレス耐性', weight: 10 },
-]
-
-const MONTHLY_USAGE = [
-  { month: '2025-02', used: 14, limit: 20, plan: 'スタンダード', atLimit: false },
-  { month: '2025-01', used: 18, limit: 20, plan: 'スタンダード', atLimit: false },
-  { month: '2024-12', used: 12, limit: 20, plan: 'スタンダード', atLimit: false },
-  { month: '2024-11', used: 20, limit: 20, plan: 'スタンダード', atLimit: true },
-  { month: '2024-10', used: 8, limit: 20, plan: 'スタンダード', atLimit: false },
-]
-
-const PLAN_OPTIONS = [
-  { 
-    value: 'light', 
-    label: 'ライト', 
-    interviews: '月1〜10件',
-    price: '¥40,000（税別）/ 月',
-    features: ['CSVダウンロード: 利用可能', 'データ保持: 無期限（動画のみ180日で自動削除）']
-  },
-  { 
-    value: 'standard', 
-    label: 'スタンダード', 
-    interviews: '月11〜20件',
-    price: '¥80,000（税別）/ 月',
-    features: ['CSVダウンロード: 利用可能', 'データ保持: 無期限（動画のみ180日で自動削除）']
-  },
-  { 
-    value: 'pro', 
-    label: 'プロ', 
-    interviews: '月21〜30件',
-    price: '¥120,000（税別）/ 月',
-    features: ['CSVダウンロード: 利用可能', 'データ保持: 無期限（動画のみ180日で自動削除）']
-  },
-  { 
-    value: 'payperuse', 
-    label: '31件目以降', 
-    interviews: '月31件以上',
-    price: '¥3,500/件（従量課金）',
-    features: ['31件目以降は自動的に¥3,500/件で従量課金', 'CSVダウンロード: 利用可能', 'データ保持: 無期限（動画のみ180日で自動削除）']
-  },
 ]
 
 const TABS = ['基本情報', 'ブランド設定', 'アバター設定', '質問設定', '評価設定', '求人管理', '利用状況', 'セキュリティ'] as const
@@ -73,19 +33,21 @@ export default function CompanyDetailPage() {
   // モーダル state
   const [stopModalOpen, setStopModalOpen] = useState(false)
   const [resumeModalOpen, setResumeModalOpen] = useState(false)
-  const [planModalOpen, setPlanModalOpen] = useState(false)
+  const [limitModalOpen, setLimitModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
-  const [selectedPlan, setSelectedPlan] = useState('')
+  const [newLimitStr, setNewLimitStr] = useState('20')
+  const [limitSaving, setLimitSaving] = useState(false)
+  const [monthlyUsedCount, setMonthlyUsedCount] = useState(0)
+  const [adminPassword, setAdminPassword] = useState('')
+  const [limitError, setLimitError] = useState('')
+  const [showAdminPassword, setShowAdminPassword] = useState(false)
 
   // 企業情報編集 state
   const [editName, setEditName] = useState('')
-  const [editRepresentativeName, setEditRepresentativeName] = useState('')
   const [editContactName, setEditContactName] = useState('')
   const [editContactEmail, setEditContactEmail] = useState('')
   const [editContactPhone, setEditContactPhone] = useState('')
-  const [editAddress, setEditAddress] = useState('')
   const [editIndustry, setEditIndustry] = useState('')
-  const [editEmployeeCount, setEditEmployeeCount] = useState('')
 
   // ブランド設定 state
   const [displayName, setDisplayName] = useState('')
@@ -106,13 +68,18 @@ export default function CompanyDetailPage() {
 
   useEffect(() => {
     async function fetchCompany() {
-      const supabase = createClient()
-      const { data } = await supabase.from('companies').select('*').eq('id', companyId).single()
-      if (data) {
-        setCompany(data)
-        setDisplayName(data.name || '')
-        setSelectedPlan(data.plan || 'free')
-        setLogoPreview(data.logo_url || null)
+      try {
+        const res = await fetch(`/api/admin/companies/${companyId}`)
+        const json = await res.json()
+        if (res.ok && json.company) {
+          const data = json.company
+          setCompany(data)
+          setDisplayName(data.name || '')
+          setLogoPreview(data.logo_url || null)
+          setMonthlyUsedCount(data.monthly_interview_count_actual ?? data.monthly_interview_count ?? 0)
+        }
+      } catch {
+        // fetch failed
       }
       setLoading(false)
     }
@@ -147,95 +114,112 @@ export default function CompanyDetailPage() {
 
   const openEditModal = () => {
     setEditName(company?.name || '')
-    setEditRepresentativeName(company?.representative_name || '')
-    setEditContactName(company?.contact_name || company?.contact_person || '')
+    setEditContactName(company?.contact_person || '')
     setEditContactEmail(company?.contact_email || company?.email || '')
-    setEditContactPhone(company?.contact_phone || company?.phone || '')
-    setEditAddress(company?.address || '')
+    setEditContactPhone(company?.phone || '')
     setEditIndustry(company?.industry || '')
-    setEditEmployeeCount(company?.employee_count?.toString() || '')
     setEditModalOpen(true)
   }
 
-  async function saveCompanyInfo() {
-    const supabase = createClient()
-    await supabase
-      .from('companies')
-      .update({
-        name: editName,
-        representative_name: editRepresentativeName,
-        contact_name: editContactName,
-        contact_email: editContactEmail,
-        contact_phone: editContactPhone,
-        address: editAddress,
-        industry: editIndustry,
-        employee_count: editEmployeeCount ? parseInt(editEmployeeCount) : null,
-        updated_at: new Date().toISOString(),
+  async function patchCompany(updates: Record<string, any>): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const res = await fetch(`/api/admin/companies/${companyId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
       })
-      .eq('id', companyId)
+      if (!res.ok) {
+        const json = await res.json().catch(() => null)
+        return { ok: false, error: json?.error?.message || '更新に失敗しました' }
+      }
+      return { ok: true }
+    } catch {
+      return { ok: false, error: '通信エラーが発生しました' }
+    }
+  }
+
+  async function saveCompanyInfo() {
+    const result = await patchCompany({
+      name: editName,
+      contact_person: editContactName,
+      contact_email: editContactEmail,
+      phone: editContactPhone,
+      industry: editIndustry,
+    })
+    if (!result.ok) {
+      showToast(result.error || '保存に失敗しました')
+      return
+    }
     setEditModalOpen(false)
     showToast('企業情報を保存しました')
     setRefreshTrigger((t) => t + 1)
   }
 
-  async function savePlanChange(planValue?: string) {
-    const newPlan = planValue || selectedPlan
-    const supabase = createClient()
-    await supabase
-      .from('companies')
-      .update({
-        plan: newPlan,
-        updated_at: new Date().toISOString(),
+  async function saveLimitChange() {
+    const parsedLimit = parseInt(newLimitStr, 10)
+    if (isNaN(parsedLimit) || parsedLimit < 5) {
+      setLimitError('月間上限は5件以上の数値を入力してください')
+      return
+    }
+    if (parsedLimit < monthlyUsedCount) {
+      setLimitError(`当月利用人数（${monthlyUsedCount}件）未満には設定できません`)
+      return
+    }
+    if (!adminPassword) {
+      setLimitError('管理者パスワードを入力してください')
+      return
+    }
+    setLimitError('')
+    setLimitSaving(true)
+    try {
+      const res = await fetch(`/api/admin/companies/${companyId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ monthly_interview_limit: parsedLimit, adminPassword }),
       })
-      .eq('id', companyId)
-    setSelectedPlan(newPlan)
-    setPlanModalOpen(false)
-    showToast('プランを変更しました')
-    setRefreshTrigger((t) => t + 1)
+      const json = await res.json()
+      setLimitSaving(false)
+      if (!res.ok) {
+        setLimitError(json.error?.message || '更新に失敗しました')
+        return
+      }
+      setLimitModalOpen(false)
+      setAdminPassword('')
+      setLimitError('')
+      showToast('月間上限を変更しました')
+      setRefreshTrigger((t) => t + 1)
+    } catch {
+      setLimitSaving(false)
+      setLimitError('通信エラーが発生しました')
+    }
   }
 
   async function saveBrandSettings() {
-    const supabase = createClient()
-    await supabase
-      .from('companies')
-      .update({
-        name: displayName,
-        logo_url: logoPreview,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', companyId)
-    showToast('ブランド設定を保存しました')
-    setRefreshTrigger((t) => t + 1)
+    const result = await patchCompany({ name: displayName, logo_url: logoPreview })
+    showToast(result.ok ? 'ブランド設定を保存しました' : (result.error || '保存に失敗しました'))
+    if (result.ok) setRefreshTrigger((t) => t + 1)
   }
 
   async function handleStopContract() {
-    const supabase = createClient()
-    await supabase
-      .from('companies')
-      .update({
-        is_suspended: true,
-        status: 'suspended',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', companyId)
-    setStopModalOpen(false)
-    showToast('契約を停止しました')
-    setRefreshTrigger((t) => t + 1)
+    const result = await patchCompany({ is_suspended: true, status: 'suspended' })
+    if (result.ok) {
+      setStopModalOpen(false)
+      showToast('契約を停止しました')
+      setRefreshTrigger((t) => t + 1)
+    } else {
+      showToast(result.error || '停止に失敗しました')
+    }
   }
 
   async function handleResumeContract() {
-    const supabase = createClient()
-    await supabase
-      .from('companies')
-      .update({
-        is_suspended: false,
-        status: 'active',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', companyId)
-    setResumeModalOpen(false)
-    showToast('契約を再開しました')
-    setRefreshTrigger((t) => t + 1)
+    const result = await patchCompany({ is_suspended: false, status: 'active' })
+    if (result.ok) {
+      setResumeModalOpen(false)
+      showToast('契約を再開しました')
+      setRefreshTrigger((t) => t + 1)
+    } else {
+      showToast(result.error || '再開に失敗しました')
+    }
   }
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -259,25 +243,18 @@ export default function CompanyDetailPage() {
   }
 
   async function saveAvatarSettings() {
-    const supabase = createClient()
-    await supabase
-      .from('companies')
-      .update({
-        avatar_url: avatarPreview,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', companyId)
-    showToast('アバター設定を保存しました')
+    const result = await patchCompany({ avatar_url: avatarPreview })
+    showToast(result.ok ? 'アバター設定を保存しました' : (result.error || '保存に失敗しました'))
   }
 
   async function deleteAvatarImage() {
-    const supabase = createClient()
-    await supabase
-      .from('companies')
-      .update({ avatar_url: null, updated_at: new Date().toISOString() })
-      .eq('id', companyId)
-    setAvatarPreview(null)
-    showToast('アバター画像を削除しました')
+    const result = await patchCompany({ avatar_url: null })
+    if (result.ok) {
+      setAvatarPreview(null)
+      showToast('アバター画像を削除しました')
+    } else {
+      showToast(result.error || '削除に失敗しました')
+    }
   }
 
   if (loading) {
@@ -359,12 +336,8 @@ export default function CompanyDetailPage() {
                 <p className="text-sm text-white mt-1">{company?.name || '未設定'}</p>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">代表者名</label>
-                <p className="text-sm text-white mt-1">{company?.representative_name || '未設定'}</p>
-              </div>
-              <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">担当者名</label>
-                <p className="text-sm text-white mt-1">{company?.contact_name || company?.contact_person || '未設定'}</p>
+                <p className="text-sm text-white mt-1">{company?.contact_person || '未設定'}</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">担当者メール</label>
@@ -372,31 +345,35 @@ export default function CompanyDetailPage() {
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">担当者電話</label>
-                <p className="text-sm text-white mt-1">{company?.contact_phone || company?.phone || '未設定'}</p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">所在地</label>
-                <p className="text-sm text-white mt-1">{company?.address || '未設定'}</p>
+                <p className="text-sm text-white mt-1">{company?.phone || '未設定'}</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">業種</label>
                 <p className="text-sm text-white mt-1">{company?.industry || '未設定'}</p>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">従業員数</label>
-                <p className="text-sm text-white mt-1">{company?.employee_count ? `${company.employee_count}名` : '未設定'}</p>
-              </div>
-              <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">契約プラン</label>
-                <p className="text-sm text-white mt-1">{PLAN_OPTIONS.find(p => p.value === company?.plan)?.label || company?.plan || '未設定'}</p>
+                <p className="text-sm text-white mt-1">
+                  {company?.plan === 'custom' ? 'カスタム' : '従量課金'}
+                  <span className="text-xs text-gray-400 ml-2">¥4,000 / 面接・人（税別）</span>
+                </p>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">契約開始日</label>
-                <p className="text-sm text-white mt-1">{company?.contract_start_date || '未設定'}</p>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">月間面接上限</label>
+                <p className="text-sm text-white mt-1">{company?.monthly_interview_limit ?? 0}件</p>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">次回更新日</label>
-                <p className="text-sm text-white mt-1">{company?.next_renewal_date || '未設定'}</p>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">当月利用人数</label>
+                <p className="text-sm text-white mt-1">{monthlyUsedCount}件</p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">ステータス</label>
+                <p className="text-sm mt-1">
+                  <span className={`inline-flex items-center gap-1 border rounded-full px-2.5 py-0.5 text-xs ${statusConfig.className}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${statusType === 'active' ? 'bg-emerald-400' : statusType === 'suspended' ? 'bg-red-400' : 'bg-gray-500'}`} />
+                    {statusConfig.label}
+                  </span>
+                </p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">面接URL</label>
@@ -404,14 +381,18 @@ export default function CompanyDetailPage() {
                   {interviewUrl || '未設定'}
                 </button>
               </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">作成日</label>
+                <p className="text-sm text-white mt-1">{company?.created_at ? new Date(company.created_at).toLocaleDateString('ja-JP') : '未設定'}</p>
+              </div>
             </div>
             <div className="flex flex-wrap gap-3 pt-4 border-t border-white/[0.06]">
               <button
                 type="button"
-                onClick={() => { setSelectedPlan(company?.plan || 'free'); setPlanModalOpen(true) }}
+                onClick={() => { setNewLimitStr(String(company?.monthly_interview_limit ?? 20)); setAdminPassword(''); setLimitError(''); setShowAdminPassword(false); setLimitModalOpen(true) }}
                 className="bg-blue-500/10 text-blue-400 hover:bg-blue-500/15 border border-blue-500/20 rounded-xl px-4 py-2 text-sm transition-colors"
               >
-                プラン変更
+                上限人数を変更
               </button>
               {statusType === 'active' ? (
                 <button
@@ -486,13 +467,13 @@ export default function CompanyDetailPage() {
                           <button
                             type="button"
                             onClick={async () => {
-                              const supabase = createClient()
-                              await supabase
-                                .from('companies')
-                                .update({ logo_url: null, updated_at: new Date().toISOString() })
-                                .eq('id', companyId)
-                              setLogoPreview(null)
-                              showToast('ロゴ画像を削除しました')
+                              const result = await patchCompany({ logo_url: null })
+                              if (result.ok) {
+                                setLogoPreview(null)
+                                showToast('ロゴ画像を削除しました')
+                              } else {
+                                showToast(result.error || '削除に失敗しました')
+                              }
                             }}
                             className="text-red-400 text-xs cursor-pointer hover:text-red-300"
                           >
@@ -784,70 +765,38 @@ export default function CompanyDetailPage() {
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className={`${CARD_BASE} p-5`}>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">面接実施数</p>
-                <p className="text-2xl font-bold text-white mb-2">{company?.monthly_interview_count ?? 0}/{company?.monthly_interview_limit ?? 0}件</p>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">当月面接実施数</p>
+                <p className="text-2xl font-bold text-white mb-2">{monthlyUsedCount}/{company?.monthly_interview_limit ?? 0}件</p>
                 <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
                   <div
                     className="h-full bg-blue-500 rounded-full"
                     style={{
-                      width: `${(company?.monthly_interview_limit ?? 0) > 0 ? Math.min(100, ((company?.monthly_interview_count ?? 0) / (company?.monthly_interview_limit ?? 1)) * 100) : 0}%`,
+                      width: `${(company?.monthly_interview_limit ?? 0) > 0 ? Math.min(100, (monthlyUsedCount / (company?.monthly_interview_limit ?? 1)) * 100) : 0}%`,
                     }}
                   />
                 </div>
               </div>
               <div className={`${CARD_BASE} p-5`}>
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">残り面接枠</p>
-                <p className="text-2xl font-bold text-white">{Math.max(0, (company?.monthly_interview_limit ?? 0) - (company?.monthly_interview_count ?? 0))}件</p>
+                <p className="text-2xl font-bold text-white">{Math.max(0, (company?.monthly_interview_limit ?? 0) - monthlyUsedCount)}件</p>
               </div>
               <div className={`${CARD_BASE} p-5`}>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">プラン消化率</p>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">消化率</p>
                 <p className="text-2xl font-bold text-white">
                   {(company?.monthly_interview_limit ?? 0) > 0
-                    ? Math.round(((company?.monthly_interview_count ?? 0) / (company?.monthly_interview_limit ?? 1)) * 100)
+                    ? Math.round((monthlyUsedCount / (company?.monthly_interview_limit ?? 1)) * 100)
                     : 0}%
                 </p>
               </div>
             </div>
-            <div className={`${CARD_BASE} overflow-hidden`}>
-              <div className="p-6 pb-0">
-                <h2 className="text-base font-semibold text-white mb-4">月別利用推移</h2>
-                <p className="text-xs text-amber-400/70 px-4 pb-2">※ 現在はサンプルデータを表示しています。実データは今後のアップデートで反映されます。</p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[400px]">
-                  <thead>
-                    <tr className="border-b border-white/[0.06]">
-                      <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4 text-left">月</th>
-                      <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4 text-left">利用件数</th>
-                      <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4 text-left">プラン</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {MONTHLY_USAGE.map((m) => (
-                      <tr
-                        key={m.month}
-                        className={`border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors ${m.atLimit ? 'bg-yellow-500/5' : ''}`}
-                      >
-                        <td className="py-3 px-4 text-sm text-gray-300">{m.month}</td>
-                        <td className="py-3 px-4 text-sm text-gray-300">
-                          {m.used}/{m.limit}件
-                          {m.atLimit && <span className="text-yellow-400 text-xs ml-1">上限到達</span>}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-400">({m.plan})</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="p-6 pt-4 border-t border-white/[0.04]">
-                <button
-                  type="button"
-                  onClick={() => router.push(`/admin/applicants?company=${companyId}`)}
-                  className="text-sm text-blue-400 hover:text-blue-300"
-                >
-                  この企業の応募者一覧を見る →
-                </button>
-              </div>
+            <div className={`${CARD_BASE} p-6`}>
+              <button
+                type="button"
+                onClick={() => router.push(`/admin/applicants?company=${companyId}`)}
+                className="text-sm text-blue-400 hover:text-blue-300"
+              >
+                この企業の応募者一覧を見る →
+              </button>
             </div>
           </div>
         )}
@@ -910,13 +859,13 @@ export default function CompanyDetailPage() {
                     <button
                       type="button"
                       onClick={async () => {
-                        const supabase = createClient()
-                        await supabase
-                          .from('companies')
-                          .update({ is_locked: false, locked_at: null, login_fail_count: 0, updated_at: new Date().toISOString() })
-                          .eq('id', companyId)
-                        showToast('アカウントロックを解除しました')
-                        setRefreshTrigger((t) => t + 1)
+                        const result = await patchCompany({ is_locked: false, locked_at: null, login_fail_count: 0 })
+                        if (result.ok) {
+                          showToast('アカウントロックを解除しました')
+                          setRefreshTrigger((t) => t + 1)
+                        } else {
+                          showToast(result.error || '解除に失敗しました')
+                        }
                       }}
                       className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15 border border-emerald-500/20 rounded-xl px-4 py-2 text-sm transition-colors"
                     >
@@ -984,59 +933,85 @@ export default function CompanyDetailPage() {
         </div>
       )}
 
-      {/* プラン変更モーダル */}
-      {planModalOpen && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setPlanModalOpen(false)}>
-          <div className="bg-gray-900 rounded-xl p-6 max-w-3xl w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      {/* 月間上限変更モーダル */}
+      {limitModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setLimitModalOpen(false)} aria-hidden />
+          <div className={`relative ${CARD_BASE} p-6 max-w-md w-full`}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-white">プラン変更</h3>
-              <button type="button" onClick={() => setPlanModalOpen(false)} className="text-gray-400 hover:text-white">
+              <h3 className="text-lg font-semibold text-white">月間上限人数を変更</h3>
+              <button type="button" onClick={() => setLimitModalOpen(false)} className="text-gray-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="grid grid-cols-4 gap-3">
-              {PLAN_OPTIONS.map((plan) => {
-                const isCurrent = company?.plan === plan.value
-                return (
-                  <div
-                    key={plan.value}
-                    className={`relative bg-gray-800 rounded-lg p-3 ${
-                      isCurrent ? 'border border-blue-500' : 'border border-gray-700'
-                    }`}
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 mb-4">
+              <p className="text-xs text-amber-400">上限変更は料金に影響するため、管理者パスワードの再確認が必要です</p>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs text-gray-400 mb-1">現在の上限</p>
+                <p className="text-sm text-white">{company?.monthly_interview_limit ?? 0}件</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-1">当月利用人数</p>
+                <p className="text-sm text-white">{monthlyUsedCount}件</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">新しい上限</label>
+                <input
+                  type="number"
+                  min={5}
+                  value={newLimitStr}
+                  onChange={(e) => setNewLimitStr(e.target.value)}
+                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                {parseInt(newLimitStr, 10) > 0 && parseInt(newLimitStr, 10) < 5 && (
+                  <p className="text-xs text-red-400 mt-1">最低5件以上に設定してください</p>
+                )}
+                {parseInt(newLimitStr, 10) >= 5 && parseInt(newLimitStr, 10) < monthlyUsedCount && (
+                  <p className="text-xs text-red-400 mt-1">当月利用人数（{monthlyUsedCount}件）未満には設定できません</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">管理者パスワード</label>
+                <div className="relative">
+                  <input
+                    type={showAdminPassword ? 'text' : 'password'}
+                    value={adminPassword}
+                    onChange={(e) => { setAdminPassword(e.target.value); setLimitError('') }}
+                    placeholder="現在のパスワードを入力"
+                    className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none pr-16"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminPassword(!showAdminPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-300"
                   >
-                    {isCurrent && (
-                      <span className="absolute -top-2 left-2 bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded">
-                        現在のプラン
-                      </span>
-                    )}
-                    <h4 className="text-sm font-bold text-white mb-1 mt-1">{plan.label}</h4>
-                    <p className="text-xs text-gray-400">{plan.interviews}</p>
-                    <p className="text-sm font-bold text-blue-400 my-2">{plan.price}</p>
-                    <div className="space-y-1 mb-3">
-                      {plan.features.map((feature, idx) => (
-                        <p key={idx} className="text-[10px] text-gray-400 leading-tight">{feature}</p>
-                      ))}
-                    </div>
-                    {isCurrent ? (
-                      <button
-                        type="button"
-                        disabled
-                        className="w-full bg-gray-700 text-gray-400 cursor-not-allowed text-xs py-1.5 rounded-lg"
-                      >
-                        現在のプラン
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => savePlanChange(plan.value)}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg py-1.5 transition-colors"
-                      >
-                        このプランに変更
-                      </button>
-                    )}
-                  </div>
-                )
-              })}
+                    {showAdminPassword ? '隠す' : '表示'}
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">料金: ¥4,000 / 面接・人（税別）</p>
+              {limitError && (
+                <p className="text-xs text-red-400">{limitError}</p>
+              )}
+            </div>
+            <div className="flex gap-3 justify-end mt-6">
+              <button
+                type="button"
+                onClick={() => setLimitModalOpen(false)}
+                className="bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-2 text-sm transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={saveLimitChange}
+                disabled={limitSaving || !newLimitStr || isNaN(parseInt(newLimitStr, 10)) || parseInt(newLimitStr, 10) < 5 || parseInt(newLimitStr, 10) < monthlyUsedCount || !adminPassword}
+                className="bg-blue-600 text-white hover:bg-blue-700 rounded-xl px-4 py-2 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {limitSaving ? '確認中...' : '変更する'}
+              </button>
             </div>
           </div>
         </div>
@@ -1060,15 +1035,6 @@ export default function CompanyDetailPage() {
                   type="text"
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">代表者名</label>
-                <input
-                  type="text"
-                  value={editRepresentativeName}
-                  onChange={(e) => setEditRepresentativeName(e.target.value)}
                   className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
                 />
               </div>
@@ -1100,29 +1066,11 @@ export default function CompanyDetailPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">所在地</label>
-                <input
-                  type="text"
-                  value={editAddress}
-                  onChange={(e) => setEditAddress(e.target.value)}
-                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
-                />
-              </div>
-              <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">業種</label>
                 <input
                   type="text"
                   value={editIndustry}
                   onChange={(e) => setEditIndustry(e.target.value)}
-                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">従業員数</label>
-                <input
-                  type="number"
-                  value={editEmployeeCount}
-                  onChange={(e) => setEditEmployeeCount(e.target.value)}
                   className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
                 />
               </div>
