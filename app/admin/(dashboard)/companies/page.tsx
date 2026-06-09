@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { Plus, Search, Download, Building2, CheckCircle, Square, X } from 'lucide-react'
+import { Plus, Search, Download, Building2, CheckCircle, Square, X, Copy, Eye, EyeOff } from 'lucide-react'
 
 const INDUSTRIES = [
   '飲食・フード',
@@ -25,9 +24,6 @@ const INDUSTRIES = [
   'その他',
 ] as const
 
-const EMPLOYEE_COUNTS = ['1〜10名', '11〜50名', '51〜200名', '201〜500名', '501名以上'] as const
-
-const USE_PURPOSES = ['正社員採用', 'アルバイト採用', '両方'] as const
 
 
 const FREE_EMAIL_DOMAINS = [
@@ -96,18 +92,21 @@ export default function CompaniesPage() {
   const [toastMessage, setToastMessage] = useState('')
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [submitting, setSubmitting] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [registrationResult, setRegistrationResult] = useState<{
+    email: string
+    password: string
+    interviewSlug: string
+  } | null>(null)
   const [form, setForm] = useState({
     companyName: '',
-    representativeName: '',
     contactName: '',
     contactEmail: '',
     contactPhone: '',
     industry: '',
-    employeeCount: '',
-    usePurpose: '',
-    address: '',
     monthlyInterviews: '',
-    notes: '',
+    initialPassword: '',
   })
 
   useEffect(() => {
@@ -116,35 +115,23 @@ export default function CompaniesPage() {
 
   async function fetchCompanies() {
     setLoading(true)
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('companies')
-      .select('*')
-      .order('created_at', { ascending: false })
+    try {
+      const res = await fetch('/api/admin/companies?per_page=100')
+      const json = await res.json()
+      const items = json.companies ?? []
 
-    if (data) {
-      const mapped = data.map((c: any) => ({
-        id: c.id,
-        name: c.name,
-        industry: c.industry || '未設定',
-        plan: c.plan || 'pay_per_use',
-        status: c.is_suspended ? 'suspended' : c.is_active === false ? 'cancelled' : (c.status || 'active'),
-        interviewsThisMonth: c.monthly_interview_count || 0,
-        interviewLimit: c.monthly_interview_limit || 0,
-        contractStart: c.contract_start_date || '',
-        contactName: c.contact_person || '',
-        contactEmail: c.contact_email || c.email || '',
-      }))
-      setCompanies(mapped)
+      setCompanies(items)
 
-      const active = mapped.filter((c: any) => c.status === 'active').length
-      const suspended = mapped.filter((c: any) => c.status === 'suspended').length
+      const active = items.filter((c: any) => c.status === 'active').length
+      const suspended = items.filter((c: any) => c.status === 'suspended').length
       setSummary({
-        total: mapped.length,
+        total: items.length,
         active,
-        activePercent: mapped.length ? Math.round((active / mapped.length) * 100) : 0,
+        activePercent: items.length ? Math.round((active / items.length) * 100) : 0,
         suspended,
       })
+    } catch {
+      setCompanies([])
     }
     setLoading(false)
   }
@@ -174,19 +161,26 @@ export default function CompaniesPage() {
   const openAddModal = () => {
     setForm({
       companyName: '',
-      representativeName: '',
       contactName: '',
       contactEmail: '',
       contactPhone: '',
       industry: '',
-      employeeCount: '',
-      usePurpose: '',
-      address: '',
       monthlyInterviews: '',
-      notes: '',
+      initialPassword: '',
     })
     setFormErrors({})
+    setShowPassword(false)
+    setRegistrationResult(null)
     setAddModalOpen(true)
+  }
+
+  const generatePassword = () => {
+    const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    const array = new Uint8Array(12)
+    crypto.getRandomValues(array)
+    const pw = Array.from(array, (b) => chars[b % chars.length]).join('')
+    setForm((prev) => ({ ...prev, initialPassword: pw }))
+    if (formErrors.initialPassword) setFormErrors((prev) => ({ ...prev, initialPassword: '' }))
   }
 
   const setFormField = (key: keyof typeof form, value: string) => {
@@ -196,43 +190,50 @@ export default function CompaniesPage() {
 
   const handleSubmitNewCompany = async () => {
     const err: Record<string, string> = {}
-    if (!form.companyName.trim()) err.companyName = '会社名を入力してください'
-    if (!form.representativeName.trim()) err.representativeName = '代表者名を入力してください'
+    if (!form.companyName.trim()) err.companyName = '企業名を入力してください'
     if (!form.contactName.trim()) err.contactName = '担当者名を入力してください'
-    if (!form.contactEmail.trim()) err.contactEmail = '担当者メールアドレスを入力してください'
+    if (!form.contactEmail.trim()) err.contactEmail = 'メールアドレスを入力してください'
     else if (isFreeEmail(form.contactEmail.trim())) err.contactEmail = '法人ドメインのメールアドレスを入力してください'
-    if (!form.contactPhone.trim()) err.contactPhone = '担当者電話番号を入力してください'
+    if (!form.contactPhone.trim()) err.contactPhone = '電話番号を入力してください'
     if (!form.industry) err.industry = '業種を選択してください'
-    if (!form.employeeCount) err.employeeCount = '従業員数を選択してください'
-    if (!form.usePurpose) err.usePurpose = '利用目的を選択してください'
+    if (!form.initialPassword.trim()) err.initialPassword = '初期パスワードを入力してください'
+    else if (form.initialPassword.trim().length < 8) err.initialPassword = 'パスワードは8文字以上にしてください'
     setFormErrors(err)
     if (Object.keys(err).length > 0) return
 
-    const supabase = createClient()
-    const { error } = await supabase.from('companies').insert({
-      name: form.companyName,
-      contact_person: form.contactName,
-      contact_email: form.contactEmail,
-      phone: form.contactPhone,
-      industry: form.industry,
-      plan: 'pay_per_use',
-      status: 'active',
-      is_active: true,
-      is_suspended: false,
-      monthly_interview_limit: parseInt(form.monthlyInterviews) || 20,
-      monthly_interview_count: 0,
-      contract_start_date: new Date().toISOString().split('T')[0],
-      onboarding_completed: false,
-    }).select().single()
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/admin/companies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.companyName.trim(),
+          email: form.contactEmail.trim(),
+          password: form.initialPassword.trim(),
+          contact_person: form.contactName.trim(),
+          phone: form.contactPhone.trim(),
+          industry: form.industry,
+          monthly_interview_limit: parseInt(form.monthlyInterviews) || 20,
+        }),
+      })
+      const data = await res.json()
 
-    if (error) {
-      showToast('登録に失敗しました: ' + error.message)
-      return
+      if (!res.ok) {
+        const msg = data?.error?.message || '登録に失敗しました'
+        showToast(msg)
+        return
+      }
+
+      setRegistrationResult({
+        email: form.contactEmail.trim(),
+        password: form.initialPassword.trim(),
+        interviewSlug: data.interview_slug,
+      })
+    } catch {
+      showToast('登録に失敗しました。ネットワークを確認してください')
+    } finally {
+      setSubmitting(false)
     }
-
-    showToast(form.companyName + 'を登録しました')
-    setAddModalOpen(false)
-    fetchCompanies()
   }
 
   const handleCsvExport = () => {
@@ -609,17 +610,6 @@ export default function CompaniesPage() {
                   {formErrors.companyName && <p className="mt-1 text-xs text-red-500">{formErrors.companyName}</p>}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">代表者名 <span className="text-red-500">*</span></label>
-                  <input
-                    type="text"
-                    value={form.representativeName}
-                    onChange={(e) => setFormField('representativeName', e.target.value)}
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="山田 太郎"
-                  />
-                  {formErrors.representativeName && <p className="mt-1 text-xs text-red-500">{formErrors.representativeName}</p>}
-                </div>
-                <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">担当者名 <span className="text-red-500">*</span></label>
                   <input
                     type="text"
@@ -667,49 +657,11 @@ export default function CompaniesPage() {
                   {formErrors.industry && <p className="mt-1 text-xs text-red-500">{formErrors.industry}</p>}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">従業員数 <span className="text-red-500">*</span></label>
-                  <select
-                    value={form.employeeCount}
-                    onChange={(e) => setFormField('employeeCount', e.target.value)}
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">選択してください</option>
-                    {EMPLOYEE_COUNTS.map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                  {formErrors.employeeCount && <p className="mt-1 text-xs text-red-500">{formErrors.employeeCount}</p>}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">利用目的 <span className="text-red-500">*</span></label>
-                  <select
-                    value={form.usePurpose}
-                    onChange={(e) => setFormField('usePurpose', e.target.value)}
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">選択してください</option>
-                    {USE_PURPOSES.map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                  {formErrors.usePurpose && <p className="mt-1 text-xs text-red-500">{formErrors.usePurpose}</p>}
-                </div>
-                <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">プラン</label>
                   <p className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-500 bg-slate-50">従量課金（¥4,000/件）</p>
                 </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">所在地</label>
-                  <input
-                    type="text"
-                    value={form.address}
-                    onChange={(e) => setFormField('address', e.target.value)}
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="東京都渋谷区〇〇 1-2-3"
-                  />
-                </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">月間想定面接数</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">月間面接上限</label>
                   <input
                     type="text"
                     inputMode="numeric"
@@ -720,14 +672,34 @@ export default function CompaniesPage() {
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">備考</label>
-                  <textarea
-                    value={form.notes}
-                    onChange={(e) => setFormField('notes', e.target.value)}
-                    rows={3}
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                    placeholder="自由記述"
-                  />
+                  <label className="block text-sm font-medium text-slate-700 mb-1">初期パスワード <span className="text-red-500">*</span></label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={form.initialPassword}
+                        onChange={(e) => setFormField('initialPassword', e.target.value)}
+                        className="w-full px-4 py-2.5 pr-10 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="8文字以上"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        tabIndex={-1}
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={generatePassword}
+                      className="shrink-0 px-4 py-2.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors"
+                    >
+                      自動生成
+                    </button>
+                  </div>
+                  {formErrors.initialPassword && <p className="mt-1 text-xs text-red-500">{formErrors.initialPassword}</p>}
                 </div>
               </div>
               <div className="mt-6 flex justify-end gap-3">
@@ -740,12 +712,63 @@ export default function CompaniesPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors"
+                  disabled={submitting}
+                  className="px-5 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  登録
+                  {submitting ? '登録中...' : '登録'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 登録完了モーダル */}
+      {registrationResult && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <CheckCircle className="w-6 h-6 text-emerald-500" />
+              <h2 className="text-lg font-bold text-slate-900">企業登録が完了しました</h2>
+            </div>
+            <p className="text-sm text-slate-500 mb-4">以下のログイン情報を企業担当者にお伝えください。初期パスワードはこの画面を閉じると再表示できません。</p>
+            <div className="space-y-3">
+              {[
+                { label: 'ログインURL', value: `${typeof window !== 'undefined' ? window.location.origin : ''}/client/login` },
+                { label: 'メールアドレス', value: registrationResult.email },
+                { label: '初期パスワード', value: registrationResult.password },
+                { label: '面接URL', value: `${typeof window !== 'undefined' ? window.location.origin : ''}/interview/${registrationResult.interviewSlug}` },
+              ].map((item) => (
+                <div key={item.label} className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-xs font-medium text-slate-500 mb-1">{item.label}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm text-slate-900 flex-1 break-all font-mono">{item.value}</p>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(item.value)
+                        showToast(`${item.label}をコピーしました`)
+                      }}
+                      className="shrink-0 p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="コピー"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setRegistrationResult(null)
+                setAddModalOpen(false)
+                fetchCompanies()
+              }}
+              className="mt-6 w-full px-4 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors"
+            >
+              閉じる
+            </button>
           </div>
         </div>
       )}

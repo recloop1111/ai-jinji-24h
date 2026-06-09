@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { apiError } from './response'
 
 type AuthSuccess<T> = { data: T; error: null }
@@ -17,7 +17,8 @@ export type AdminUser = {
 
 /**
  * 企業ユーザー認証ヘルパー
- * Supabase Auth のセッションから認証し、company_id を取得する。
+ * cookie セッションで認証し、service role で profiles から company_id を取得する。
+ * RLS に依存しないため、profiles の SELECT ポリシーに関係なく動作する。
  */
 export async function getClientUser(): Promise<AuthResult<ClientUser>> {
   const supabase = await createClient()
@@ -27,26 +28,27 @@ export async function getClientUser(): Promise<AuthResult<ClientUser>> {
     return { data: null, error: apiError('UNAUTHORIZED') }
   }
 
-  // auth_user_id → company_id のマッピングを取得
-  const { data: company, error: companyError } = await supabase
-    .from('company_users')
+  const serviceClient = createServiceRoleClient()
+  const { data: profile, error: profileError } = await serviceClient
+    .from('profiles')
     .select('company_id')
-    .eq('auth_user_id', user.id)
+    .eq('id', user.id)
     .single()
 
-  if (companyError || !company) {
+  if (profileError || !profile?.company_id) {
     return { data: null, error: apiError('FORBIDDEN', '企業に紐づくアカウントが見つかりません') }
   }
 
   return {
-    data: { userId: user.id, companyId: company.company_id },
+    data: { userId: user.id, companyId: profile.company_id },
     error: null,
   }
 }
 
 /**
  * 管理者ユーザー認証ヘルパー
- * Supabase Auth のセッションから認証し、admin_users テーブルで権限を確認する。
+ * cookie セッションで認証し、service role で profiles.role を確認する。
+ * RLS に依存しないため、profiles の SELECT ポリシーに関係なく動作する。
  */
 export async function getAdminUser(): Promise<AuthResult<AdminUser>> {
   const supabase = await createClient()
@@ -56,18 +58,24 @@ export async function getAdminUser(): Promise<AuthResult<AdminUser>> {
     return { data: null, error: apiError('UNAUTHORIZED') }
   }
 
-  const { data: admin, error: adminError } = await supabase
-    .from('admin_users')
+  const serviceClient = createServiceRoleClient()
+  const { data: profile, error: profileError } = await serviceClient
+    .from('profiles')
     .select('role')
-    .eq('auth_user_id', user.id)
+    .eq('id', user.id)
     .single()
 
-  if (adminError || !admin) {
+  if (profileError || !profile) {
+    return { data: null, error: apiError('FORBIDDEN', '管理者権限がありません') }
+  }
+
+  const role = profile.role as string
+  if (role !== 'admin' && role !== 'super_admin') {
     return { data: null, error: apiError('FORBIDDEN', '管理者権限がありません') }
   }
 
   return {
-    data: { userId: user.id, role: admin.role },
+    data: { userId: user.id, role },
     error: null,
   }
 }

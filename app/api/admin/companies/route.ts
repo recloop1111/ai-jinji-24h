@@ -2,9 +2,7 @@ import { type NextRequest } from 'next/server'
 import crypto from 'crypto'
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
-
-const VALID_PLANS = ['light', 'standard', 'pro', 'custom'] as const
+import { createServiceRoleClient } from '@/lib/supabase/server'
 
 const VALID_STATUSES = ['all', 'active', 'suspended'] as const
 const MAX_PER_PAGE = 100
@@ -24,11 +22,11 @@ export async function GET(request: NextRequest) {
       return apiError('VALIDATION_ERROR', 'statusの値が不正です')
     }
 
-    const supabase = await createClient()
+    const supabase = createServiceRoleClient()
 
     let query = supabase
       .from('companies')
-      .select('id, name, plan, is_suspended, plan_limit, created_at', { count: 'exact' })
+      .select('id, name, email, plan, industry, is_suspended, is_active, status, monthly_interview_limit, monthly_interview_count, contact_person, contact_email, contract_start_date, created_at', { count: 'exact' })
 
     if (status === 'active') {
       query = query.eq('is_suspended', false)
@@ -65,13 +63,17 @@ export async function GET(request: NextRequest) {
       }, {})
     }
 
-    const items = (companies ?? []).map((c: { id: string; name: string; plan: string; is_suspended: boolean; plan_limit: number | null; created_at: string }) => ({
+    const items = (companies ?? []).map((c: any) => ({
       id: c.id,
       name: c.name,
-      plan: c.plan,
-      status: c.is_suspended ? 'suspended' : 'active',
-      monthly_count: monthlyCounts[c.id] ?? 0,
-      plan_limit: c.plan_limit,
+      industry: c.industry || '未設定',
+      plan: c.plan || 'pay_per_use',
+      status: c.is_suspended ? 'suspended' : c.is_active === false ? 'cancelled' : (c.status || 'active'),
+      interviewsThisMonth: monthlyCounts[c.id] ?? (c.monthly_interview_count || 0),
+      interviewLimit: c.monthly_interview_limit || 0,
+      contractStart: c.contract_start_date || '',
+      contactName: c.contact_person || '',
+      contactEmail: c.contact_email || c.email || '',
       created_at: c.created_at,
     }))
 
@@ -95,26 +97,29 @@ export async function POST(request: NextRequest) {
       return apiError('VALIDATION_ERROR', 'リクエストボディが不正です')
     }
 
-    const { name, email, password, plan } = body as {
-      name?: string; email?: string; password?: string; plan?: string
+    const { name, email, password, contact_person, phone, industry, monthly_interview_limit } = body as {
+      name?: string
+      email?: string
+      password?: string
+      contact_person?: string
+      phone?: string
+      industry?: string
+      monthly_interview_limit?: number
     }
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      return apiError('VALIDATION_ERROR', 'name は必須です')
+      return apiError('VALIDATION_ERROR', '企業名は必須です')
     }
     if (!email || typeof email !== 'string' || !email.includes('@')) {
-      return apiError('VALIDATION_ERROR', '有効な email を入力してください')
+      return apiError('VALIDATION_ERROR', '有効なメールアドレスを入力してください')
     }
     if (!password || typeof password !== 'string' || password.length < 8) {
-      return apiError('VALIDATION_ERROR', 'password は8文字以上で入力してください')
-    }
-    if (!plan || !VALID_PLANS.includes(plan as typeof VALID_PLANS[number])) {
-      return apiError('VALIDATION_ERROR', 'plan の値が不正です（light / standard / pro / custom）')
+      return apiError('VALIDATION_ERROR', 'パスワードは8文字以上で入力してください')
     }
 
-    const supabase = await createClient()
+    const supabase = createServiceRoleClient()
 
-    // Supabase Auth ユーザー作成
+    // Step 1: Supabase Auth ユーザー作成
     const { data: authData, error: signUpError } = await supabase.auth.admin.createUser({
       email,
       password,
@@ -125,41 +130,62 @@ export async function POST(request: NextRequest) {
       if (signUpError?.message?.includes('already')) {
         return apiError('CONFLICT', 'このメールアドレスは既に登録されています')
       }
-      return apiError('INTERNAL_ERROR', 'ユーザーの作成に失敗しました')
+      return apiError('INTERNAL_ERROR', 'ユーザーの作成に失敗しました: ' + (signUpError?.message ?? ''))
     }
 
-    // ランダムスラッグ生成
-    const slug = crypto.randomBytes(6).toString('hex')
+    const authUserId = authData.user.id
 
-    // 企業レコード作成
+    // Step 2: 企業レコード作成
+    const slug = crypto.randomBytes(6).toString('hex')
     const { data: company, error: compError } = await supabase
       .from('companies')
       .insert({
+        auth_user_id: authUserId,
         name: name.trim(),
         email,
-        plan,
+        plan: 'pay_per_use',
         interview_slug: slug,
+        monthly_interview_limit: monthly_interview_limit ?? 20,
+        contact_person: contact_person?.trim() || null,
+        phone: phone?.trim() || null,
+        industry: industry?.trim() || null,
+        status: 'active',
+        is_active: true,
         is_suspended: false,
+        interview_url_active: true,
         onboarding_completed: false,
       })
       .select('id')
       .single()
 
     if (compError || !company) {
-      return apiError('INTERNAL_ERROR', '企業の作成に失敗しました')
+      // ロールバック: Auth ユーザー削除
+      await supabase.auth.admin.deleteUser(authUserId)
+      return apiError('INTERNAL_ERROR', '企業の作成に失敗しました: ' + (compError?.message ?? ''))
     }
 
-    // company_users マッピング作成
-    await supabase
-      .from('company_users')
-      .insert({
-        auth_user_id: authData.user.id,
+    // Step 3: profiles レコード作成（trigger で自動作成済みの場合は更新）
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .upsert({
+        id: authUserId,
+        email,
+        role: 'company',
         company_id: company.id,
-      })
+        display_name: contact_person?.trim() || name.trim(),
+      }, { onConflict: 'id' })
+
+    if (profileError) {
+      // ロールバック: companies + Auth ユーザー削除
+      await supabase.from('companies').delete().eq('id', company.id)
+      await supabase.auth.admin.deleteUser(authUserId)
+      return apiError('INTERNAL_ERROR', 'プロフィールの作成に失敗しました: ' + profileError.message)
+    }
 
     return successJson({
       company_id: company.id,
-      auth_user_id: authData.user.id,
+      auth_user_id: authUserId,
+      email,
       interview_slug: slug,
     }, 201)
   } catch {

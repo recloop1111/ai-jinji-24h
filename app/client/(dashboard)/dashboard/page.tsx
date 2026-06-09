@@ -69,9 +69,25 @@ function DashboardContent() {
         if (recentError) {
         }
 
+        // 今月の面接の平均時間を算出
+        let avgDur = 0
+        if (companyId) {
+          const { data: interviews } = await supabase
+            .from('interviews')
+            .select('duration_seconds')
+            .eq('company_id', companyId)
+            .gte('created_at', firstDayOfMonth)
+            .not('duration_seconds', 'is', null)
+
+          if (interviews && interviews.length > 0) {
+            const total = interviews.reduce((sum: number, i: any) => sum + (i.duration_seconds || 0), 0)
+            avgDur = Math.round(total / interviews.length / 60)
+          }
+        }
+
         setKpis({
           interviews: company?.monthly_interview_count || 0,
-          avgDuration: 22, // TODO: 面接実装後に実データから算出
+          avgDuration: avgDur,
           applicants: applicantCount || 0,
           used: company?.monthly_interview_count || 0,
           limit: company?.monthly_interview_limit || 0,
@@ -264,9 +280,8 @@ function DashboardContent() {
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition-shadow">
             <p className="text-xs font-medium text-slate-500 mb-1">平均面接時間</p>
             <p className="text-2xl font-bold text-slate-900">
-              {dataLoading ? '...' : kpis.avgDuration}<span className="text-base font-normal text-slate-500 ml-1">分</span>
+              {dataLoading ? '...' : kpis.avgDuration > 0 ? kpis.avgDuration : '--'}<span className="text-base font-normal text-slate-500 ml-1">分</span>
             </p>
-            <p className="text-xs text-slate-400 mt-0.5">※ 面接機能実装後に実データ反映</p>
           </div>
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition-shadow">
             <p className="text-xs font-medium text-slate-500 mb-1">今月の応募者数</p>
