@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 
 const DEMO_COMPANY_ID = '7a58cc1b-9f81-4da5-ae2c-fd3abea05c33'
 export const DEMO_STORAGE_KEY = 'client_demo_mode'
@@ -19,6 +19,7 @@ export function useCompanyId(): {
   error: string | null
 } {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -26,25 +27,32 @@ export function useCompanyId(): {
   useEffect(() => {
     let cancelled = false
 
-    // デモモード判定: URL ?demo=true もしくは sessionStorage に保存済み
-    const urlDemo = searchParams.get('demo') === 'true'
-    const storedDemo =
-      typeof window !== 'undefined' && sessionStorage.getItem(DEMO_STORAGE_KEY) === 'true'
-    if (urlDemo && typeof window !== 'undefined') {
-      sessionStorage.setItem(DEMO_STORAGE_KEY, 'true')
-    }
-    if (urlDemo || storedDemo) {
-      setCompanyId(DEMO_COMPANY_ID)
-      setError(null)
-      setLoading(false)
-      return
-    }
+    async function resolveCompanyId() {
+      // デモモード判定: URL ?demo=true もしくは sessionStorage に保存済み
+      const urlDemo = searchParams.get('demo') === 'true'
+      const storedDemo =
+        typeof window !== 'undefined' && sessionStorage.getItem(DEMO_STORAGE_KEY) === 'true'
+      if (urlDemo && typeof window !== 'undefined') {
+        sessionStorage.setItem(DEMO_STORAGE_KEY, 'true')
+      }
+      if (urlDemo || storedDemo) {
+        if (!cancelled) {
+          setCompanyId(DEMO_COMPANY_ID)
+          setError(null)
+          setLoading(false)
+        }
+        return
+      }
 
-    // 実ログイン: /api/client/company から取得（service role 経由で RLS をバイパス）
-    async function fetchCompanyId() {
+      // 実ログイン: /api/client/company から取得（service role 経由で RLS をバイパス）
       try {
         const res = await fetch('/api/client/company')
         if (cancelled) return
+        if (res.status === 401) {
+          // 未ログイン かつ demo なし: ログイン画面へ誘導（loading のまま遷移）
+          router.replace('/client/login')
+          return
+        }
         if (!res.ok) {
           const json = await res.json().catch(() => ({}))
           setError(json?.error?.message ?? '企業情報を取得できませんでした')
@@ -70,11 +78,11 @@ export function useCompanyId(): {
       }
     }
 
-    fetchCompanyId()
+    resolveCompanyId()
     return () => {
       cancelled = true
     }
-  }, [searchParams])
+  }, [searchParams, router])
 
   return { companyId, loading, error }
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { DEMO_STORAGE_KEY } from '@/lib/hooks/useCompanyId'
@@ -28,6 +28,33 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [copySuccess, setCopySuccess] = useState(false)
+  const [companyName, setCompanyName] = useState('')
+
+  // ヘッダーの企業名: demo時は「デモ企業」、実ログイン時は /api/client/company から取得
+  useEffect(() => {
+    let cancelled = false
+    async function loadCompanyName() {
+      const urlDemo =
+        typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === 'true'
+      const storedDemo =
+        typeof window !== 'undefined' && sessionStorage.getItem(DEMO_STORAGE_KEY) === 'true'
+      if (urlDemo || storedDemo) {
+        if (!cancelled) setCompanyName('デモ企業')
+        return
+      }
+      try {
+        const res = await fetch('/api/client/company')
+        const json = res.ok ? await res.json() : null
+        if (!cancelled) setCompanyName(json?.name || '--')
+      } catch {
+        if (!cancelled) setCompanyName('--')
+      }
+    }
+    loadCompanyName()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleCopyUrl = async () => {
     try {
@@ -136,7 +163,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
           </button>
           <div className="flex-1" />
           <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-slate-700 hidden sm:inline">株式会社サンプル</span>
+            <span className="text-sm font-medium text-slate-700 hidden sm:inline">{companyName || '読み込み中'}</span>
             <div className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-slate-600">
               <PersonIcon className="w-4 h-4" />
             </div>
