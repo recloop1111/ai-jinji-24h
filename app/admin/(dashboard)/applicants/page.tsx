@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { Search, Download, Users, CheckCircle, Clock, BarChart3, XCircle, Phone, Mail } from 'lucide-react'
 import Link from 'next/link'
 
@@ -68,7 +67,6 @@ function getResultBadgeClass(result: string | null): string {
 const ITEMS_PER_PAGE = 20
 
 export default function AdminApplicantsPage() {
-  const supabase = createClient()
   const [applicants, setApplicants] = useState<Applicant[]>([])
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
@@ -87,64 +85,19 @@ export default function AdminApplicantsPage() {
     async function fetchData() {
       setLoading(true)
       try {
-        const { data: applicantsData, error: appError } = await supabase
-          .from('applicants')
-          .select('*')
-          .order('created_at', { ascending: false })
-
-        if (appError) {
+        const res = await fetch('/api/admin/applicant-data?per_page=100')
+        if (res.ok) {
+          const json = await res.json()
+          if (json.applicants) setApplicants(json.applicants)
+          if (json.companies) setCompanies(json.companies)
         }
-
-        const { data: companiesData } = await supabase
-          .from('companies')
-          .select('id, name')
-
-        const { data: resultsData } = await supabase
-          .from('interview_results')
-          .select('applicant_id, total_score, detail_json, culture_fit_score')
-
-        const resultsMap: Record<string, any> = {}
-        if (resultsData) {
-          resultsData.forEach((r: any) => {
-            resultsMap[r.applicant_id] = r
-          })
-        }
-
-        const companiesMap: Record<string, string> = {}
-        if (companiesData) {
-          companiesData.forEach((c: any) => {
-            companiesMap[c.id] = c.name
-          })
-        }
-
-        const merged: Applicant[] = (applicantsData || []).map((a: any) => {
-          const ir = resultsMap[a.id] || null
-          return {
-            id: a.id,
-            name: `${a.last_name || ''} ${a.first_name || ''}`.trim() || a.name || '名前不明',
-            email: a.email || '',
-            phone: a.phone || '',
-            company_id: a.company_id,
-            company_name: companiesMap[a.company_id] || '不明',
-            status: a.status || '準備中',
-            selection_status: a.selection_status || 'pending',
-            created_at: a.created_at,
-            interview_scheduled_at: a.interview_scheduled_at,
-            total_score: ir?.total_score ?? null,
-            recommendation_rank: ir?.detail_json?.recommendation_rank ?? null,
-            culture_fit_score: ir?.culture_fit_score ?? null,
-          }
-        })
-
-        setApplicants(merged)
-        setCompanies(companiesData || [])
-      } catch (err: any) {
+      } catch {
       } finally {
         setLoading(false)
       }
     }
     fetchData()
-  }, [supabase])
+  }, [])
 
   const filteredApplicants = useMemo(() => {
     return applicants.filter((a) => {
