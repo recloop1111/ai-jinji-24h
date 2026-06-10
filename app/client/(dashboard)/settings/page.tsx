@@ -141,6 +141,14 @@ function SettingsContent() {
 
   const [twoFactorAuth, setTwoFactorAuth] = useState(false)
 
+  // 設定変更用パスワード（ログインPWとは別）
+  const [settingPwConfigured, setSettingPwConfigured] = useState<boolean | null>(null)
+  const [settingPwCurrent, setSettingPwCurrent] = useState('')
+  const [settingPwNew, setSettingPwNew] = useState('')
+  const [settingPwConfirm, setSettingPwConfirm] = useState('')
+  const [settingPwError, setSettingPwError] = useState('')
+  const [settingPwLoading, setSettingPwLoading] = useState(false)
+
   const showToastMessage = (msg: string) => {
     setToast(msg)
     setTimeout(() => setToast(null), 2000)
@@ -183,6 +191,69 @@ function SettingsContent() {
     })()
     return () => { cancelled = true }
   }, [companyId])
+
+  // 設定変更用パスワードの設定状況を取得
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/client/security/setting-password')
+        const json = await res.json().catch(() => ({}))
+        if (cancelled) return
+        setSettingPwConfigured(res.ok ? !!json.configured : false)
+      } catch {
+        if (!cancelled) setSettingPwConfigured(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const handleSettingPasswordSubmit = async () => {
+    setSettingPwError('')
+    if (!settingPwNew || !settingPwConfirm) {
+      setSettingPwError('新しいパスワードを入力してください')
+      return
+    }
+    if (settingPwNew.length < 8) {
+      setSettingPwError('パスワードは8文字以上で設定してください')
+      return
+    }
+    if (settingPwNew !== settingPwConfirm) {
+      setSettingPwError('新しいパスワードと確認用パスワードが一致しません')
+      return
+    }
+    if (settingPwConfigured && !settingPwCurrent) {
+      setSettingPwError('現在の設定変更用パスワードを入力してください')
+      return
+    }
+    const wasConfigured = settingPwConfigured
+    setSettingPwLoading(true)
+    try {
+      const res = await fetch('/api/client/security/setting-password', {
+        method: wasConfigured ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          wasConfigured
+            ? { currentPassword: settingPwCurrent, newPassword: settingPwNew }
+            : { newPassword: settingPwNew },
+        ),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setSettingPwError(json?.error?.message ?? '保存に失敗しました')
+        return
+      }
+      setSettingPwConfigured(true)
+      setSettingPwCurrent('')
+      setSettingPwNew('')
+      setSettingPwConfirm('')
+      showToastMessage(wasConfigured ? '設定変更用パスワードを変更しました' : '設定変更用パスワードを設定しました')
+    } catch {
+      setSettingPwError('保存に失敗しました')
+    } finally {
+      setSettingPwLoading(false)
+    }
+  }
 
   const handleSaveCompany = async () => {
     if (!companyId) return
@@ -539,6 +610,65 @@ function SettingsContent() {
                 className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm disabled:opacity-70"
               >
                 {loginPasswordLoading ? '変更中...' : '変更する'}
+              </button>
+            </div>
+          </div>
+
+          {/* 設定変更用パスワード（ログインPWとは別） */}
+          <div className={cardClass}>
+            <h3 className="text-base font-semibold text-slate-900 mb-2">設定変更用パスワード</h3>
+            <p className="text-sm text-slate-600 mb-3">
+              翌月の月間上限など、重要設定を変更する際に使用するパスワードです。ログインパスワードとは別に管理してください。
+            </p>
+            <p className="text-xs mb-4">
+              {settingPwConfigured === null
+                ? <span className="text-slate-400">状態を確認中...</span>
+                : settingPwConfigured
+                  ? <span className="text-emerald-600 font-medium">設定済み</span>
+                  : <span className="text-amber-600 font-medium">未設定</span>}
+            </p>
+            <div className="space-y-4">
+              {settingPwConfigured && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">現在の設定変更用パスワード</label>
+                  <input
+                    type="password"
+                    value={settingPwCurrent}
+                    onChange={(e) => setSettingPwCurrent(e.target.value)}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="現在の設定変更用パスワードを入力"
+                  />
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">新しい設定変更用パスワード</label>
+                <input
+                  type="password"
+                  value={settingPwNew}
+                  onChange={(e) => setSettingPwNew(e.target.value)}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="新しいパスワードを入力"
+                />
+                <p className="text-xs text-slate-500 mt-1">8文字以上で設定してください</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">新しい設定変更用パスワード（確認）</label>
+                <input
+                  type="password"
+                  value={settingPwConfirm}
+                  onChange={(e) => setSettingPwConfirm(e.target.value)}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="新しいパスワードを再入力"
+                />
+              </div>
+              {settingPwError && <p className="text-sm text-red-600">{settingPwError}</p>}
+              <button
+                type="button"
+                onClick={handleSettingPasswordSubmit}
+                disabled={settingPwLoading || settingPwConfigured === null}
+                className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm disabled:opacity-70"
+              >
+                {settingPwLoading ? '保存中...' : settingPwConfigured ? '変更する' : '設定する'}
               </button>
             </div>
           </div>

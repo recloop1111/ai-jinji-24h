@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 // TODO: 実データに差替え
 const EMAIL_TEMPLATES = [
@@ -75,6 +75,14 @@ export default function SettingsPage() {
   const [maintenanceMode, setMaintenanceMode] = useState(false)
   const [maintenanceMessage, setMaintenanceMessage] = useState('現在メンテナンス中です。しばらくお待ちください。')
 
+  // 運営管理設定変更用パスワード（ログインPWとは別）
+  const [adminSettingPwConfigured, setAdminSettingPwConfigured] = useState<boolean | null>(null)
+  const [adminSettingPwCurrent, setAdminSettingPwCurrent] = useState('')
+  const [adminSettingPwNew, setAdminSettingPwNew] = useState('')
+  const [adminSettingPwConfirm, setAdminSettingPwConfirm] = useState('')
+  const [adminSettingPwError, setAdminSettingPwError] = useState('')
+  const [adminSettingPwLoading, setAdminSettingPwLoading] = useState(false)
+
   // TODO: 実データに差替え（メール設定の初期値）
   const [resendApiKey, setResendApiKey] = useState('re_xxxx...xxxx')
   const [fromEmail, setFromEmail] = useState('noreply@ai-interview.example.com')
@@ -118,6 +126,69 @@ export default function SettingsPage() {
 
   const updateClientNotification = (key: keyof typeof clientNotifications, value: boolean) => {
     setClientNotifications((prev) => ({ ...prev, [key]: value }))
+  }
+
+  // 運営管理設定変更用パスワードの設定状況を取得
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/security/setting-password')
+        const json = await res.json().catch(() => ({}))
+        if (cancelled) return
+        setAdminSettingPwConfigured(res.ok ? !!json.configured : false)
+      } catch {
+        if (!cancelled) setAdminSettingPwConfigured(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const handleAdminSettingPasswordSubmit = async () => {
+    setAdminSettingPwError('')
+    if (!adminSettingPwNew || !adminSettingPwConfirm) {
+      setAdminSettingPwError('新しいパスワードを入力してください')
+      return
+    }
+    if (adminSettingPwNew.length < 8) {
+      setAdminSettingPwError('パスワードは8文字以上で設定してください')
+      return
+    }
+    if (adminSettingPwNew !== adminSettingPwConfirm) {
+      setAdminSettingPwError('新しいパスワードと確認用パスワードが一致しません')
+      return
+    }
+    if (adminSettingPwConfigured && !adminSettingPwCurrent) {
+      setAdminSettingPwError('現在の設定変更用パスワードを入力してください')
+      return
+    }
+    const wasConfigured = adminSettingPwConfigured
+    setAdminSettingPwLoading(true)
+    try {
+      const res = await fetch('/api/admin/security/setting-password', {
+        method: wasConfigured ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          wasConfigured
+            ? { currentPassword: adminSettingPwCurrent, newPassword: adminSettingPwNew }
+            : { newPassword: adminSettingPwNew },
+        ),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setAdminSettingPwError(json?.error?.message ?? '保存に失敗しました')
+        return
+      }
+      setAdminSettingPwConfigured(true)
+      setAdminSettingPwCurrent('')
+      setAdminSettingPwNew('')
+      setAdminSettingPwConfirm('')
+      showToast(wasConfigured ? '設定変更用パスワードを変更しました' : '設定変更用パスワードを設定しました')
+    } catch {
+      setAdminSettingPwError('保存に失敗しました')
+    } finally {
+      setAdminSettingPwLoading(false)
+    }
   }
 
   return (
@@ -217,6 +288,64 @@ export default function SettingsPage() {
                   <p className="text-sm text-gray-300">月間上限人数は企業詳細画面から企業ごとに設定します（最低5人）</p>
                   <p className="text-xs text-gray-500 mt-1">上限到達後は面接が自動停止されます</p>
                 </div>
+              </div>
+            </div>
+
+            <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
+              <h2 className="text-lg font-semibold text-white mb-4">運営管理設定変更用パスワード</h2>
+              <p className="text-sm text-gray-400 mb-3">
+                企業設定・単価・月間上限などの重要設定を変更する際に使用する、ログインパスワードとは別のパスワードです。
+              </p>
+              <p className="text-xs mb-4">
+                {adminSettingPwConfigured === null
+                  ? <span className="text-gray-500">状態を確認中...</span>
+                  : adminSettingPwConfigured
+                    ? <span className="text-emerald-400 font-medium">設定済み</span>
+                    : <span className="text-amber-400 font-medium">未設定</span>}
+              </p>
+              <div className="space-y-4 max-w-md">
+                {adminSettingPwConfigured && (
+                  <div>
+                    <InputLabel>現在の設定変更用パスワード</InputLabel>
+                    <input
+                      type="password"
+                      value={adminSettingPwCurrent}
+                      onChange={(e) => setAdminSettingPwCurrent(e.target.value)}
+                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
+                      placeholder="現在の設定変更用パスワードを入力"
+                    />
+                  </div>
+                )}
+                <div>
+                  <InputLabel>新しい設定変更用パスワード</InputLabel>
+                  <input
+                    type="password"
+                    value={adminSettingPwNew}
+                    onChange={(e) => setAdminSettingPwNew(e.target.value)}
+                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
+                    placeholder="新しいパスワードを入力"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">8文字以上で設定してください</p>
+                </div>
+                <div>
+                  <InputLabel>新しい設定変更用パスワード（確認）</InputLabel>
+                  <input
+                    type="password"
+                    value={adminSettingPwConfirm}
+                    onChange={(e) => setAdminSettingPwConfirm(e.target.value)}
+                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
+                    placeholder="新しいパスワードを再入力"
+                  />
+                </div>
+                {adminSettingPwError && <p className="text-sm text-red-400">{adminSettingPwError}</p>}
+                <button
+                  type="button"
+                  onClick={handleAdminSettingPasswordSubmit}
+                  disabled={adminSettingPwLoading || adminSettingPwConfigured === null}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors disabled:opacity-60"
+                >
+                  {adminSettingPwLoading ? '保存中...' : adminSettingPwConfigured ? '変更する' : '設定する'}
+                </button>
               </div>
             </div>
 
