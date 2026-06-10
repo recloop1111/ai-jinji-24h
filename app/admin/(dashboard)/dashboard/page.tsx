@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { Building2, Users, FileText, AlertTriangle, CheckCircle, Clock, BarChart3, Phone, Mail } from 'lucide-react'
 
@@ -34,7 +33,6 @@ function getScoreBadgeClass(score: number | null): string {
 }
 
 export default function AdminDashboardPage() {
-  const supabase = createClient()
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState({
     companies: 0,
@@ -54,79 +52,19 @@ export default function AdminDashboardPage() {
     async function fetchData() {
       setLoading(true)
       try {
-        const { data: companies } = await supabase.from('companies').select('id, name, is_suspended, is_active')
-        const { data: jobs } = await supabase.from('jobs').select('id')
-        const { data: applicantsData } = await supabase
-          .from('applicants')
-          .select('*')
-          .order('created_at', { ascending: false })
-
-        const { data: resultsData } = await supabase
-          .from('interview_results')
-          .select('applicant_id, total_score')
-
-        const resultsMap: Record<string, any> = {}
-        if (resultsData) {
-          resultsData.forEach((r: any) => {
-            resultsMap[r.applicant_id] = r
-          })
+        const res = await fetch('/api/admin/dashboard')
+        if (res.ok) {
+          const json = await res.json()
+          if (json.stats) setStats(json.stats)
+          if (json.recentApplicants) setRecentApplicants(json.recentApplicants)
         }
-
-        const companiesMap: Record<string, string> = {}
-        if (companies) {
-          companies.forEach((c: any) => {
-            companiesMap[c.id] = c.name
-          })
-        }
-
-        const applicants = applicantsData || []
-        const totalApplicants = applicants.length
-        const completedInterviews = applicants.filter((a: any) => a.status === '完了').length
-        const waitingInterviews = applicants.filter((a: any) => a.status === '準備中').length
-        const withdrawnCount = applicants.filter((a: any) => a.status === '途中離脱').length
-        const withdrawnPercent = totalApplicants > 0 ? ((withdrawnCount / totalApplicants) * 100).toFixed(1) : '0'
-
-        const completedWithScore = applicants
-          .filter((a: any) => a.status === '完了' && resultsMap[a.id]?.total_score != null)
-          .map((a: any) => resultsMap[a.id].total_score)
-        const avgScore = completedWithScore.length > 0
-          ? (completedWithScore.reduce((sum: number, s: number) => sum + s, 0) / completedWithScore.length).toFixed(1)
-          : '—'
-
-        const active = companies ? companies.filter((c: any) => !c.is_suspended && c.is_active !== false).length : 0
-        const suspended = companies ? companies.filter((c: any) => c.is_suspended).length : 0
-
-        setStats({
-          companies: companies?.length || 0,
-          active,
-          suspended,
-          totalJobs: jobs?.length || 0,
-          totalApplicants,
-          completedInterviews,
-          waitingInterviews,
-          avgScore,
-          withdrawnCount,
-          withdrawnPercent,
-        })
-
-        const recent: RecentApplicant[] = applicants.slice(0, 10).map((a: any) => ({
-          id: a.id,
-          name: `${a.last_name || ''} ${a.first_name || ''}`.trim() || a.name || '名前不明',
-          email: a.email || '',
-          phone: a.phone || '',
-          company_name: companiesMap[a.company_id] || '不明',
-          status: a.status || '準備中',
-          total_score: resultsMap[a.id]?.total_score ?? null,
-          created_at: a.created_at,
-        }))
-        setRecentApplicants(recent)
-      } catch (err: any) {
+      } catch {
       } finally {
         setLoading(false)
       }
     }
     fetchData()
-  }, [supabase])
+  }, [])
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr)
