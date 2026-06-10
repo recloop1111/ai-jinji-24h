@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { LayoutGrid, Building2, Users, MessageSquare, CircleDollarSign, Settings, Shield, Menu, X, LogOut } from 'lucide-react'
 
 const navigation = [
-  { name: 'ダッシュボード', href: '/admin', icon: LayoutGrid },
+  { name: 'ダッシュボード', href: '/admin/dashboard', icon: LayoutGrid },
   { name: '企業管理', href: '/admin/companies', icon: Building2 },
   { name: '応募者管理', href: '/admin/applicants', icon: Users },
   { name: '質問バンク', href: '/admin/questions', icon: MessageSquare },
@@ -16,7 +16,7 @@ const navigation = [
 ]
 
 const PATH_TO_PAGE_NAME: Record<string, string> = {
-  '/admin': 'ダッシュボード',
+  '/admin/dashboard': 'ダッシュボード',
   '/admin/companies': '企業管理',
   '/admin/applicants': '応募者管理',
   '/admin/questions': '質問バンク',
@@ -26,7 +26,7 @@ const PATH_TO_PAGE_NAME: Record<string, string> = {
 }
 
 function getPageName(pathname: string): string {
-  if (pathname === '/admin') return 'ダッシュボード'
+  if (pathname === '/admin' || pathname === '/admin/dashboard') return 'ダッシュボード'
   for (const [path, name] of Object.entries(PATH_TO_PAGE_NAME)) {
     if (path !== '/admin' && pathname.startsWith(path)) return name
   }
