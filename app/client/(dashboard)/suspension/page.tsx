@@ -13,7 +13,7 @@ const FAQ_ITEMS = [
   {
     id: 2,
     question: '一時停止を取り消した場合、追加費用は発生しますか？',
-    answer: 'いいえ、取り消しに追加費用は発生しません。取り消し後は通常通りのプラン料金でサービスをご利用いただけます。',
+    answer: 'いいえ、取り消しに追加費用は発生しません。取り消し後は通常通りサービスをご利用いただけます。',
   },
   {
     id: 3,
@@ -22,8 +22,8 @@ const FAQ_ITEMS = [
   },
   {
     id: 4,
-    question: 'プランの変更と停止はどちらが先に適用されますか？',
-    answer: 'プラン変更申請と停止申請を同時に行った場合、停止申請が優先されます。プラン変更は停止が解除された後に改めて申請してください。',
+    question: '停止中の実施済み面接の請求はどうなりますか？',
+    answer: '停止申請前に実施済みの面接分は請求対象となります（¥4,000/件）。停止後に新たに面接が実施されることはありません。',
   },
 ]
 
@@ -41,10 +41,10 @@ export default function SuspensionPage() {
   const [emergencyModal, setEmergencyModal] = useState({ isOpen: false, reason: '' })
   const [faqOpen, setFaqOpen] = useState<Record<number, boolean>>({})
 
-  // TODO: 実データに差替え
-  const applyDate = '2026-02-15'
-  const scheduledDate = '2026-03-15'
-  const daysRemaining = 28
+  // 実データ接続まで未設定
+  const applyDate = ''
+  const scheduledDate = ''
+  const daysRemaining: number | null = null
 
   const showToast = (msg: string) => {
     setToastMessage(msg)
@@ -138,18 +138,12 @@ export default function SuspensionPage() {
 
         {/* セクション2: 現在のステータスカード */}
         <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <span className={`w-3 h-3 rounded-full shrink-0 ${getStatusDotColor()}`} />
-              <span className={`font-semibold ${getStatusColor()}`}>
-                現在のステータス: {getStatusLabel()}
-              </span>
-            </div>
-            <p className="text-sm text-gray-500">
-              スタンダード | 契約開始日: 2025-04-01
-            </p>
+          <div className="flex items-center gap-2">
+            <span className={`w-3 h-3 rounded-full shrink-0 ${getStatusDotColor()}`} />
+            <span className={`font-semibold ${getStatusColor()}`}>
+              現在のステータス: {getStatusLabel()}
+            </span>
           </div>
-          {/* TODO: 実データに差替え */}
         </div>
 
         {/* セクション3: 一時停止申請カード */}
@@ -172,9 +166,9 @@ export default function SuspensionPage() {
               </p>
               <div className="bg-amber-50 border border-amber-100 rounded-lg p-4 mb-4">
                 <ul className="text-sm text-amber-800 space-y-1 list-disc list-inside">
-                  <li>停止中も月額費用は停止予定日まで発生します</li>
+                  <li>停止中は面接URLの受付を停止します</li>
+                  <li>実施済み面接分は請求対象となります</li>
                   <li>停止後の再開は運営へのお問い合わせが必要です</li>
-                  <li>停止中は応募者が面接URLにアクセスできなくなります</li>
                 </ul>
               </div>
               <button
@@ -190,11 +184,13 @@ export default function SuspensionPage() {
           {currentStatus === 'pending_suspension' && (
             <>
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
-                <p className="text-sm text-gray-700">申請日: {applyDate}</p>
-                <p className="text-sm text-gray-700 font-semibold mt-1">停止予定日: {scheduledDate}</p>
-                <p className="text-sm text-amber-600 mt-1">残り{daysRemaining}日で停止されます</p>
+                {applyDate
+                  ? <p className="text-sm text-gray-700">申請日: {applyDate}</p>
+                  : <p className="text-sm text-gray-700">申請を受け付けました。詳細は運営よりご連絡します。</p>
+                }
+                {scheduledDate && <p className="text-sm text-gray-700 font-semibold mt-1">停止予定日: {scheduledDate}</p>}
+                {daysRemaining !== null && <p className="text-sm text-amber-600 mt-1">残り{daysRemaining}日で停止されます</p>}
               </div>
-              {/* TODO: 実データに差替え */}
               <button
                 type="button"
                 onClick={() => setCancelModal({ isOpen: true })}

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { DEMO_STORAGE_KEY } from '@/lib/hooks/useCompanyId'
 import { LayoutGrid as DashboardIcon, Users as UsersIcon, Briefcase as BriefcaseIcon, MessageSquare as QuestionsIcon, Mail as MailIcon, FileText as PlanIcon, CircleDollarSign as BillingIcon, Settings as SettingsIcon, Pause as SuspensionIcon, /* v5: CultureIcon復活時にコメント外す */ /* HeartHandshake as CultureIcon, */ User as PersonIcon, Menu as MenuIcon, X as CloseIcon, Copy as CopyIcon } from 'lucide-react'
 
 // TODO: 実際の企業URLに差替え
@@ -39,6 +40,9 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   }
 
   const handleLogout = () => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem(DEMO_STORAGE_KEY)
+    }
     router.push('/client/login')
   }
 

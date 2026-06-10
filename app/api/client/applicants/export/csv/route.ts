@@ -18,21 +18,6 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createClient()
 
-    // プラン確認（CSV出力はスタンダード以上）
-    const { data: company, error: compError } = await supabase
-      .from('companies')
-      .select('plan')
-      .eq('id', user.companyId)
-      .single()
-
-    if (compError || !company) {
-      return apiError('INTERNAL_ERROR', '企業情報の取得に失敗しました')
-    }
-
-    if (company.plan === 'light') {
-      return apiError('FORBIDDEN', 'CSV出力はスタンダードプラン以上でご利用いただけます')
-    }
-
     const { searchParams } = request.nextUrl
     const status = searchParams.get('status') ?? 'all'
     const searchRaw = searchParams.get('search')?.trim() ?? ''

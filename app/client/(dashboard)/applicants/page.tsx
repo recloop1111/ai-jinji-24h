@@ -126,9 +126,6 @@ function AdminAuthModal({
 function ApplicantsContent() {
   const { companyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
   const supabase = createClient()
-  // TODO: 実際にはAPIからプラン情報を取得
-  const getCurrentPlan = (): 'light' | 'standard' | 'pro' | 'custom' => 'standard' // TODO: 実データに差替え
-  const currentPlan = getCurrentPlan()
   const { templates } = useTemplates()
   const [searchQuery, setSearchQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
@@ -148,7 +145,6 @@ function ApplicantsContent() {
   const [mailBody, setMailBody] = useState('')
   const [mailToast, setMailToast] = useState(false)
   const [csvAdminAuthModalOpen, setCsvAdminAuthModalOpen] = useState(false)
-  const [csvInfoModalOpen, setCsvInfoModalOpen] = useState(false)
   const [csvDownloadToast, setCsvDownloadToast] = useState(false)
   const [applicants, setApplicants] = useState<Applicant[]>([])
   const [dataLoading, setDataLoading] = useState(true)
@@ -250,11 +246,7 @@ function ApplicantsContent() {
   const handleCsvDownloadClick = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    if (currentPlan === 'light') {
-      setCsvInfoModalOpen(true)
-    } else {
-      setCsvAdminAuthModalOpen(true)
-    }
+    setCsvAdminAuthModalOpen(true)
   }
 
   const handleCsvDownload = (filteredData: Applicant[]) => {
@@ -1032,34 +1024,6 @@ function ApplicantsContent() {
       {csvDownloadToast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-6 py-3 bg-gray-900 text-white text-sm font-medium rounded-xl shadow-lg">
           CSVをダウンロードしました
-        </div>
-      )}
-
-      {/* CSVダウンロード 案内モーダル（ライトプランの場合） */}
-      {csvInfoModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setCsvInfoModalOpen(false)} aria-hidden />
-          <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
-            <h3 className="text-lg font-bold text-slate-900 mb-4">CSVダウンロードについて</h3>
-            <p className="text-sm text-slate-600 mb-6">
-              CSVダウンロード機能はスタンダード以上でご利用いただけます。
-            </p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setCsvInfoModalOpen(false)}
-                className="px-6 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-              >
-                閉じる
-              </button>
-              <Link
-                href="/client/plan"
-                className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                プランを確認する
-              </Link>
-            </div>
-          </div>
         </div>
       )}
 
