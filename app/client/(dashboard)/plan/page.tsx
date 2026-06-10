@@ -1,10 +1,24 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { useCompanyId } from '@/lib/hooks/useCompanyId'
-import { PRICE_PER_INTERVIEW, MIN_INTERVIEW_LIMIT } from '@/types/database'
-import { Eye as EyeIcon, EyeOff as EyeOffIcon } from 'lucide-react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { DEMO_STORAGE_KEY } from '@/lib/hooks/useCompanyId'
+
+type PlanData = {
+  contract_type_label: string
+  price_per_interview: number
+  monthly_interview_limit: number
+  monthly_count: number
+  remaining: number
+  current_charge: number
+  max_charge: number
+  next_month_interview_limit: number | null
+  next_month_limit_effective_month: string | null
+  next_month_max_charge: number
+  next_reset_date: string
+  min_interview_limit: number
+}
 
 function getProgressBarColor(percent: number) {
   if (percent >= 90) return 'bg-red-500'
@@ -18,139 +32,95 @@ function getProgressTextColor(percent: number) {
   return 'text-blue-600'
 }
 
+const yen = (n: number) => `¥${n.toLocaleString()}`
+
+// 翌月1日（YYYY-MM-01）
+function firstOfNextMonth(): string {
+  const d = new Date()
+  const n = new Date(d.getFullYear(), d.getMonth() + 1, 1)
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-01`
+}
+
 export default function PlanPage() {
-  const { companyId, loading: companyIdLoading } = useCompanyId()
-  const supabase = createClient()
+  const router = useRouter()
 
   const [loading, setLoading] = useState(true)
-  const [monthlyInterviewLimit, setMonthlyInterviewLimit] = useState(0)
-  const [monthlyCount, setMonthlyCount] = useState(0)
-  const [nextResetDate, setNextResetDate] = useState('')
+  const [isDemo, setIsDemo] = useState(false)
+  const [plan, setPlan] = useState<PlanData | null>(null)
+  const [settingPwConfigured, setSettingPwConfigured] = useState<boolean | null>(null)
 
-  // 上限変更UI
+  // 翌月上限予約フォーム
   const [newLimit, setNewLimit] = useState('')
-  const [showPasswordModal, setShowPasswordModal] = useState(false)
-  const [password, setPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
-  const [authError, setAuthError] = useState('')
-  const [updating, setUpdating] = useState(false)
+  const [settingPassword, setSettingPassword] = useState('')
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [formError, setFormError] = useState('')
   const [toast, setToast] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (!companyId) {
-      if (!companyIdLoading) setLoading(false)
-      return
-    }
-
-    async function fetchPlanData() {
-      setLoading(true)
-      try {
-        const { data: company } = await supabase
-          .from('companies')
-          .select('monthly_interview_limit')
-          .eq('id', companyId)
-          .single()
-
-        const limit = company?.monthly_interview_limit ?? 10
-        setMonthlyInterviewLimit(limit)
-
-        const now = new Date()
-        const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-
-        const { count } = await supabase
-          .from('interviews')
-          .select('id', { count: 'exact', head: true })
-          .eq('company_id', companyId)
-          .eq('billable', true)
-          .gte('created_at', monthStart)
-
-        setMonthlyCount(count ?? 0)
-
-        const nextReset = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-        setNextResetDate(`${nextReset.getFullYear()}-${String(nextReset.getMonth() + 1).padStart(2, '0')}-${String(nextReset.getDate()).padStart(2, '0')}`)
-      } catch {
-        // エラー時はデフォルト値のまま
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchPlanData()
-  }, [companyId, companyIdLoading, supabase])
-
-  const showToast = (message: string) => {
-    setToast(message)
+  const showToast = (msg: string) => {
+    setToast(msg)
     setTimeout(() => setToast(null), 3000)
   }
 
-  // 入力値のバリデーション
-  const parsedNewLimit = parseInt(newLimit, 10)
-  const minAllowed = Math.max(MIN_INTERVIEW_LIMIT, monthlyCount)
-  const isValidNewLimit = !isNaN(parsedNewLimit) && parsedNewLimit >= minAllowed && parsedNewLimit !== monthlyInterviewLimit
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      const demo =
+        (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === 'true') ||
+        (typeof window !== 'undefined' && sessionStorage.getItem(DEMO_STORAGE_KEY) === 'true')
 
-  const handleChangeLimitClick = () => {
-    if (!isValidNewLimit) return
-    setPassword('')
-    setShowPassword(false)
-    setAuthError('')
-    setShowPasswordModal(true)
-  }
+      if (demo) {
+        if (cancelled) return
+        setIsDemo(true)
+        setPlan({
+          contract_type_label: '従量課金',
+          price_per_interview: 4000,
+          monthly_interview_limit: 10,
+          monthly_count: 3,
+          remaining: 7,
+          current_charge: 12000,
+          max_charge: 40000,
+          next_month_interview_limit: null,
+          next_month_limit_effective_month: null,
+          next_month_max_charge: 40000,
+          next_reset_date: firstOfNextMonth(),
+          min_interview_limit: 5,
+        })
+        setSettingPwConfigured(true)
+        setLoading(false)
+        return
+      }
 
-  const handlePasswordConfirm = async () => {
-    if (!password.trim()) {
-      setAuthError('パスワードを入力してください')
-      return
+      try {
+        const res = await fetch('/api/client/plan')
+        if (cancelled) return
+        if (res.status === 401) {
+          router.replace('/client/login')
+          return
+        }
+        if (!res.ok) {
+          setLoading(false)
+          return
+        }
+        const json = (await res.json()) as PlanData
+        if (cancelled) return
+        setPlan(json)
+
+        // 設定変更用パスワードの設定状況
+        const pwRes = await fetch('/api/client/security/setting-password')
+        const pwJson = await pwRes.json().catch(() => ({}))
+        if (cancelled) return
+        setSettingPwConfigured(pwRes.ok ? !!pwJson.configured : false)
+        setLoading(false)
+      } catch {
+        if (!cancelled) setLoading(false)
+      }
     }
+    load()
+    return () => { cancelled = true }
+  }, [router])
 
-    setUpdating(true)
-    setAuthError('')
-
-    try {
-      // パスワード再確認: 現在のユーザーのメールアドレスを取得してsignInWithPasswordで検証
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user?.email) {
-        setAuthError('ユーザー情報の取得に失敗しました')
-        setUpdating(false)
-        return
-      }
-
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: user.email,
-        password: password,
-      })
-
-      if (signInError) {
-        setAuthError('パスワードが正しくありません')
-        setUpdating(false)
-        return
-      }
-
-      // パスワード確認OK → monthly_interview_limit を更新
-      const { error: updateError } = await supabase
-        .from('companies')
-        .update({ monthly_interview_limit: parsedNewLimit })
-        .eq('id', companyId)
-
-      if (updateError) {
-        setAuthError('上限人数の更新に失敗しました')
-        setUpdating(false)
-        return
-      }
-
-      // 成功
-      setMonthlyInterviewLimit(parsedNewLimit)
-      setNewLimit('')
-      setShowPasswordModal(false)
-      setPassword('')
-      showToast(`月間上限人数を${parsedNewLimit}人に変更しました`)
-    } catch {
-      setAuthError('エラーが発生しました。もう一度お試しください')
-    } finally {
-      setUpdating(false)
-    }
-  }
-
-  if (loading) {
+  if (loading || !plan) {
     return (
       <div className="space-y-6">
         <h1 className="text-xl font-bold text-slate-900">料金・利用状況</h1>
@@ -161,25 +131,86 @@ export default function PlanPage() {
     )
   }
 
-  const remaining = Math.max(0, monthlyInterviewLimit - monthlyCount)
-  const usagePercent = monthlyInterviewLimit > 0
-    ? Math.min(100, Math.round((monthlyCount / monthlyInterviewLimit) * 100))
-    : 0
+  const price = plan.price_per_interview
+  const limit = plan.monthly_interview_limit
+  const used = plan.monthly_count
+  const remaining = plan.remaining
+  const usagePercent = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
   const isAtLimit = remaining === 0
-  const currentCharge = monthlyCount * PRICE_PER_INTERVIEW
-  const maxCharge = monthlyInterviewLimit * PRICE_PER_INTERVIEW
+  const minLimit = plan.min_interview_limit
+
+  const parsedNewLimit = parseInt(newLimit, 10)
+  const isValidNewLimit = !isNaN(parsedNewLimit) && Number.isInteger(parsedNewLimit) && parsedNewLimit >= minLimit
+  const previewMaxCharge = isValidNewLimit ? parsedNewLimit * price : 0
+
+  const handleOpenConfirm = () => {
+    setFormError('')
+    if (!isValidNewLimit) {
+      setFormError(`翌月の上限人数は最低${minLimit}人以上の整数で入力してください`)
+      return
+    }
+    if (!settingPassword) {
+      setFormError('設定変更用パスワードを入力してください')
+      return
+    }
+    setShowConfirm(true)
+  }
+
+  const handleSubmit = async () => {
+    setSubmitting(true)
+    setFormError('')
+    try {
+      const res = await fetch('/api/client/plan', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          next_month_interview_limit: parsedNewLimit,
+          settingPassword,
+          ...(isDemo ? { demo: true } : {}),
+        }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setShowConfirm(false)
+        setFormError(json?.error?.message ?? '予約の保存に失敗しました')
+        return
+      }
+      // 反映
+      setPlan((prev) => prev ? {
+        ...prev,
+        next_month_interview_limit: parsedNewLimit,
+        next_month_limit_effective_month: json?.next_month_limit_effective_month ?? firstOfNextMonth(),
+        next_month_max_charge: parsedNewLimit * prev.price_per_interview,
+      } : prev)
+      setShowConfirm(false)
+      setNewLimit('')
+      setSettingPassword('')
+      showToast(`翌月の月間上限を${parsedNewLimit}人に予約しました`)
+    } catch {
+      setShowConfirm(false)
+      setFormError('予約の保存に失敗しました')
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
       <h1 className="text-xl font-bold text-slate-900">料金・利用状況</h1>
 
-      {/* 料金体系 */}
+      {/* ご契約内容 */}
       <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-        <div className="flex items-baseline gap-3 mb-4">
-          <span className="text-3xl font-bold text-slate-900">¥{PRICE_PER_INTERVIEW.toLocaleString()}</span>
-          <span className="text-sm text-slate-500">/ 1面接・1人あたり（税別）</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div>
+            <p className="text-xs font-medium text-slate-500 mb-1">ご契約形態</p>
+            <p className="text-lg font-bold text-slate-900">{plan.contract_type_label}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-slate-500 mb-1">ご契約単価</p>
+            <p className="text-lg font-bold text-slate-900">{yen(price)} <span className="text-sm font-normal text-slate-500">/ 人（税別）</span></p>
+          </div>
         </div>
-        <div className="space-y-1.5 text-sm text-slate-600">
+        <div className="space-y-1.5 text-sm text-slate-600 mt-4 pt-4 border-t border-slate-100">
           <p>面接時間が10分未満の場合は課金対象外です</p>
           <p>請求は月末締めとなります</p>
         </div>
@@ -188,11 +219,10 @@ export default function PlanPage() {
       {/* 今月の利用状況 */}
       <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-5">今月の利用状況</h2>
-
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6">
           <div>
             <p className="text-xs font-medium text-slate-500 mb-1">利用人数</p>
-            <p className="text-2xl font-bold text-slate-900">{monthlyCount}<span className="text-sm font-normal text-slate-500 ml-1">/ {monthlyInterviewLimit}人</span></p>
+            <p className="text-2xl font-bold text-slate-900">{used}<span className="text-sm font-normal text-slate-500 ml-1">/ {limit}人</span></p>
           </div>
           <div>
             <p className="text-xs font-medium text-slate-500 mb-1">残り面接可能人数</p>
@@ -200,109 +230,123 @@ export default function PlanPage() {
           </div>
           <div>
             <p className="text-xs font-medium text-slate-500 mb-1">次回リセット日</p>
-            <p className="text-lg font-bold text-slate-900">{nextResetDate}</p>
+            <p className="text-lg font-bold text-slate-900">{plan.next_reset_date}</p>
           </div>
         </div>
-
-        {/* プログレスバー */}
         <div className="mb-2">
           <div className="w-full bg-slate-100 rounded-full h-3">
-            <div
-              className={`h-3 rounded-full transition-all ${getProgressBarColor(usagePercent)}`}
-              style={{ width: `${usagePercent}%` }}
-            />
+            <div className={`h-3 rounded-full transition-all ${getProgressBarColor(usagePercent)}`} style={{ width: `${usagePercent}%` }} />
           </div>
         </div>
-        <p className={`text-xs font-medium ${getProgressTextColor(usagePercent)}`}>
-          {usagePercent}% 使用中
-        </p>
+        <p className={`text-xs font-medium ${getProgressTextColor(usagePercent)}`}>{usagePercent}% 使用中</p>
 
         {isAtLimit && (
           <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm font-medium text-red-800">
-              月間上限に達しました。現在、新規面接の受付を自動停止しています。
-            </p>
-            <p className="text-xs text-red-600 mt-1">
-              追加で面接を実施するには、下の「月間上限人数の設定」から上限を変更してください。
-            </p>
+            <p className="text-sm font-medium text-red-800">月間上限に達しました。現在、新規面接の受付を自動停止しています。</p>
+            <p className="text-xs text-red-600 mt-1">今月の上限の変更をご希望の場合は、運営担当者へお問い合わせください。</p>
           </div>
         )}
       </div>
 
-      {/* 請求見込み */}
+      {/* 今月の請求見込み */}
       <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-5">今月の請求見込み</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           <div>
             <p className="text-xs font-medium text-slate-500 mb-1">現在の請求見込み</p>
-            <p className="text-2xl font-bold text-slate-900">¥{currentCharge.toLocaleString()}<span className="text-sm font-normal text-slate-500 ml-1">（税別）</span></p>
-            <p className="text-xs text-slate-400 mt-1">{monthlyCount}人 × ¥{PRICE_PER_INTERVIEW.toLocaleString()}</p>
+            <p className="text-2xl font-bold text-slate-900">{yen(plan.current_charge)}<span className="text-sm font-normal text-slate-500 ml-1">（税別）</span></p>
+            <p className="text-xs text-slate-400 mt-1">{used}人 × {yen(price)}</p>
           </div>
           <div>
-            <p className="text-xs font-medium text-slate-500 mb-1">最大請求額（上限到達時）</p>
-            <p className="text-2xl font-bold text-slate-900">¥{maxCharge.toLocaleString()}<span className="text-sm font-normal text-slate-500 ml-1">（税別）</span></p>
-            <p className="text-xs text-slate-400 mt-1">{monthlyInterviewLimit}人 × ¥{PRICE_PER_INTERVIEW.toLocaleString()}</p>
+            <p className="text-xs font-medium text-slate-500 mb-1">今月の最大請求目安（上限到達時）</p>
+            <p className="text-2xl font-bold text-slate-900">{yen(plan.max_charge)}<span className="text-sm font-normal text-slate-500 ml-1">（税別）</span></p>
+            <p className="text-xs text-slate-400 mt-1">{limit}人 × {yen(price)}</p>
           </div>
         </div>
       </div>
 
-      {/* 上限人数設定 */}
+      {/* 翌月の上限予約 */}
       <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">月間上限人数の設定</h2>
-        <p className="text-sm text-slate-600 mb-2">
-          現在の上限: <span className="font-bold text-slate-900">{monthlyInterviewLimit}人 / 月</span>
-        </p>
-        <p className="text-xs text-slate-500 mb-4">
-          上限に達すると新規面接の受付が自動停止されます。上限は最低{MIN_INTERVIEW_LIMIT}人から、1人単位で設定できます。
-        </p>
-
-        <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3 max-w-md">
-          <div className="flex-1 w-full sm:w-auto">
-            <label htmlFor="new-limit" className="block text-xs font-medium text-slate-600 mb-1">
-              新しい上限人数
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                id="new-limit"
-                type="number"
-                min={minAllowed}
-                step={1}
-                value={newLimit}
-                onChange={(e) => setNewLimit(e.target.value)}
-                placeholder={String(monthlyInterviewLimit)}
-                className="w-28 px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
-              />
-              <span className="text-sm text-slate-500">人 / 月</span>
-            </div>
-            {newLimit && !isNaN(parsedNewLimit) && parsedNewLimit < minAllowed && (
-              <p className="text-xs text-red-600 mt-1">
-                {monthlyCount > MIN_INTERVIEW_LIMIT
-                  ? `今月${monthlyCount}人利用済みのため、${minAllowed}人以上に設定してください`
-                  : `最低${MIN_INTERVIEW_LIMIT}人以上に設定してください`}
-              </p>
-            )}
-            {newLimit && parsedNewLimit === monthlyInterviewLimit && (
-              <p className="text-xs text-slate-400 mt-1">現在の上限と同じです</p>
-            )}
-            {isValidNewLimit && (
-              <p className="text-xs text-slate-500 mt-1">
-                変更後の最大請求額: ¥{(parsedNewLimit * PRICE_PER_INTERVIEW).toLocaleString()}（税別）/ 月
-              </p>
+        <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-5">翌月の上限予約</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-5">
+          <div>
+            <p className="text-xs font-medium text-slate-500 mb-1">翌月の月間上限</p>
+            {plan.next_month_interview_limit != null ? (
+              <>
+                <p className="text-2xl font-bold text-slate-900">{plan.next_month_interview_limit}<span className="text-sm font-normal text-slate-500 ml-1">人</span></p>
+                {plan.next_month_limit_effective_month && (
+                  <p className="text-xs text-slate-400 mt-1">{plan.next_month_limit_effective_month} から適用</p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-slate-600">現在の上限（{limit}人）が翌月も継続されます</p>
             )}
           </div>
-          <button
-            type="button"
-            disabled={!isValidNewLimit}
-            onClick={handleChangeLimitClick}
-            className={`px-5 py-2 text-sm font-medium rounded-lg transition-colors ${
-              isValidNewLimit
-                ? 'text-white bg-blue-600 hover:bg-blue-700'
-                : 'text-slate-400 bg-slate-100 border border-slate-200 cursor-not-allowed'
-            }`}
-          >
-            上限を変更する
-          </button>
+          <div>
+            <p className="text-xs font-medium text-slate-500 mb-1">翌月の最大請求目安</p>
+            <p className="text-2xl font-bold text-slate-900">{yen(plan.next_month_max_charge)}<span className="text-sm font-normal text-slate-500 ml-1">（税別）</span></p>
+            <p className="text-xs text-slate-400 mt-1">{plan.next_month_interview_limit ?? limit}人 × {yen(price)}</p>
+          </div>
         </div>
+
+        {settingPwConfigured === false ? (
+          <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <p className="text-sm font-medium text-amber-800">設定変更用パスワードが未設定です。</p>
+            <p className="text-xs text-amber-700 mt-1">
+              翌月上限の変更には設定変更用パスワードが必要です。
+              <Link href="/client/settings" className="font-medium text-blue-600 hover:text-blue-700 underline ml-1">設定画面から先に設定してください。</Link>
+            </p>
+          </div>
+        ) : (
+          <div className="border-t border-slate-100 pt-5">
+            <p className="text-sm font-semibold text-slate-700 mb-1">翌月上限を変更する</p>
+            <p className="text-xs text-slate-500 mb-4">
+              変更は即時反映されず、翌月1日から適用されます。今月の上限には影響しません。上限は最低{minLimit}人から設定できます。
+            </p>
+            <div className="space-y-4 max-w-md">
+              <div>
+                <label htmlFor="next-limit" className="block text-xs font-medium text-slate-600 mb-1">新しい翌月上限人数</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="next-limit"
+                    type="number"
+                    min={minLimit}
+                    step={1}
+                    value={newLimit}
+                    onChange={(e) => setNewLimit(e.target.value)}
+                    placeholder={String(plan.next_month_interview_limit ?? limit)}
+                    className="w-32 px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
+                  />
+                  <span className="text-sm text-slate-500">人 / 月</span>
+                </div>
+                {isValidNewLimit && (
+                  <p className="text-xs text-slate-500 mt-1">翌月の最大請求目安: {yen(previewMaxCharge)}（税別）/ 月</p>
+                )}
+              </div>
+              <div>
+                <label htmlFor="setting-pw" className="block text-xs font-medium text-slate-600 mb-1">設定変更用パスワード</label>
+                <input
+                  id="setting-pw"
+                  type="password"
+                  value={settingPassword}
+                  onChange={(e) => setSettingPassword(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
+                  placeholder="設定変更用パスワードを入力"
+                />
+                <p className="text-xs text-slate-400 mt-1">ログインパスワードとは別のパスワードです</p>
+              </div>
+              {formError && <p className="text-sm text-red-600">{formError}</p>}
+              <button
+                type="button"
+                onClick={handleOpenConfirm}
+                disabled={submitting || settingPwConfigured === null}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm disabled:opacity-60"
+              >
+                翌月上限を予約する
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 注意事項 */}
@@ -311,74 +355,37 @@ export default function PlanPage() {
         <ul className="space-y-1.5 text-xs text-slate-500">
           <li>・ 課金対象は10分以上実施された有効な面接のみです</li>
           <li>・ 利用人数は毎月1日にリセットされます</li>
-          <li>・ 上限人数の設定値は翌月もそのまま引き継がれます</li>
+          <li>・ 翌月上限の変更は翌月1日から適用され、今月の上限には影響しません</li>
           <li>・ 上限到達時は新規面接の受付が自動停止されます</li>
           <li>・ 請求は月末締めとなります</li>
         </ul>
       </div>
 
-      {/* パスワード確認モーダル */}
-      {showPasswordModal && (
+      {/* 確認モーダル */}
+      {showConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={() => !updating && setShowPasswordModal(false)} aria-hidden />
+          <div className="absolute inset-0 bg-black/50" onClick={() => !submitting && setShowConfirm(false)} aria-hidden />
           <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-slate-900 mb-2">パスワードの確認</h3>
-            <p className="text-sm text-slate-600 mb-1">
-              月間上限人数を <span className="font-bold">{parsedNewLimit}人</span> に変更します。
+            <h3 className="text-lg font-bold text-slate-900 mb-3">翌月上限の予約確認</h3>
+            <p className="text-sm text-slate-700 leading-relaxed mb-6">
+              翌月の月間上限を <span className="font-bold">{parsedNewLimit}人</span> に変更します。翌月の最大請求目安は <span className="font-bold">{yen(previewMaxCharge)}（税別）</span> です。今月の上限には影響しません。よろしいですか？
             </p>
-            <p className="text-sm text-slate-600 mb-4">
-              最大請求額: <span className="font-bold">¥{(parsedNewLimit * PRICE_PER_INTERVIEW).toLocaleString()}（税別）/ 月</span>
-            </p>
-            <p className="text-sm text-slate-500 mb-4">
-              請求額に関わる変更のため、ログインパスワードを再入力してください。
-            </p>
-            <div className="mb-4">
-              <label htmlFor="confirm-password" className="block text-sm font-medium text-slate-700 mb-1.5">
-                パスワード
-              </label>
-              <div className="relative">
-                <input
-                  id="confirm-password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value)
-                    setAuthError('')
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !updating) handlePasswordConfirm()
-                  }}
-                  className="w-full px-4 py-2.5 pr-10 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
-                  placeholder="ログインパスワードを入力"
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  tabIndex={-1}
-                >
-                  {showPassword ? <EyeOffIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
-                </button>
-              </div>
-              {authError && <p className="mt-1.5 text-sm text-red-600">{authError}</p>}
-            </div>
             <div className="flex gap-3">
               <button
                 type="button"
-                disabled={updating}
-                onClick={() => setShowPasswordModal(false)}
+                disabled={submitting}
+                onClick={() => setShowConfirm(false)}
                 className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50"
               >
                 キャンセル
               </button>
               <button
                 type="button"
-                disabled={updating || !password.trim()}
-                onClick={handlePasswordConfirm}
+                disabled={submitting}
+                onClick={handleSubmit}
                 className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
               >
-                {updating ? '確認中...' : '確認して変更する'}
+                {submitting ? '予約中...' : '予約する'}
               </button>
             </div>
           </div>
