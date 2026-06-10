@@ -11,7 +11,7 @@ export async function GET() {
 
     const { data: company, error } = await supabase
       .from('companies')
-      .select('id, name, email, interview_slug, plan, plan_limit, auto_upgrade, is_suspended, onboarding_completed, created_at')
+      .select('id, name, email, interview_slug, plan, monthly_interview_limit, is_suspended, onboarding_completed, created_at')
       .eq('id', user.companyId)
       .single()
 
@@ -25,8 +25,7 @@ export async function GET() {
       email: company.email,
       interview_slug: company.interview_slug,
       plan: company.plan,
-      plan_limit: company.plan_limit,
-      auto_upgrade: company.auto_upgrade,
+      monthly_interview_limit: company.monthly_interview_limit,
       status: company.is_suspended ? 'suspended' : 'active',
       onboarding_completed: company.onboarding_completed,
       created_at: company.created_at,

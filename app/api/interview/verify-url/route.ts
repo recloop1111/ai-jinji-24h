@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
 
     const { data: company, error } = await supabase
       .from('companies')
-      .select('id, name, logo_url, interview_slug, is_suspended, plan, plan_limit')
+      .select('id, name, logo_url, interview_slug, is_suspended, plan, monthly_interview_limit')
       .eq('interview_slug', slug)
       .single()
 
@@ -27,9 +27,9 @@ export async function POST(request: NextRequest) {
       return apiError('FORBIDDEN', 'この企業は現在利用停止中です')
     }
 
-    // プラン上限チェック
+    // 月間上限チェック
     let available = true
-    if (company.plan_limit) {
+    if (company.monthly_interview_limit) {
       const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
       const { count } = await supabase
         .from('interviews')
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
         .eq('billable', true)
         .gte('created_at', monthStart)
 
-      if ((count ?? 0) >= company.plan_limit) {
+      if ((count ?? 0) >= company.monthly_interview_limit) {
         available = false
       }
     }
