@@ -3,7 +3,7 @@ import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { isValidUUID } from '@/lib/api/validation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { verifySettingPassword } from '@/lib/security/setting-password'
 
 export async function GET(
   _request: NextRequest,
@@ -77,7 +77,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { data: admin, error: authError } = await getAdminUser()
+    const { error: authError } = await getAdminUser()
     if (authError) return authError
 
     const { id } = await params
@@ -93,39 +93,66 @@ export async function PATCH(
 
     const supabase = createServiceRoleClient()
 
-    // monthly_interview_limit 変更時は管理者パスワード再確認が必要
+    // 重要設定（今月上限/翌月予約/契約種別plan/単価）の変更時は
+    // 「運営管理設定変更用パスワード」(ログインPWとは別) を必須にする。
+    // adminSettingPassword を admin_security_settings.setting_password_hash と照合する。
+    const IMPORTANT_FIELDS = [
+      'monthly_interview_limit', 'plan', 'price_per_interview',
+      'next_month_interview_limit', 'next_month_limit_effective_month',
+    ]
+    const requiresAuth = IMPORTANT_FIELDS.some((f) => f in body)
+    if (requiresAuth) {
+      const { adminSettingPassword } = body as { adminSettingPassword?: string }
+      if (typeof adminSettingPassword !== 'string' || adminSettingPassword.length === 0) {
+        return apiError('VALIDATION_ERROR', '運営管理設定変更用パスワードが必要です')
+      }
+
+      const { data: secRow, error: secError } = await supabase
+        .from('admin_security_settings')
+        .select('setting_password_hash')
+        .eq('id', 'default')
+        .maybeSingle()
+      if (secError) {
+        return apiError('INTERNAL_ERROR', '設定保存先が未作成です（migration未適用）')
+      }
+      const settingHash = secRow?.setting_password_hash ?? null
+      if (!settingHash) {
+        return apiError('FORBIDDEN', '運営管理設定変更用パスワードが未設定です')
+      }
+      if (!verifySettingPassword(adminSettingPassword, settingHash)) {
+        return apiError('FORBIDDEN', '運営管理設定変更用パスワードが正しくありません')
+      }
+    }
+
+    // plan は pay_per_use / custom のみ（旧 light / standard / pro は拒否）
+    if ('plan' in body) {
+      if (body.plan !== 'pay_per_use' && body.plan !== 'custom') {
+        return apiError('VALIDATION_ERROR', 'plan の値が不正です（pay_per_use / custom）')
+      }
+    }
+
+    // price_per_interview は0以上の整数
+    if ('price_per_interview' in body) {
+      const p = body.price_per_interview
+      if (typeof p !== 'number' || !Number.isInteger(p) || p < 0) {
+        return apiError('VALIDATION_ERROR', 'price_per_interview は0以上の整数で指定してください')
+      }
+    }
+
+    // 翌月上限予約は最低5人の整数（null=予約解除は許可）
+    if ('next_month_interview_limit' in body && body.next_month_interview_limit !== null) {
+      const n = body.next_month_interview_limit
+      if (typeof n !== 'number' || !Number.isInteger(n) || n < 5) {
+        return apiError('VALIDATION_ERROR', '翌月上限は最低5人の整数で指定してください')
+      }
+    }
+
+    // 今月上限: 5以上 かつ 当月利用数以上
     if ('monthly_interview_limit' in body) {
-      const { adminPassword } = body as { adminPassword?: string }
-      if (!adminPassword || typeof adminPassword !== 'string') {
-        return apiError('VALIDATION_ERROR', '管理者パスワードが必要です')
-      }
-
-      // 管理者のメールアドレスを取得
-      const { data: adminAuth } = await supabase.auth.admin.getUserById(admin.userId)
-      if (!adminAuth?.user?.email) {
-        return apiError('INTERNAL_ERROR', '管理者情報の取得に失敗しました')
-      }
-
-      // パスワード再認証（セッションに影響しない別クライアントで実行）
-      const verifyClient = createSupabaseClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      )
-      const { error: signInError } = await verifyClient.auth.signInWithPassword({
-        email: adminAuth.user.email,
-        password: adminPassword,
-      })
-      if (signInError) {
-        return apiError('FORBIDDEN', '管理者パスワードが正しくありません')
-      }
-
-      // バリデーション
       const newLimit = body.monthly_interview_limit
       if (typeof newLimit !== 'number' || newLimit < 5) {
         return apiError('VALIDATION_ERROR', '月間上限は5件以上に設定してください')
       }
-
-      // 当月利用数チェック
       const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
       const { count: monthlyCount } = await supabase
         .from('interviews')
@@ -141,7 +168,8 @@ export async function PATCH(
 
     const allowedFields = [
       'name', 'contact_person', 'contact_email', 'phone', 'email',
-      'industry', 'monthly_interview_limit',
+      'industry', 'monthly_interview_limit', 'plan', 'price_per_interview',
+      'next_month_interview_limit', 'next_month_limit_effective_month',
       'is_suspended', 'status', 'is_locked', 'locked_at', 'login_fail_count',
       'logo_url', 'avatar_url',
     ]

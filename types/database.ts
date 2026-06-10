@@ -11,8 +11,16 @@ export type Company = {
   email: string
   industry: string
   plan: 'pay_per_use' | 'custom'
+  /** 1面接あたりの単価（税抜）。通常=4000 / 特別契約(custom)=3000 等。会社ごとに保持 */
+  pricePerInterview: number
   maxInterviews: number
   monthlyInterviewLimit: number
+  /** 翌月から適用する上限予約（null=予約なし） */
+  nextMonthInterviewLimit: number | null
+  /** 翌月上限の適用開始月（その月の1日。例 2026-07-01）。null=予約なし */
+  nextMonthLimitEffectiveMonth: string | null
+  /** 企業設定変更用パスワードの hash（ログインPWとは別。平文保存禁止） */
+  companySettingPasswordHash: string | null
   autoUpgrade: boolean
   isActive: boolean
   isPaused: boolean
