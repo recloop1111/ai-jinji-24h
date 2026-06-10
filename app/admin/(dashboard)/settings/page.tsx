@@ -72,9 +72,6 @@ export default function SettingsPage() {
   const [serviceUrl, setServiceUrl] = useState('https://ai-interview.example.com')
   const [operatorName, setOperatorName] = useState('株式会社AIインタビュー')
   const [supportEmail, setSupportEmail] = useState('support@ai-interview.example.com')
-  const [planLight, setPlanLight] = useState({ name: 'ライト', fee: '40000', limit: '10' })
-  const [planStandard, setPlanStandard] = useState({ name: 'スタンダード', fee: '80000', limit: '20' })
-  const [planPro, setPlanPro] = useState({ name: 'プロ', fee: '120000', limit: '30' })
   const [maintenanceMode, setMaintenanceMode] = useState(false)
   const [maintenanceMessage, setMaintenanceMessage] = useState('現在メンテナンス中です。しばらくお待ちください。')
 
@@ -210,110 +207,17 @@ export default function SettingsPage() {
             </div>
 
             <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">デフォルトプラン設定</h2>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 space-y-3">
-                  <p className="text-sm font-medium text-gray-400">ライト</p>
-                  <div>
-                    <InputLabel>名前</InputLabel>
-                    <input
-                      type="text"
-                      value={planLight.name}
-                      onChange={(e) => setPlanLight((p) => ({ ...p, name: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <InputLabel>月額（円）</InputLabel>
-                    <input
-                      type="text"
-                      value={planLight.fee}
-                      onChange={(e) => setPlanLight((p) => ({ ...p, fee: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <InputLabel>面接上限</InputLabel>
-                    <input
-                      type="text"
-                      value={planLight.limit}
-                      onChange={(e) => setPlanLight((p) => ({ ...p, limit: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
+              <h2 className="text-lg font-semibold text-white mb-4">料金モデル</h2>
+              <div className="space-y-3">
+                <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3">
+                  <p className="text-sm text-white font-medium">基本料金: 1面接・1人あたり ¥4,000（税別）</p>
+                  <p className="text-xs text-gray-400 mt-1">プラン: 従量課金（pay_per_use）／ カスタム（custom）</p>
                 </div>
-                <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 space-y-3">
-                  <p className="text-sm font-medium text-gray-400">スタンダード</p>
-                  <div>
-                    <InputLabel>名前</InputLabel>
-                    <input
-                      type="text"
-                      value={planStandard.name}
-                      onChange={(e) => setPlanStandard((p) => ({ ...p, name: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <InputLabel>月額（円）</InputLabel>
-                    <input
-                      type="text"
-                      value={planStandard.fee}
-                      onChange={(e) => setPlanStandard((p) => ({ ...p, fee: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <InputLabel>面接上限</InputLabel>
-                    <input
-                      type="text"
-                      value={planStandard.limit}
-                      onChange={(e) => setPlanStandard((p) => ({ ...p, limit: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
-                </div>
-                <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 space-y-3">
-                  <p className="text-sm font-medium text-gray-400">プロ</p>
-                  <div>
-                    <InputLabel>名前</InputLabel>
-                    <input
-                      type="text"
-                      value={planPro.name}
-                      onChange={(e) => setPlanPro((p) => ({ ...p, name: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <InputLabel>月額（円）</InputLabel>
-                    <input
-                      type="text"
-                      value={planPro.fee}
-                      onChange={(e) => setPlanPro((p) => ({ ...p, fee: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <InputLabel>面接上限</InputLabel>
-                    <input
-                      type="text"
-                      value={planPro.limit}
-                      onChange={(e) => setPlanPro((p) => ({ ...p, limit: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
+                <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3">
+                  <p className="text-sm text-gray-300">月間上限人数は企業詳細画面から企業ごとに設定します（最低5人）</p>
+                  <p className="text-xs text-gray-500 mt-1">上限到達後は面接が自動停止されます</p>
                 </div>
               </div>
-              <p className="mt-4 text-sm text-gray-400 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3">
-                31件目以降: ¥3,500/件（従量課金・自動適用）
-              </p>
-              <button
-                type="button"
-                onClick={() => showToast('設定を保存しました')}
-                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
-              >
-                保存
-              </button>
-              {/* TODO: Supabaseに保存 */}
             </div>
 
             <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">

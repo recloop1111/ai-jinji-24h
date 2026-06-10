@@ -4,7 +4,7 @@ import { successJson, apiError } from '@/lib/api/response'
 import { isValidUUID } from '@/lib/api/validation'
 import { createClient } from '@/lib/supabase/server'
 
-const VALID_PLANS = ['light', 'standard', 'pro', 'custom'] as const
+const VALID_PLANS = ['pay_per_use', 'custom'] as const
 const VALID_STATUSES = ['active', 'suspended'] as const
 
 export async function PATCH(
@@ -12,7 +12,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { data: _admin, error: authError } = await getAdminUser()
+    const { error: authError } = await getAdminUser()
     if (authError) return authError
 
     const { id } = await params
@@ -46,7 +46,7 @@ export async function PATCH(
     }
     if (typeof body.plan === 'string') {
       if (!VALID_PLANS.includes(body.plan as typeof VALID_PLANS[number])) {
-        return apiError('VALIDATION_ERROR', 'plan の値が不正です（light / standard / pro / custom）')
+        return apiError('VALIDATION_ERROR', 'plan の値が不正です（pay_per_use / custom）')
       }
       updates.plan = body.plan
     }
@@ -55,9 +55,6 @@ export async function PATCH(
         return apiError('VALIDATION_ERROR', 'status の値が不正です（active / suspended）')
       }
       updates.is_suspended = body.status === 'suspended'
-    }
-    if (typeof body.auto_upgrade === 'boolean') {
-      updates.auto_upgrade = body.auto_upgrade
     }
 
     if (Object.keys(updates).length <= 1) {
