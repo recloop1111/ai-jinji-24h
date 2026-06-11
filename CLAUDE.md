@@ -42,7 +42,19 @@ A(80-100) / B(65-79) / C(50-64) / D(35-49) / E(0-34) の5段階
 ## 評価軸キー（確定）
 communication / logical_thinking / initiative / desire / stress_tolerance / integrity
 
-## 現在の進捗 (2026-02-21)
+## 現在の進捗 (2026-06-12)
+
+### Phase 4C: 完了（料金モデル・上限・パスワード）
+- **料金モデルを従量課金に統一**（旧ライト/スタンダード/プロ・月額固定・31件目以降3,500円・自動繰上げは廃止）
+- `companies.price_per_interview` 対応済み（通常企業=4,000円 / 特別企業=custom で運営側のみ 3,000円等に設定可）
+- 企業側画面に custom / 特別契約 / カスタムプラン / 優遇プラン は**表示しない**（「従量課金」＋実単価のみ）
+- `/client/plan`・`/client/billing` を `price_per_interview` ベースに対応済み（4000直書き廃止）
+- 企業側パスワードを「ログインパスワード」＋「管理者設定用パスワード」に統合（モック削除）
+- パスワード表示/非表示トグルを client/admin の login・settings・plan・companies詳細に共通実装（components/shared/PasswordInput.tsx）
+- 翌月上限予約（next_month_interview_limit / next_month_limit_effective_month）・**翌月1日固定**・月初昇格処理を実装＆動作確認済み（client/plan・client/company・admin/companies/[id]・verify-url の取得時に lib/companies/applyNextMonthLimit.ts で遅延適用。cron不要・二重反映なし）
+- 設定変更用パスワード基盤: companies.company_setting_password_hash（企業側）/ admin_security_settings（運営側）。scrypt hash・ログインPW非流用（lib/security/setting-password.ts）
+- migration `supabase/migrations/20260610_v5_pricing_limit_reservation.sql` 適用済み（companies に price_per_interview / next_month_* / company_setting_password_hash 追加、admin_security_settings 作成）
+- docs（REQUIREMENTS / SCREEN_DESIGN / INFRASTRUCTURE / API_DESIGN / CLAUDE）を現行料金モデルへ更新済み（コミット 35fdc12）
 
 ### Phase 1: 完了
 - DB 27テーブル作成済み（Supabase）
@@ -107,22 +119,29 @@ communication / logical_thinking / initiative / desire / stress_tolerance / inte
 - form/page.tsx: console.log削除, is_demo対応
 
 ### API実装状況
-- 実装済み: /api/health (1本のみ)
-- 未実装: 65本
+- 主要な client / admin API は実装済み（例: client plan/company/billing/applicants/security setting-password、admin companies[+id]/applicant-data/dashboard/security、interview verify-url 等）
+- 認証は getClientUser / getAdminUser、横断取得は service role（RLSバイパス）で統一
+- 一部は未接続/ダミー（admin billing 実データ化、admin settings・security のダミーUI 等。下記「残課題」参照）
 
 ### 未導入パッケージ
 openai, twilio, @aws-sdk/client-s3, idb
 
-### 未解決課題
+### 残課題（料金まわり以降）
+- /admin/billing の実データ化（現状 BILLING_DATA は空ダミー、`* 4000` 直書き残存。実データ取得は per-company の price_per_interview を使う）
+- /admin/settings のダミーUI整理（EMAIL_TEMPLATES / API_LOGS 等）
+- /admin/security のダミーUI整理（SECURITY_ALERTS。実API /api/admin/security/alerts への接続 or 空状態化）
+- 応募者詳細系の DUMMY 実データ化（admin/client の applicants/[id]）は**別途方針決定が必要**（現状は触らない指定）
+
+### 旧・未解決課題（一部継続）
 - P-05: 質問データのDB化
 - P-06: csvDownload仕様確認
 - P-07: admin/applicantsのURL構造統一
 - P-08: admin/question-bankの空ファイル処理
 - P-09: HTTPセキュリティヘッダー ✅完了
-- P-10: 未導入パッケージ追加
+- P-10: 未導入パッケージ追加（openai, twilio, @aws-sdk/client-s3, idb）
 - P-11: ドメイン・メール・DPA等
 - P-12: camelCase/snake_case変換レイヤー
-- P-13: SCREEN_DESIGN.md反映
+- P-13: SCREEN_DESIGN.md反映（料金モデル分は 35fdc12 で反映済み）
 
 ## 実装ルール
 - 設計書に定義されていない機能は勝手に追加しない
