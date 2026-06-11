@@ -3,59 +3,16 @@
 import { useState, useEffect } from 'react'
 import { Search } from 'lucide-react'
 
-// TODO: 実データに差替え
-const ADMIN_ACCOUNTS = [
-  { id: 1, name: '田中太郎', email: 'tanaka@ai-interview.example.com', role: 'super_admin', twoFactor: true, lastLogin: '2026-02-15 14:30', status: 'active' },
-  { id: 2, name: '佐藤花子', email: 'sato@ai-interview.example.com', role: 'admin', twoFactor: true, lastLogin: '2026-02-15 10:15', status: 'active' },
-  { id: 3, name: '鈴木一郎', email: 'suzuki@ai-interview.example.com', role: 'operator', twoFactor: true, lastLogin: '2026-02-14 18:45', status: 'active' },
-  { id: 4, name: '高橋美咲', email: 'takahashi@ai-interview.example.com', role: 'operator', twoFactor: false, lastLogin: '2026-02-13 09:20', status: 'active' },
-  { id: 5, name: '山本健二', email: 'yamamoto@ai-interview.example.com', role: 'admin', twoFactor: true, lastLogin: '2026-01-28 16:00', status: 'suspended' },
-]
+// 管理者一覧・アクティブセッション・監査ログは取得元APIが未整備のため空配列（ダミーは表示しない）
+type AdminAccount = { id: string | number; name: string; email: string; role: string; twoFactor: boolean; lastLogin: string; status: string }
+type ActiveSession = { id: string | number; user: string; device: string; ip: string; datetime: string }
+type AuditLog = { id: string | number; datetime: string; user: string; role: string; action: string; detail: string; ip: string }
+// セキュリティアラートは /api/admin/security/alerts（security_alerts テーブル）から取得
+type SecurityAlertItem = { id: string; type: string; ip_address: string | null; details: string | null; resolved: boolean; created_at: string }
 
-// TODO: 実データに差替え
-const ACTIVE_SESSIONS = [
-  { id: 1, user: '田中太郎', device: 'Chrome / Windows', ip: '203.0.113.1', datetime: '2026-02-15 14:30' },
-  { id: 2, user: '佐藤花子', device: 'Safari / macOS', ip: '203.0.113.45', datetime: '2026-02-15 10:15' },
-  { id: 3, user: '鈴木一郎', device: 'Chrome / Android', ip: '198.51.100.22', datetime: '2026-02-14 18:45' },
-  { id: 4, user: '企業: 株式会社ABC', device: 'Chrome / Windows', ip: '192.0.2.100', datetime: '2026-02-15 13:00' },
-]
-
-// TODO: 実データに差替え
-const AUDIT_LOGS = [
-  { id: 1, datetime: '2026-02-15 14:32', user: '田中太郎', role: 'super_admin', action: 'settings_change', detail: 'メンテナンスモードをOFFに変更', ip: '203.0.113.1' },
-  { id: 2, datetime: '2026-02-15 14:30', user: '田中太郎', role: 'super_admin', action: 'login', detail: '管理画面にログイン（2FA認証済み）', ip: '203.0.113.1' },
-  { id: 3, datetime: '2026-02-15 13:55', user: '佐藤花子', role: 'admin', action: 'data_edit', detail: '株式会社ABCの質問セットをBからCに変更', ip: '203.0.113.45' },
-  { id: 4, datetime: '2026-02-15 13:40', user: '佐藤花子', role: 'admin', action: 'data_edit', detail: '山田商事の面接設定を更新', ip: '203.0.113.45' },
-  { id: 5, datetime: '2026-02-15 12:10', user: '鈴木一郎', role: 'operator', action: 'export', detail: '応募者一覧CSVをエクスポート', ip: '198.51.100.22' },
-  { id: 6, datetime: '2026-02-15 10:15', user: '佐藤花子', role: 'admin', action: 'login', detail: '管理画面にログイン（2FA認証済み）', ip: '203.0.113.45' },
-  { id: 7, datetime: '2026-02-14 18:45', user: '鈴木一郎', role: 'operator', action: 'login', detail: '管理画面にログイン', ip: '198.51.100.22' },
-  { id: 8, datetime: '2026-02-14 16:20', user: '田中太郎', role: 'super_admin', action: 'permission_change', detail: '山本健二のアカウントを停止', ip: '203.0.113.1' },
-  { id: 9, datetime: '2026-02-14 15:00', user: '佐藤花子', role: 'admin', action: 'data_edit', detail: '株式会社テックフロンティアのプランをAからBに変更', ip: '203.0.113.45' },
-  { id: 10, datetime: '2026-02-14 11:30', user: '高橋美咲', role: 'operator', action: 'login', detail: '管理画面にログイン（2FA未設定）', ip: '203.0.113.78' },
-  { id: 11, datetime: '2026-02-13 14:00', user: '田中太郎', role: 'super_admin', action: 'settings_change', detail: 'OpenAI APIモデルをGPT-4o-miniからGPT-4oに変更', ip: '203.0.113.1' },
-  { id: 12, datetime: '2026-02-13 09:20', user: '高橋美咲', role: 'operator', action: 'login', detail: '管理画面にログイン（2FA未設定）', ip: '203.0.113.78' },
-]
-
-// TODO: 実データに差替え
-const SECURITY_ALERTS = [
-  { id: 1, level: 'high', title: '不正ログイン試行を検出', detail: 'IPアドレス 198.51.100.99 から5回連続でログイン失敗。アカウント「takahashi@ai-interview.example.com」が一時ロックされました。', datetime: '2026-02-15 11:45', status: 'unresolved' },
-  { id: 2, level: 'medium', title: '2FA未設定アカウントの検出', detail: '高橋美咲（operator）が2FA未設定のまま30日以上経過しています。セキュリティポリシーに基づき、設定を促してください。', datetime: '2026-02-14 09:00', status: 'unresolved' },
-  { id: 3, level: 'low', title: 'セッションタイムアウト超過', detail: '山本健二のセッションが8時間以上継続していたため自動ログアウトしました。', datetime: '2026-02-13 22:00', status: 'resolved' },
-  { id: 4, level: 'medium', title: '通常と異なるIPからのログイン', detail: '佐藤花子が通常と異なるIPアドレス（203.0.113.200）からログインしました。海外IPの可能性があります。', datetime: '2026-02-12 15:30', status: 'resolved' },
-  { id: 5, level: 'high', title: 'APIキーの不正使用の可能性', detail: 'OpenAI APIの利用量が通常の3倍を超えています。不正使用の可能性を確認してください。', datetime: '2026-02-11 08:00', status: 'resolved' },
-]
-
-// TODO: 実データに差替え
-const SUMMARY = {
-  activeSessions: 12,
-  loginAttempts: 342,
-  loginFailures: 8,
-  twoFactorRate: 85,
-  twoFactorCount: 17,
-  twoFactorTotal: 20,
-  alertCount: 2,
-  unresolvedAlerts: 2,
-}
+const ADMIN_ACCOUNTS: AdminAccount[] = []
+const ACTIVE_SESSIONS: ActiveSession[] = []
+const AUDIT_LOGS: AuditLog[] = []
 
 const ITEMS_PER_PAGE = 10
 
@@ -123,17 +80,16 @@ function getActionLabel(action: string): string {
   return map[action] ?? action
 }
 
-function getLevelBadge(level: string): string {
-  const map: Record<string, string> = {
-    high: 'bg-red-500/20 text-red-400',
-    medium: 'bg-amber-500/20 text-amber-400',
-    low: 'bg-blue-500/20 text-blue-400',
-  }
-  return map[level] ?? 'bg-gray-500/20 text-gray-400'
+type LockedCompany = {
+  id: string
+  name: string
+  is_locked: boolean
+  locked_at: string | null
+  login_fail_count: number | null
 }
 
 function LockedAccountsList() {
-  const [lockedCompanies, setLockedCompanies] = useState<any[]>([])
+  const [lockedCompanies, setLockedCompanies] = useState<LockedCompany[]>([])
   const [loadingLocked, setLoadingLocked] = useState(true)
 
   useEffect(() => {
@@ -219,6 +175,45 @@ export default function SecurityPage() {
   const [client2FARequired, setClient2FARequired] = useState(false)
   const [twoFAMethod, setTwoFAMethod] = useState('totp')
 
+  // セキュリティアラート（実データ: security_alerts）
+  const [alerts, setAlerts] = useState<SecurityAlertItem[]>([])
+  const [alertsLoading, setAlertsLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    const loadAlerts = async () => {
+      try {
+        const res = await fetch('/api/admin/security/alerts')
+        if (!res.ok) {
+          if (!cancelled) setAlerts([])
+          return
+        }
+        const json = await res.json()
+        if (!cancelled) setAlerts(Array.isArray(json?.alerts) ? (json.alerts as SecurityAlertItem[]) : [])
+      } catch {
+        if (!cancelled) setAlerts([])
+      } finally {
+        if (!cancelled) setAlertsLoading(false)
+      }
+    }
+    loadAlerts()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const unresolvedAlertCount = alerts.filter((a) => !a.resolved).length
+  const summary = {
+    activeSessions: 0,
+    loginAttempts: 0,
+    loginFailures: 0,
+    twoFactorRate: 0,
+    twoFactorCount: 0,
+    twoFactorTotal: 0,
+    alertCount: alerts.length,
+    unresolvedAlerts: unresolvedAlertCount,
+  }
+
   const showToast = (msg: string) => {
     setToastMessage(msg)
     setToastVisible(true)
@@ -252,24 +247,24 @@ export default function SecurityPage() {
         {/* セクション2: サマリーカード */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
-            <p className="text-3xl font-bold text-white">{SUMMARY.activeSessions}</p>
+            <p className="text-3xl font-bold text-white">{summary.activeSessions}</p>
             <p className="text-sm text-gray-400 mt-0.5">アクティブセッション</p>
             <p className="text-xs text-gray-500 mt-1">現在ログイン中のユーザー数</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
-            <p className="text-3xl font-bold text-white">{SUMMARY.loginAttempts}</p>
+            <p className="text-3xl font-bold text-white">{summary.loginAttempts}</p>
             <p className="text-sm text-gray-400 mt-0.5">今月のログイン試行</p>
-            <p className="text-xs text-amber-400 mt-1">失敗: {SUMMARY.loginFailures}回</p>
+            <p className="text-xs text-amber-400 mt-1">失敗: {summary.loginFailures}回</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
-            <p className="text-3xl font-bold text-white">{SUMMARY.twoFactorRate}%</p>
+            <p className="text-3xl font-bold text-white">{summary.twoFactorRate}%</p>
             <p className="text-sm text-gray-400 mt-0.5">2FA有効率</p>
-            <p className="text-xs text-gray-500 mt-1">{SUMMARY.twoFactorCount}/{SUMMARY.twoFactorTotal}アカウント</p>
+            <p className="text-xs text-gray-500 mt-1">{summary.twoFactorCount}/{summary.twoFactorTotal}アカウント</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
-            <p className="text-3xl font-bold text-white">{SUMMARY.alertCount}</p>
+            <p className="text-3xl font-bold text-white">{summary.alertCount}</p>
             <p className="text-sm text-gray-400 mt-0.5">直近のアラート</p>
-            <p className="text-xs text-red-400 mt-1">未対応: {SUMMARY.unresolvedAlerts}件</p>
+            <p className="text-xs text-red-400 mt-1">未対応: {summary.unresolvedAlerts}件</p>
           </div>
         </div>
 
@@ -309,6 +304,10 @@ export default function SecurityPage() {
                 </button>
                 {/* TODO: 管理者追加モーダル */}
               </div>
+              {ADMIN_ACCOUNTS.length === 0 ? (
+                <p className="text-sm text-gray-500 py-8 text-center">登録済みの管理者アカウントはありません</p>
+              ) : (
+              <>
               <div className="hidden lg:block overflow-x-auto">
                 <table className="w-full min-w-[640px]">
                   <thead>
@@ -395,10 +394,15 @@ export default function SecurityPage() {
                   </div>
                 ))}
               </div>
+              </>
+              )}
             </div>
 
             <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
               <h2 className="text-lg font-semibold text-white mb-4">現在のアクティブセッション</h2>
+              {ACTIVE_SESSIONS.length === 0 ? (
+                <p className="text-sm text-gray-500 py-8 text-center">アクティブなセッションはありません</p>
+              ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[500px]">
                   <thead>
@@ -432,7 +436,7 @@ export default function SecurityPage() {
                   </tbody>
                 </table>
               </div>
-              {/* TODO: 実データに差替え */}
+              )}
             </div>
           </div>
         )}
@@ -483,6 +487,12 @@ export default function SecurityPage() {
               </div>
             </div>
 
+            {filteredAuditLogs.length === 0 ? (
+              <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-8 text-center">
+                <p className="text-sm text-gray-500">監査ログはまだありません</p>
+              </div>
+            ) : (
+            <>
             <div className="hidden lg:block bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[600px]">
@@ -597,6 +607,8 @@ export default function SecurityPage() {
                 </div>
               </div>
             </div>
+            </>
+            )}
           </div>
         )}
 
@@ -795,35 +807,43 @@ export default function SecurityPage() {
               </button>
             </div>
             <div className="space-y-3">
-              {SECURITY_ALERTS.map((alert) => (
-                <div
-                  key={alert.id}
-                  className={`bg-white/[0.04] backdrop-blur-xl rounded-2xl p-5 ${
-                    alert.status === 'unresolved' ? 'border border-red-500/30' : 'border border-white/[0.06]'
-                  }`}
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-2">
-                    <span className={`inline-flex text-xs rounded-lg px-2 py-1 w-fit ${getLevelBadge(alert.level)}`}>
-                      {alert.level === 'high' ? '高' : alert.level === 'medium' ? '中' : '低'}
-                    </span>
-                    <span className={`text-sm ${alert.status === 'unresolved' ? 'text-red-400' : 'text-gray-500'}`}>
-                      {alert.status === 'unresolved' ? '未対応' : '対応済み'}
-                    </span>
+              {alertsLoading ? (
+                <p className="text-sm text-gray-500 py-8 text-center">読み込み中...</p>
+              ) : alerts.length === 0 ? (
+                <p className="text-sm text-gray-500 py-8 text-center">セキュリティアラートはありません</p>
+              ) : (
+                alerts.map((alert) => (
+                  <div
+                    key={alert.id}
+                    className={`bg-white/[0.04] backdrop-blur-xl rounded-2xl p-5 ${
+                      !alert.resolved ? 'border border-red-500/30' : 'border border-white/[0.06]'
+                    }`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-2">
+                      <span className="inline-flex text-xs rounded-lg px-2 py-1 w-fit bg-white/[0.06] text-gray-300">
+                        {alert.type}
+                      </span>
+                      <span className={`text-sm ${!alert.resolved ? 'text-red-400' : 'text-gray-500'}`}>
+                        {alert.resolved ? '対応済み' : '未対応'}
+                      </span>
+                    </div>
+                    {alert.details && <p className="text-sm text-gray-300">{alert.details}</p>}
+                    {alert.ip_address && <p className="text-xs text-gray-500 mt-1">IP: {alert.ip_address}</p>}
+                    <p className="text-xs text-gray-600 mt-2">
+                      {new Date(alert.created_at).toLocaleString('ja-JP')}
+                    </p>
+                    {!alert.resolved && (
+                      <button
+                        type="button"
+                        onClick={() => showToast('ステータス更新機能は今後実装予定です')}
+                        className="mt-3 text-sm text-blue-400 hover:text-blue-300"
+                      >
+                        対応済みにする
+                      </button>
+                    )}
                   </div>
-                  <p className="text-sm font-semibold text-white">{alert.title}</p>
-                  <p className="text-xs text-gray-400 mt-1">{alert.detail}</p>
-                  <p className="text-xs text-gray-600 mt-2">{alert.datetime}</p>
-                  {alert.status === 'unresolved' && (
-                    <button
-                      type="button"
-                      onClick={() => showToast('ステータス更新機能は今後実装予定です')}
-                      className="mt-3 text-sm text-blue-400 hover:text-blue-300"
-                    >
-                      対応済みにする
-                    </button>
-                  )}
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         )}
