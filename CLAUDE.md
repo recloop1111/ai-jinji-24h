@@ -26,12 +26,15 @@
 2. 企業ユーザー (Client) - /client/* - メール+パスワード認証
 3. 運営ユーザー (Admin) - /admin/* - メール+パスワード+TOTP 2FA認証
 
-## 料金体系（確定）
-- ライト: ¥40,000/月, 10件まで
-- スタンダード: ¥80,000/月, 20件まで
-- プロ: ¥120,000/月, 30件まで
-- 31件以降: ¥3,500/件
-- 初期費用: ¥200,000
+## 料金体系（確定・従量課金）
+- 従量課金制: 請求額 = 当月の課金対象面接人数 × companies.price_per_interview（税別・月末締め）
+- 通常企業: plan = pay_per_use / price_per_interview = 4,000（デフォルト）
+- 特別企業: plan = custom / price_per_interview = 3,000 等（運営側のみ設定）。企業側に custom/特別契約/カスタムプラン/優遇プランの表記は出さない（「従量課金」＋実単価のみ表示）
+- 月間上限: companies.monthly_interview_limit（最低5人）。上限到達で受付停止
+- 翌月上限予約: next_month_interview_limit / next_month_limit_effective_month（適用は必ず翌月1日。企業側は翌月分のみ変更可。月初昇格で monthly_interview_limit へ反映）
+- 重要設定変更: ログインPWとは別の「管理者設定用パスワード」(companies.company_setting_password_hash) / 「運営管理設定変更用パスワード」(admin_security_settings.setting_password_hash) を使用（hash保存）
+- 初期費用: ¥200,000（導入費用。月額固定プランとは独立）
+- 旧仕様（ライト/スタンダード/プロの月額固定プラン・31件目以降¥3,500・自動繰上げ・plan_limit・auto_upgrade）は廃止
 
 ## 評価グレード（確定）
 A(80-100) / B(65-79) / C(50-64) / D(35-49) / E(0-34) の5段階

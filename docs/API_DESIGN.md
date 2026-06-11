@@ -72,7 +72,7 @@ GET /api/interview/[slug]
 |--------|------|
 | `SLUG_NOT_FOUND` | 無効なスラッグ |
 | `COMPANY_INACTIVE` | 企業が停止中 |
-| `PLAN_LIMIT_REACHED` | プラン上限到達（available: false） |
+| `PLAN_LIMIT_REACHED` | 月間上限到達（monthly_interview_limit・available: false） |
 
 ---
 
@@ -582,9 +582,11 @@ GET /api/client/company
   "name": "株式会社A",
   "email": "admin@companya.com",
   "interview_slug": "abc123",
-  "plan": "B",
-  "plan_limit": 20,
-  "auto_upgrade": false,
+  "plan": "pay_per_use",
+  "price_per_interview": 4000,
+  "monthly_interview_limit": 20,
+  "next_month_interview_limit": null,
+  "next_month_limit_effective_month": null,
   "status": "active",
   "onboarding_completed": false,
   "created_at": "2024-06-01T00:00:00Z"
@@ -1045,73 +1047,62 @@ GET /api/client/applicants/[id]/sent-emails
 
 ---
 
-### CLI-019: プラン情報取得
+### CLI-019: 料金・利用状況取得
 ```
 GET /api/client/plan
 ```
+※ 企業側には契約種別(plan/custom)は返さず、契約形態は常に「従量課金」表記。
 
 **レスポンス（200）:**
 ```json
 {
-  "plan": "B",
-  "plan_limit": 20,
+  "contract_type_label": "従量課金",
+  "price_per_interview": 4000,
+  "monthly_interview_limit": 20,
   "monthly_count": 8,
-  "auto_upgrade": false,
-  "stripe_subscription_id": "sub_xxx",
-  "billing_cycle_start": "2025-01-01",
-  "billing_cycle_end": "2025-01-31"
+  "remaining": 12,
+  "current_charge": 32000,
+  "max_charge": 80000,
+  "next_month_interview_limit": null,
+  "next_month_limit_effective_month": null,
+  "next_month_max_charge": 80000,
+  "next_reset_date": "2026-07-01",
+  "min_interview_limit": 5
 }
 ```
+- `current_charge` = monthly_count × price_per_interview / `max_charge` = monthly_interview_limit × price_per_interview
+- アクセス時に翌月上限予約の月初昇格を実行（適用月到来時に monthly_interview_limit へ反映）
 
 ---
 
-### CLI-020: プラン変更
+### CLI-020: 翌月上限予約（変更）
 ```
-POST /api/client/plan/change
+PATCH /api/client/plan
 ```
+企業側が変更できるのは**翌月上限予約のみ**（今月上限・単価・契約種別は変更不可）。
 
 **リクエスト:**
 ```json
 {
-  "new_plan": "C"
+  "next_month_interview_limit": 10,
+  "settingPassword": "管理者設定用パスワード"
 }
 ```
+- `next_month_interview_limit`: 整数・最低5人（使用済み人数より低くても可）
+- `settingPassword`: 管理者設定用パスワード（`companies.company_setting_password_hash` と照合。未設定時はエラー）
+- 適用は**必ず翌月1日**（`next_month_limit_effective_month` はサーバ側で翌月1日に固定）。即時反映しない
+- `demo: true` の場合は DB 更新せず確認用レスポンスを返す
 
 **レスポンス（200）:**
 ```json
 {
-  "changed": true,
-  "new_plan": "C",
-  "effective_from": "2025-01-15",
-  "type": "upgrade"
+  "updated": true,
+  "next_month_interview_limit": 10,
+  "next_month_limit_effective_month": "2026-07-01"
 }
 ```
 
-`type`: `upgrade`（即時適用）/ `downgrade`（翌月適用）
-
----
-
-### CLI-021: 自動繰上げ切替
-```
-POST /api/client/plan/auto-upgrade
-```
-
-**リクエスト:**
-```json
-{
-  "auto_upgrade": true
-}
-```
-
-**レスポンス（200）:**
-```json
-{
-  "auto_upgrade": true,
-  "effective_from": "2025-01-15"
-}
-```
-
-ONからOFFへの変更は翌月適用。
+> 旧 CLI-020「プラン変更（A/B/C）」・CLI-021「自動繰上げ切替」は廃止。
 
 ---
 
@@ -1127,10 +1118,10 @@ GET /api/client/billing?page=1&per_page=12
     {
       "id": "uuid",
       "period": "2025-01",
-      "plan": "B",
+      "plan": "pay_per_use",
       "interview_count": 15,
-      "amount": 132000,
-      "tax_amount": 12000,
+      "amount": 60000,
+      "tax_amount": 6000,
       "status": "paid",
       "stripe_invoice_url": "https://invoice.stripe.com/...",
       "created_at": "2025-02-01T00:00:00Z"
@@ -1231,10 +1222,11 @@ GET /api/admin/companies?page=1&per_page=20&status=all
     {
       "id": "uuid",
       "name": "株式会社A",
-      "plan": "B",
+      "plan": "pay_per_use",
+      "price_per_interview": 4000,
       "status": "active",
       "monthly_count": 12,
-      "plan_limit": 20,
+      "monthly_interview_limit": 20,
       "created_at": "2024-06-01T00:00:00Z"
     }
   ],
@@ -1256,9 +1248,11 @@ GET /api/admin/companies/[id]
     "id": "uuid",
     "name": "株式会社A",
     "email": "admin@companya.com",
-    "plan": "B",
-    "plan_limit": 20,
-    "auto_upgrade": false,
+    "plan": "pay_per_use",
+    "price_per_interview": 4000,
+    "monthly_interview_limit": 20,
+    "next_month_interview_limit": null,
+    "next_month_limit_effective_month": null,
     "status": "active",
     "interview_slug": "abc123",
     "onboarding_completed": true,
@@ -1287,9 +1281,13 @@ POST /api/admin/companies
   "name": "株式会社D",
   "email": "admin@companyd.com",
   "password": "xxx",
-  "plan": "A"
+  "contact_person": "担当者名",
+  "phone": "03-xxxx-xxxx",
+  "industry": "IT・通信",
+  "monthly_interview_limit": 20
 }
 ```
+※ 新規企業は必ず `plan = pay_per_use` / `price_per_interview = 4000`（DBデフォルト）で作成。custom や特別単価は新規作成では指定しない（運営側の企業設定で後から変更）。
 
 **レスポンス（201）:**
 ```json
@@ -1300,29 +1298,36 @@ POST /api/admin/companies
 }
 ```
 
-Supabase Authユーザー作成 + companiesレコード作成 + ランダムスラッグ生成。
+Supabase Authユーザー作成 + companiesレコード作成 + profiles紐づけ + ランダムスラッグ生成。
 
 ---
 
-### ADM-005: 企業設定更新
+### ADM-005: 企業 重要設定更新（契約・上限）
 ```
-PATCH /api/admin/companies/[id]/settings
+PATCH /api/admin/companies/[id]
 ```
+契約種別・単価・今月/翌月上限・ステータス等の重要設定を更新する。重要フィールド変更時は**運営管理設定変更用パスワード（adminSettingPassword）**を必須とし、`admin_security_settings.setting_password_hash` と照合する（ログインPWは流用しない）。
 
 **リクエスト:**
 ```json
 {
-  "name": "株式会社A（新社名）",
-  "plan": "C",
+  "plan": "custom",
+  "price_per_interview": 3000,
+  "monthly_interview_limit": 20,
+  "next_month_interview_limit": 10,
+  "next_month_limit_effective_month": "2026-07-01",
   "status": "active",
-  "auto_upgrade": true
+  "adminSettingPassword": "運営管理設定変更用パスワード"
 }
 ```
+- `plan` は `pay_per_use` / `custom` のみ（light/standard/pro は不可）
+- `price_per_interview` は0以上の整数 / `monthly_interview_limit`・`next_month_interview_limit` は最低5
+- `next_month_limit_effective_month` はサーバ側で**翌月1日**に固定（任意日指定不可）
 
 **レスポンス（200）:**
 ```json
 {
-  "updated": true
+  "company": { "...": "更新後の企業オブジェクト" }
 }
 ```
 
@@ -1478,9 +1483,9 @@ GET /api/admin/billing?company_id=&period=2025-01
     {
       "company_id": "uuid",
       "company_name": "株式会社A",
-      "plan": "B",
+      "plan": "pay_per_use",
       "interview_count": 15,
-      "amount": 132000,
+      "amount": 60000,
       "status": "paid",
       "stripe_invoice_url": "https://..."
     }
@@ -1691,7 +1696,7 @@ Stripe決済イベントを受信する。
 |---------|------|
 | `invoice.payment_succeeded` | 請求ステータスを「支払済」に更新 |
 | `invoice.payment_failed` | 企業・運営に支払い失敗通知 |
-| `customer.subscription.updated` | プラン変更を反映 |
+| `customer.subscription.updated` | 契約情報の変更を反映 |
 | `customer.subscription.deleted` | サブスクリプション解約処理 |
 
 **レスポンス:** `200` （Stripeへの応答）
@@ -1791,28 +1796,17 @@ POST /api/internal/batch/suspension-execute
 
 ---
 
-### BATCH-003: 自動繰上げチェック
-```
-POST /api/internal/batch/auto-upgrade-check
-```
-自動繰上げONの企業で月間上限に到達した場合、プランを自動変更する。
+### BATCH-003: 翌月上限予約の月初昇格（アクセス時・cron不要）
+自動繰上げは廃止。代わりに「翌月上限予約の月初昇格」を**遅延適用**で行う（専用バッチ/cronは不要）。
 
-**実行タイミング:** 面接完了イベント時（またはリアルタイムトリガー）
+**実行タイミング:** 企業データ取得API（`GET /api/client/plan`・`GET /api/client/company`・`GET /api/admin/companies/[id]`・`POST /api/interview/verify-url`）のアクセス時に共通ヘルパー `applyNextMonthLimit` を実行。
 
-**処理:**
-1. `auto_upgrade = true` の企業で月間件数がプラン上限に到達
-2. 上位プランへ変更（A→B、B→C、最大30件）
-3. Stripeサブスクリプション更新
-4. 企業に自動繰上げ実行通知メール送信
-
-**レスポンス（200）:**
-```json
-{
-  "upgraded_companies": [
-    { "company_id": "uuid", "old_plan": "A", "new_plan": "B" }
-  ]
-}
-```
+**処理（条件を満たす場合のみ）:**
+1. `next_month_interview_limit`（5以上）と `next_month_limit_effective_month` が設定済み、かつ 今日(JST) ≥ effective_month
+2. `monthly_interview_limit = next_month_interview_limit` に反映
+3. `next_month_interview_limit` / `next_month_limit_effective_month` を null にクリア
+4. 二重反映防止: `WHERE next_month_limit_effective_month IS NOT NULL` ガード（service role で更新）
+5. `price_per_interview` / `plan` / `company_setting_password_hash` は変更しない
 
 ---
 

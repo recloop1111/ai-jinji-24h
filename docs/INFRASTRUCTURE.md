@@ -225,13 +225,12 @@ R2_BUCKET_NAME=ai-jinji-24h-recordings
 | **Webhook** | `/api/webhooks/stripe` |
 
 #### Stripe Product/Price設計
-| Product | Price ID | 金額（税別） | 面接件数 |
-|---------|----------|-------------|---------|
-| プランA | `price_plan_a` | ¥60,000/月 | 〜10件 |
-| プランB | `price_plan_b` | ¥120,000/月 | 〜20件 |
-| プランC | `price_plan_c` | ¥180,000/月 | 〜30件 |
-| 初期費用 | `price_setup` | ¥200,000（一括） | - |
-| 職種追加 | `price_job_type` | ¥100,000（一括） | - |
+> 旧月額固定プラン（プランA/B/C）は廃止。現行は従量課金（1面接・1人あたり単価制）。
+| Product | 金額（税別） | 備考 |
+|---------|-------------|------|
+| 面接従量課金 | ¥4,000 / 人（通常）・¥3,000 / 人 等（特別契約） | 請求額 = 当月課金対象人数 × companies.price_per_interview。月末締め・月次請求 |
+| 初期費用 | ¥200,000（一括） | 導入セットアップ |
+| 職種追加 | ¥100,000（一括） | 職種別質問設計 |
 
 #### Webhook処理対象イベント
 | イベント | 処理 |
@@ -424,17 +423,36 @@ CREATE TABLE companies (
   name TEXT NOT NULL,
   email TEXT NOT NULL,
   interview_slug TEXT NOT NULL UNIQUE,
-  plan TEXT NOT NULL DEFAULT 'A' CHECK (plan IN ('A', 'B', 'C', 'custom')),
-  plan_limit INTEGER NOT NULL DEFAULT 10,
-  auto_upgrade BOOLEAN NOT NULL DEFAULT false,
+  -- 契約種別: pay_per_use(通常) / custom(特別契約・運営のみ設定)。旧 A/B/C は廃止
+  plan TEXT NOT NULL DEFAULT 'pay_per_use' CHECK (plan IN ('pay_per_use', 'custom')),
+  -- 1面接・1人あたり単価（税別）。通常=4000 / 特別契約=運営が任意（例3000）
+  price_per_interview INTEGER NOT NULL DEFAULT 4000,
+  -- 今月の月間上限（最低5人。上限到達で受付停止）
+  monthly_interview_limit INTEGER NOT NULL DEFAULT 5,
+  -- 翌月上限予約（企業側は翌月分のみ変更可。即時反映しない）
+  next_month_interview_limit INTEGER,                 -- null=予約なし
+  next_month_limit_effective_month DATE,              -- 適用月=必ず翌月1日。null=予約なし
+  -- 企業設定変更用パスワード（ログインPWとは別。hash保存・平文禁止）
+  company_setting_password_hash TEXT,
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
+  is_suspended BOOLEAN NOT NULL DEFAULT false,
   onboarding_completed BOOLEAN NOT NULL DEFAULT false,
   stripe_customer_id TEXT,
   stripe_subscription_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 運営管理設定変更用パスワード（ログインPWとは別。単一行運用 id='default'。hash保存・平文禁止）
+CREATE TABLE admin_security_settings (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  setting_password_hash TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- RLS有効・ポリシー無し（anon/authenticated不可、service roleのみアクセス）
 ```
+> 旧カラム `plan_limit` / `auto_upgrade` は廃止。料金計算は `price_per_interview`、上限管理は `monthly_interview_limit` を使用。
 
 #### applicants
 ```sql
