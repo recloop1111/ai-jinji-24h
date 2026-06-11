@@ -33,6 +33,7 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true)
   const [monthlyCount, setMonthlyCount] = useState(0)
   const [monthlyInterviewLimit, setMonthlyInterviewLimit] = useState(0)
+  const [pricePerInterview, setPricePerInterview] = useState<number>(PRICE_PER_INTERVIEW)
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [downloadToast, setDownloadToast] = useState(false)
 
@@ -48,11 +49,12 @@ export default function BillingPage() {
         // 企業情報
         const { data: company } = await supabase
           .from('companies')
-          .select('monthly_interview_limit')
+          .select('monthly_interview_limit, price_per_interview')
           .eq('id', companyId)
           .single()
 
         setMonthlyInterviewLimit(company?.monthly_interview_limit ?? 10)
+        setPricePerInterview(company?.price_per_interview ?? PRICE_PER_INTERVIEW)
 
         // 当月の billable 面接数
         const now = new Date()
@@ -103,7 +105,7 @@ export default function BillingPage() {
     )
   }
 
-  const currentCharge = monthlyCount * PRICE_PER_INTERVIEW
+  const currentCharge = monthlyCount * pricePerInterview
   const remaining = Math.max(0, monthlyInterviewLimit - monthlyCount)
 
   return (
@@ -115,7 +117,7 @@ export default function BillingPage() {
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
           <p className="text-sm font-medium text-slate-500 mb-1">今月の請求見込み</p>
           <p className="text-2xl font-bold text-slate-900">¥{currentCharge.toLocaleString()}<span className="text-sm font-normal text-slate-500 ml-1">（税別）</span></p>
-          <p className="text-xs text-slate-400 mt-2">{monthlyCount}人 × ¥{PRICE_PER_INTERVIEW.toLocaleString()} / 月末締め</p>
+          <p className="text-xs text-slate-400 mt-2">{monthlyCount}人 × ¥{pricePerInterview.toLocaleString()} / 月末締め</p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
           <p className="text-sm font-medium text-slate-500 mb-1">月間利用状況</p>
@@ -153,11 +155,13 @@ export default function BillingPage() {
                 {invoices.map((inv) => {
                   const status = STATUS_BADGE[inv.status] ?? { label: inv.status, className: 'bg-gray-100 text-gray-600' }
                   const interviewCount = inv.interview_count ?? 0
+                  // 過去請求の内訳は当時の実単価（金額÷人数）を表示。人数0/不明時は現単価でフォールバック
+                  const invoiceUnitPrice = interviewCount > 0 ? Math.round(inv.amount / interviewCount) : pricePerInterview
                   return (
                     <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-4 py-3 text-slate-600">{inv.period}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">
-                        面接 {interviewCount}人 × ¥{PRICE_PER_INTERVIEW.toLocaleString()}
+                        面接 {interviewCount}人 × ¥{invoiceUnitPrice.toLocaleString()}
                       </td>
                       <td className="px-4 py-3 text-right text-slate-900">¥{inv.amount.toLocaleString()}</td>
                       <td className="px-4 py-3">
