@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Link as LinkIcon, User, Info, X } from 'lucide-react'
 import JobManager from '@/components/shared/JobManager'
 import QuestionEditor from '@/components/shared/QuestionEditor'
+import PasswordInput from '@/components/shared/PasswordInput'
 
 const CARD_BASE = 'bg-gradient-to-br from-white/[0.07] to-white/[0.02] backdrop-blur-2xl border border-white/[0.08] rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)]'
 
@@ -586,13 +587,15 @@ export default function CompanyDetailPage() {
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-xs font-medium text-gray-400 mb-1">運営管理設定変更用パスワード</label>
-                <input
-                  type="password"
-                  value={csSettingPw}
-                  onChange={(e) => { setCsSettingPw(e.target.value); setCsError('') }}
-                  placeholder="運営管理設定変更用パスワードを入力"
-                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none max-w-md"
-                />
+                <div className="max-w-md">
+                  <PasswordInput
+                    value={csSettingPw}
+                    onChange={(v) => { setCsSettingPw(v); setCsError('') }}
+                    placeholder="運営管理設定変更用パスワードを入力"
+                    className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
+                    iconClassName="text-gray-400 hover:text-gray-200"
+                  />
+                </div>
                 <p className="text-xs text-gray-500 mt-1">ログインパスワードとは別のパスワードです</p>
               </div>
             </div>

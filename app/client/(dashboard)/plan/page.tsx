@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { DEMO_STORAGE_KEY } from '@/lib/hooks/useCompanyId'
+import PasswordInput from '@/components/shared/PasswordInput'
 
 type PlanData = {
   contract_type_label: string
@@ -106,7 +107,7 @@ export default function PlanPage() {
         if (cancelled) return
         setPlan(json)
 
-        // 設定変更用パスワードの設定状況
+        // 管理者設定用パスワードの設定状況
         const pwRes = await fetch('/api/client/security/setting-password')
         const pwJson = await pwRes.json().catch(() => ({}))
         if (cancelled) return
@@ -150,7 +151,7 @@ export default function PlanPage() {
       return
     }
     if (!settingPassword) {
-      setFormError('設定変更用パスワードを入力してください')
+      setFormError('管理者設定用パスワードを入力してください')
       return
     }
     setShowConfirm(true)
@@ -291,9 +292,9 @@ export default function PlanPage() {
 
         {settingPwConfigured === false ? (
           <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-            <p className="text-sm font-medium text-amber-800">設定変更用パスワードが未設定です。</p>
+            <p className="text-sm font-medium text-amber-800">管理者設定用パスワードが未設定です。</p>
             <p className="text-xs text-amber-700 mt-1">
-              翌月上限の変更には設定変更用パスワードが必要です。
+              翌月上限の変更には管理者設定用パスワードが必要です。
               <Link href="/client/settings" className="font-medium text-blue-600 hover:text-blue-700 underline ml-1">設定画面から先に設定してください。</Link>
             </p>
           </div>
@@ -324,14 +325,13 @@ export default function PlanPage() {
                 )}
               </div>
               <div>
-                <label htmlFor="setting-pw" className="block text-xs font-medium text-slate-600 mb-1">設定変更用パスワード</label>
-                <input
+                <label htmlFor="setting-pw" className="block text-xs font-medium text-slate-600 mb-1">管理者設定用パスワード</label>
+                <PasswordInput
                   id="setting-pw"
-                  type="password"
                   value={settingPassword}
-                  onChange={(e) => setSettingPassword(e.target.value)}
+                  onChange={setSettingPassword}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
-                  placeholder="設定変更用パスワードを入力"
+                  placeholder="管理者設定用パスワードを入力"
                 />
                 <p className="text-xs text-slate-400 mt-1">ログインパスワードとは別のパスワードです</p>
               </div>

@@ -5,89 +5,9 @@ import { useRouter } from 'next/navigation'
 import { Save as SaveIcon, Upload as UploadIcon, Eye as EyeIcon, EyeOff as EyeOffIcon, LogOut } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
+import PasswordInput from '@/components/shared/PasswordInput'
 
 type TabType = 'general' | 'notifications' | 'security'
-
-// 管理者認証モーダル（管理者用パスワード変更用・TODO: Supabase連携）
-function AdminAuthModal({
-  isOpen,
-  onClose,
-  onConfirm,
-}: {
-  isOpen: boolean
-  onClose: () => void
-  onConfirm: () => void
-}) {
-  const [adminPassword, setAdminPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState('')
-
-  const handleSubmit = () => {
-    if (!adminPassword.trim()) {
-      setError('パスワードを入力してください')
-      return
-    }
-    setError('')
-    onConfirm()
-    setAdminPassword('')
-    onClose()
-  }
-
-  if (!isOpen) return null
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden />
-      <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
-        <h3 className="text-lg font-bold text-slate-900 mb-2">管理者認証</h3>
-        <p className="text-sm text-slate-600 mb-4">
-          この操作には管理者用パスワードが必要です。
-        </p>
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-slate-700 mb-2">
-            管理者用パスワード
-          </label>
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={adminPassword}
-              onChange={(e) => {
-                setAdminPassword(e.target.value)
-                setError('')
-              }}
-              className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="管理者用パスワードを入力"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-            >
-              {showPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
-            </button>
-          </div>
-          {error && <p className="mt-1.5 text-sm text-red-600">{error}</p>}
-        </div>
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-          >
-            キャンセル
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-          >
-            認証して実行
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 type CompanyForm = {
   name: string
@@ -130,18 +50,10 @@ function SettingsContent() {
   const [showLoginNewPassword, setShowLoginNewPassword] = useState(false)
   const [showLoginConfirmPassword, setShowLoginConfirmPassword] = useState(false)
 
-  // 管理者用パスワード変更
-  const [adminCurrentPassword, setAdminCurrentPassword] = useState('')
-  const [adminNewPassword, setAdminNewPassword] = useState('')
-  const [adminConfirmPassword, setAdminConfirmPassword] = useState('')
-  const [showAdminCurrentPassword, setShowAdminCurrentPassword] = useState(false)
-  const [showAdminNewPassword, setShowAdminNewPassword] = useState(false)
-  const [showAdminConfirmPassword, setShowAdminConfirmPassword] = useState(false)
-  const [adminAuthModalOpen, setAdminAuthModalOpen] = useState(false)
 
   const [twoFactorAuth, setTwoFactorAuth] = useState(false)
 
-  // 設定変更用パスワード（ログインPWとは別）
+  // 管理者設定用パスワード（ログインPWとは別）
   const [settingPwConfigured, setSettingPwConfigured] = useState<boolean | null>(null)
   const [settingPwCurrent, setSettingPwCurrent] = useState('')
   const [settingPwNew, setSettingPwNew] = useState('')
@@ -192,7 +104,7 @@ function SettingsContent() {
     return () => { cancelled = true }
   }, [companyId])
 
-  // 設定変更用パスワードの設定状況を取得
+  // 管理者設定用パスワードの設定状況を取得
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -223,7 +135,7 @@ function SettingsContent() {
       return
     }
     if (settingPwConfigured && !settingPwCurrent) {
-      setSettingPwError('現在の設定変更用パスワードを入力してください')
+      setSettingPwError('現在の管理者設定用パスワードを入力してください')
       return
     }
     const wasConfigured = settingPwConfigured
@@ -247,7 +159,7 @@ function SettingsContent() {
       setSettingPwCurrent('')
       setSettingPwNew('')
       setSettingPwConfirm('')
-      showToastMessage(wasConfigured ? '設定変更用パスワードを変更しました' : '設定変更用パスワードを設定しました')
+      showToastMessage(wasConfigured ? '管理者設定用パスワードを変更しました' : '管理者設定用パスワードを設定しました')
     } catch {
       setSettingPwError('保存に失敗しました')
     } finally {
@@ -312,13 +224,6 @@ function SettingsContent() {
     setLoginNewPassword('')
     setLoginConfirmPassword('')
     showToastMessage('パスワードを変更しました')
-  }
-
-  const handleAdminPasswordChange = () => {
-    setAdminCurrentPassword('')
-    setAdminNewPassword('')
-    setAdminConfirmPassword('')
-    showToastMessage('管理者用パスワードの変更は今後実装予定です')
   }
 
   const handleLogout = async () => {
@@ -614,11 +519,11 @@ function SettingsContent() {
             </div>
           </div>
 
-          {/* 設定変更用パスワード（ログインPWとは別） */}
+          {/* 管理者設定用パスワード（ログインPWとは別） */}
           <div className={cardClass}>
-            <h3 className="text-base font-semibold text-slate-900 mb-2">設定変更用パスワード</h3>
+            <h3 className="text-base font-semibold text-slate-900 mb-2">管理者設定用パスワード</h3>
             <p className="text-sm text-slate-600 mb-3">
-              翌月の月間上限など、重要設定を変更する際に使用するパスワードです。ログインパスワードとは別に管理してください。
+              翌月の月間上限変更、CSV出力、重要設定の変更時に使用するパスワードです。ログインパスワードとは別に管理してください。
             </p>
             <p className="text-xs mb-4">
               {settingPwConfigured === null
@@ -630,33 +535,30 @@ function SettingsContent() {
             <div className="space-y-4">
               {settingPwConfigured && (
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">現在の設定変更用パスワード</label>
-                  <input
-                    type="password"
+                  <label className="block text-sm font-medium text-slate-700 mb-2">現在の管理者設定用パスワード</label>
+                  <PasswordInput
                     value={settingPwCurrent}
-                    onChange={(e) => setSettingPwCurrent(e.target.value)}
+                    onChange={setSettingPwCurrent}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="現在の設定変更用パスワードを入力"
+                    placeholder="現在の管理者設定用パスワードを入力"
                   />
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">新しい設定変更用パスワード</label>
-                <input
-                  type="password"
+                <label className="block text-sm font-medium text-slate-700 mb-2">新しい管理者設定用パスワード</label>
+                <PasswordInput
                   value={settingPwNew}
-                  onChange={(e) => setSettingPwNew(e.target.value)}
+                  onChange={setSettingPwNew}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="新しいパスワードを入力"
                 />
                 <p className="text-xs text-slate-500 mt-1">8文字以上で設定してください</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">新しい設定変更用パスワード（確認）</label>
-                <input
-                  type="password"
+                <label className="block text-sm font-medium text-slate-700 mb-2">新しい管理者設定用パスワード（確認）</label>
+                <PasswordInput
                   value={settingPwConfirm}
-                  onChange={(e) => setSettingPwConfirm(e.target.value)}
+                  onChange={setSettingPwConfirm}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="新しいパスワードを再入力"
                 />
@@ -669,66 +571,6 @@ function SettingsContent() {
                 className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm disabled:opacity-70"
               >
                 {settingPwLoading ? '保存中...' : settingPwConfigured ? '変更する' : '設定する'}
-              </button>
-            </div>
-          </div>
-
-          <div className={cardClass}>
-            <h3 className="text-base font-semibold text-slate-900 mb-2">管理者用パスワード変更</h3>
-            <p className="text-sm text-slate-600 mb-4">管理者用パスワードはCSV出力や重要な設定変更時に必要です</p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">現在の管理者用パスワード</label>
-                <div className="relative">
-                  <input
-                    type={showAdminCurrentPassword ? 'text' : 'password'}
-                    value={adminCurrentPassword}
-                    onChange={(e) => setAdminCurrentPassword(e.target.value)}
-                    className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="現在の管理者用パスワードを入力"
-                  />
-                  <button type="button" onClick={() => setShowAdminCurrentPassword(!showAdminCurrentPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                    {showAdminCurrentPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">新しい管理者用パスワード</label>
-                <div className="relative">
-                  <input
-                    type={showAdminNewPassword ? 'text' : 'password'}
-                    value={adminNewPassword}
-                    onChange={(e) => setAdminNewPassword(e.target.value)}
-                    className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="新しい管理者用パスワードを入力"
-                  />
-                  <button type="button" onClick={() => setShowAdminNewPassword(!showAdminNewPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                    {showAdminNewPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
-                  </button>
-                </div>
-                <p className="text-xs text-slate-500 mt-1">12文字以上、大文字・小文字・数字・特殊文字を各1文字以上含む</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">新しい管理者用パスワード（確認）</label>
-                <div className="relative">
-                  <input
-                    type={showAdminConfirmPassword ? 'text' : 'password'}
-                    value={adminConfirmPassword}
-                    onChange={(e) => setAdminConfirmPassword(e.target.value)}
-                    className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="新しい管理者用パスワードを再入力"
-                  />
-                  <button type="button" onClick={() => setShowAdminConfirmPassword(!showAdminConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                    {showAdminConfirmPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
-                  </button>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAdminAuthModalOpen(true)}
-                className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
-              >
-                変更する
               </button>
             </div>
           </div>
@@ -791,12 +633,6 @@ function SettingsContent() {
           {toast}
         </div>
       )}
-
-      <AdminAuthModal
-        isOpen={adminAuthModalOpen}
-        onClose={() => setAdminAuthModalOpen(false)}
-        onConfirm={handleAdminPasswordChange}
-      />
     </div>
   )
 }

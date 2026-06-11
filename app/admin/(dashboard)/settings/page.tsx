@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import PasswordInput from '@/components/shared/PasswordInput'
 
 // TODO: 実データに差替え
 const EMAIL_TEMPLATES = [
@@ -306,35 +307,35 @@ export default function SettingsPage() {
               <div className="space-y-4 max-w-md">
                 {adminSettingPwConfigured && (
                   <div>
-                    <InputLabel>現在の設定変更用パスワード</InputLabel>
-                    <input
-                      type="password"
+                    <InputLabel>現在の運営管理設定変更用パスワード</InputLabel>
+                    <PasswordInput
                       value={adminSettingPwCurrent}
-                      onChange={(e) => setAdminSettingPwCurrent(e.target.value)}
+                      onChange={setAdminSettingPwCurrent}
                       className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
-                      placeholder="現在の設定変更用パスワードを入力"
+                      placeholder="現在の運営管理設定変更用パスワードを入力"
+                      iconClassName="text-gray-400 hover:text-gray-200"
                     />
                   </div>
                 )}
                 <div>
-                  <InputLabel>新しい設定変更用パスワード</InputLabel>
-                  <input
-                    type="password"
+                  <InputLabel>新しい運営管理設定変更用パスワード</InputLabel>
+                  <PasswordInput
                     value={adminSettingPwNew}
-                    onChange={(e) => setAdminSettingPwNew(e.target.value)}
+                    onChange={setAdminSettingPwNew}
                     className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
                     placeholder="新しいパスワードを入力"
+                    iconClassName="text-gray-400 hover:text-gray-200"
                   />
                   <p className="text-xs text-gray-500 mt-1">8文字以上で設定してください</p>
                 </div>
                 <div>
-                  <InputLabel>新しい設定変更用パスワード（確認）</InputLabel>
-                  <input
-                    type="password"
+                  <InputLabel>新しい運営管理設定変更用パスワード（確認）</InputLabel>
+                  <PasswordInput
                     value={adminSettingPwConfirm}
-                    onChange={(e) => setAdminSettingPwConfirm(e.target.value)}
+                    onChange={setAdminSettingPwConfirm}
                     className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
                     placeholder="新しいパスワードを再入力"
+                    iconClassName="text-gray-400 hover:text-gray-200"
                   />
                 </div>
                 {adminSettingPwError && <p className="text-sm text-red-400">{adminSettingPwError}</p>}
