@@ -8,6 +8,13 @@ import QuestionEditor from '@/components/shared/QuestionEditor'
 
 const CARD_BASE = 'bg-gradient-to-br from-white/[0.07] to-white/[0.02] backdrop-blur-2xl border border-white/[0.08] rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)]'
 
+// 翌月1日（YYYY-MM-01）
+function firstOfNextMonth(): string {
+  const d = new Date()
+  const n = new Date(d.getFullYear(), d.getMonth() + 1, 1)
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-01`
+}
+
 const EVALUATION_AXES = [
   { name: 'コミュニケーション力', weight: 20 },
   { name: '論理的思考力', weight: 20 },
@@ -41,6 +48,18 @@ export default function CompanyDetailPage() {
   const [adminPassword, setAdminPassword] = useState('')
   const [limitError, setLimitError] = useState('')
   const [showAdminPassword, setShowAdminPassword] = useState(false)
+
+  // 契約・上限設定（重要設定）state
+  const [csPlan, setCsPlan] = useState<'pay_per_use' | 'custom'>('pay_per_use')
+  const [csPrice, setCsPrice] = useState('')
+  const [csMonthlyLimit, setCsMonthlyLimit] = useState('')
+  const [csNextLimit, setCsNextLimit] = useState('')
+  const [csNextEffMonth, setCsNextEffMonth] = useState('')
+  const [csStatus, setCsStatus] = useState<'active' | 'suspended'>('active')
+  const [csSettingPw, setCsSettingPw] = useState('')
+  const [csError, setCsError] = useState('')
+  const [csSaving, setCsSaving] = useState(false)
+  const [csConfirmOpen, setCsConfirmOpen] = useState(false)
 
   // 企業情報編集 state
   const [editName, setEditName] = useState('')
@@ -77,6 +96,13 @@ export default function CompanyDetailPage() {
           setDisplayName(data.name || '')
           setLogoPreview(data.logo_url || null)
           setMonthlyUsedCount(data.monthly_interview_count_actual ?? data.monthly_interview_count ?? 0)
+          // 契約・上限設定フォームの初期化
+          setCsPlan(data.plan === 'custom' ? 'custom' : 'pay_per_use')
+          setCsPrice(String(data.price_per_interview ?? 4000))
+          setCsMonthlyLimit(String(data.monthly_interview_limit ?? 5))
+          setCsNextLimit(data.next_month_interview_limit != null ? String(data.next_month_interview_limit) : '')
+          setCsNextEffMonth(data.next_month_limit_effective_month ?? '')
+          setCsStatus(data.is_suspended ? 'suspended' : 'active')
         }
       } catch {
         // fetch failed
@@ -155,6 +181,62 @@ export default function CompanyDetailPage() {
     setRefreshTrigger((t) => t + 1)
   }
 
+  // 契約・上限設定（重要設定）の保存
+  function openContractConfirm() {
+    setCsError('')
+    const price = parseInt(csPrice, 10)
+    const monthly = parseInt(csMonthlyLimit, 10)
+    if (!Number.isInteger(price) || price < 0) {
+      setCsError('単価は0以上の整数で入力してください')
+      return
+    }
+    if (!Number.isInteger(monthly) || monthly < 5) {
+      setCsError('今月の月間上限は5以上の整数で入力してください')
+      return
+    }
+    if (csNextLimit.trim() !== '') {
+      const n = parseInt(csNextLimit, 10)
+      if (!Number.isInteger(n) || n < 5) {
+        setCsError('翌月上限は5以上の整数、または空欄にしてください')
+        return
+      }
+    }
+    if (!csSettingPw) {
+      setCsError('運営管理設定変更用パスワードを入力してください')
+      return
+    }
+    setCsConfirmOpen(true)
+  }
+
+  async function saveContractSettings() {
+    const price = parseInt(csPrice, 10)
+    const monthly = parseInt(csMonthlyLimit, 10)
+    const nextLimit = csNextLimit.trim() === '' ? null : parseInt(csNextLimit, 10)
+    const effMonth = nextLimit != null ? (csNextEffMonth.trim() || firstOfNextMonth()) : (csNextEffMonth.trim() || null)
+
+    setCsSaving(true)
+    const result = await patchCompany({
+      plan: csPlan,
+      price_per_interview: price,
+      monthly_interview_limit: monthly,
+      next_month_interview_limit: nextLimit,
+      next_month_limit_effective_month: effMonth,
+      status: csStatus,
+      is_suspended: csStatus === 'suspended',
+      adminSettingPassword: csSettingPw,
+    })
+    setCsSaving(false)
+    if (!result.ok) {
+      setCsConfirmOpen(false)
+      setCsError(result.error || '保存に失敗しました')
+      return
+    }
+    setCsConfirmOpen(false)
+    setCsSettingPw('')
+    showToast('重要設定を保存しました')
+    setRefreshTrigger((t) => t + 1)
+  }
+
   async function saveLimitChange() {
     const parsedLimit = parseInt(newLimitStr, 10)
     if (isNaN(parsedLimit) || parsedLimit < 5) {
@@ -166,7 +248,7 @@ export default function CompanyDetailPage() {
       return
     }
     if (!adminPassword) {
-      setLimitError('管理者パスワードを入力してください')
+      setLimitError('設定変更用パスワードを入力してください')
       return
     }
     setLimitError('')
@@ -175,7 +257,7 @@ export default function CompanyDetailPage() {
       const res = await fetch(`/api/admin/companies/${companyId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ monthly_interview_limit: parsedLimit, adminPassword }),
+        body: JSON.stringify({ monthly_interview_limit: parsedLimit, adminSettingPassword: adminPassword }),
       })
       const json = await res.json()
       setLimitSaving(false)
@@ -352,10 +434,10 @@ export default function CompanyDetailPage() {
                 <p className="text-sm text-white mt-1">{company?.industry || '未設定'}</p>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">契約プラン</label>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">契約種別（内部）</label>
                 <p className="text-sm text-white mt-1">
-                  {company?.plan === 'custom' ? 'カスタム' : '従量課金'}
-                  <span className="text-xs text-gray-400 ml-2">¥4,000 / 面接・人（税別）</span>
+                  {company?.plan === 'custom' ? '特別契約（custom）' : '通常契約（pay_per_use）'}
+                  <span className="text-xs text-gray-400 ml-2">¥{(company?.price_per_interview ?? 4000).toLocaleString()} / 面接・人（税別）</span>
                 </p>
               </div>
               <div>
@@ -417,6 +499,121 @@ export default function CompanyDetailPage() {
                 className="bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-2 text-sm transition-colors"
               >
                 企業情報編集
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 契約・上限設定（重要設定） */}
+        {activeTab === '基本情報' && (
+          <div className={`${CARD_BASE} p-6 mt-6`}>
+            <h2 className="text-lg font-semibold text-white mb-1">契約・上限設定</h2>
+            <p className="text-xs text-gray-400 mb-5">
+              契約種別・単価・月間上限・翌月上限予約・ステータスを変更します。保存には運営管理設定変更用パスワード（ログインパスワードとは別）が必要です。
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 max-w-3xl">
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">契約種別</label>
+                <select
+                  value={csPlan}
+                  onChange={(e) => {
+                    const v = e.target.value as 'pay_per_use' | 'custom'
+                    setCsPlan(v)
+                    if (!csPrice.trim()) setCsPrice(v === 'custom' ? '3000' : '4000')
+                  }}
+                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
+                >
+                  <option value="pay_per_use">通常契約（pay_per_use）</option>
+                  <option value="custom">特別契約（custom）</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">通常は4,000円 / 特別契約は3,000円が基本（単価は任意変更可）</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">1人あたり単価（税別）</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={csPrice}
+                  onChange={(e) => setCsPrice(e.target.value)}
+                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">今月の月間上限（人）</label>
+                <input
+                  type="number"
+                  min={5}
+                  step={1}
+                  value={csMonthlyLimit}
+                  onChange={(e) => setCsMonthlyLimit(e.target.value)}
+                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
+                />
+                <p className="text-xs text-gray-500 mt-1">当月利用人数（{monthlyUsedCount}件）未満には設定できません</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">企業ステータス</label>
+                <select
+                  value={csStatus}
+                  onChange={(e) => setCsStatus(e.target.value as 'active' | 'suspended')}
+                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
+                >
+                  <option value="active">稼働中（active）</option>
+                  <option value="suspended">停止中（suspended）</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">翌月の月間上限予約（人・空欄で予約なし）</label>
+                <input
+                  type="number"
+                  min={5}
+                  step={1}
+                  value={csNextLimit}
+                  onChange={(e) => setCsNextLimit(e.target.value)}
+                  placeholder="未予約"
+                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">翌月上限の適用開始月</label>
+                <input
+                  type="date"
+                  value={csNextEffMonth}
+                  onChange={(e) => setCsNextEffMonth(e.target.value)}
+                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
+                />
+                <p className="text-xs text-gray-500 mt-1">空欄かつ翌月予約ありの場合は翌月1日を自動設定</p>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-gray-400 mb-1">運営管理設定変更用パスワード</label>
+                <input
+                  type="password"
+                  value={csSettingPw}
+                  onChange={(e) => { setCsSettingPw(e.target.value); setCsError('') }}
+                  placeholder="運営管理設定変更用パスワードを入力"
+                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none max-w-md"
+                />
+                <p className="text-xs text-gray-500 mt-1">ログインパスワードとは別のパスワードです</p>
+              </div>
+            </div>
+            {csError && (
+              <div className="mt-4">
+                <p className="text-sm text-red-400">{csError}</p>
+                {csError.includes('未設定') && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    <a href="/admin/settings" className="text-blue-400 hover:text-blue-300 underline">システム設定</a> で運営管理設定変更用パスワードを先に設定してください。
+                  </p>
+                )}
+              </div>
+            )}
+            <div className="mt-5">
+              <button
+                type="button"
+                onClick={openContractConfirm}
+                disabled={csSaving}
+                className="bg-blue-600 text-white hover:bg-blue-700 rounded-xl px-5 py-2.5 text-sm transition-colors disabled:opacity-50"
+              >
+                重要設定を保存
               </button>
             </div>
           </div>
@@ -973,13 +1170,13 @@ export default function CompanyDetailPage() {
                 )}
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1">管理者パスワード</label>
+                <label className="block text-xs font-medium text-gray-400 mb-1">設定変更用パスワード</label>
                 <div className="relative">
                   <input
                     type={showAdminPassword ? 'text' : 'password'}
                     value={adminPassword}
                     onChange={(e) => { setAdminPassword(e.target.value); setLimitError('') }}
-                    placeholder="現在のパスワードを入力"
+                    placeholder="運営管理設定変更用パスワードを入力"
                     className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none pr-16"
                   />
                   <button
@@ -991,7 +1188,7 @@ export default function CompanyDetailPage() {
                   </button>
                 </div>
               </div>
-              <p className="text-xs text-gray-500">料金: ¥4,000 / 面接・人（税別）</p>
+              <p className="text-xs text-gray-500">料金: ¥{(company?.price_per_interview ?? 4000).toLocaleString()} / 面接・人（税別）</p>
               {limitError && (
                 <p className="text-xs text-red-400">{limitError}</p>
               )}
@@ -1089,6 +1286,37 @@ export default function CompanyDetailPage() {
                 className="bg-blue-600 text-white hover:bg-blue-700 rounded-xl px-4 py-2 text-sm transition-colors"
               >
                 保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 契約・上限設定の確認ダイアログ */}
+      {csConfirmOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !csSaving && setCsConfirmOpen(false)} aria-hidden />
+          <div className={`relative ${CARD_BASE} p-6 w-full max-w-md`}>
+            <h3 className="text-lg font-semibold text-white mb-3">重要設定の変更確認</h3>
+            <p className="text-sm text-gray-300 leading-relaxed mb-5">
+              この企業の重要設定を変更します。請求単価・月間上限・契約種別に影響します。よろしいですか？
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                disabled={csSaving}
+                onClick={() => setCsConfirmOpen(false)}
+                className="bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-2 text-sm transition-colors disabled:opacity-50"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                disabled={csSaving}
+                onClick={saveContractSettings}
+                className="bg-blue-600 text-white hover:bg-blue-700 rounded-xl px-4 py-2 text-sm transition-colors disabled:opacity-50"
+              >
+                {csSaving ? '保存中...' : '変更を保存する'}
               </button>
             </div>
           </div>
