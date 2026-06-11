@@ -55,7 +55,6 @@ export default function CompanyDetailPage() {
   const [csPrice, setCsPrice] = useState('')
   const [csMonthlyLimit, setCsMonthlyLimit] = useState('')
   const [csNextLimit, setCsNextLimit] = useState('')
-  const [csNextEffMonth, setCsNextEffMonth] = useState('')
   const [csStatus, setCsStatus] = useState<'active' | 'suspended'>('active')
   const [csSettingPw, setCsSettingPw] = useState('')
   const [csError, setCsError] = useState('')
@@ -102,7 +101,6 @@ export default function CompanyDetailPage() {
           setCsPrice(String(data.price_per_interview ?? 4000))
           setCsMonthlyLimit(String(data.monthly_interview_limit ?? 5))
           setCsNextLimit(data.next_month_interview_limit != null ? String(data.next_month_interview_limit) : '')
-          setCsNextEffMonth(data.next_month_limit_effective_month ?? '')
           setCsStatus(data.is_suspended ? 'suspended' : 'active')
         }
       } catch {
@@ -213,7 +211,8 @@ export default function CompanyDetailPage() {
     const price = parseInt(csPrice, 10)
     const monthly = parseInt(csMonthlyLimit, 10)
     const nextLimit = csNextLimit.trim() === '' ? null : parseInt(csNextLimit, 10)
-    const effMonth = nextLimit != null ? (csNextEffMonth.trim() || firstOfNextMonth()) : (csNextEffMonth.trim() || null)
+    // 翌月上限の適用開始日は必ず翌月1日（任意日入力は採用しない）。予約なしなら null。
+    const effMonth = nextLimit != null ? firstOfNextMonth() : null
 
     setCsSaving(true)
     const result = await patchCompany({
@@ -577,13 +576,12 @@ export default function CompanyDetailPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-400 mb-1">翌月上限の適用開始月</label>
-                <input
-                  type="date"
-                  value={csNextEffMonth}
-                  onChange={(e) => setCsNextEffMonth(e.target.value)}
-                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
-                />
-                <p className="text-xs text-gray-500 mt-1">空欄かつ翌月予約ありの場合は翌月1日を自動設定</p>
+                <div className="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl text-gray-300 px-4 py-2.5 text-sm">
+                  {csNextLimit.trim() !== ''
+                    ? `${firstOfNextMonth()} から自動適用`
+                    : '翌月予約なし'}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">適用日は常に翌月1日です（任意日の指定はできません）</p>
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-xs font-medium text-gray-400 mb-1">運営管理設定変更用パスワード</label>

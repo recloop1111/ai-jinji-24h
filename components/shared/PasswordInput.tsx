@@ -10,6 +10,8 @@ type PasswordInputProps = {
   className?: string
   id?: string
   autoFocus?: boolean
+  required?: boolean
+  autoComplete?: string
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void
   /** 目アイコンのカラー（テーマに合わせて指定。デフォルトはライト系） */
   iconClassName?: string
@@ -26,6 +28,8 @@ export default function PasswordInput({
   className = '',
   id,
   autoFocus,
+  required,
+  autoComplete,
   onKeyDown,
   iconClassName = 'text-slate-400 hover:text-slate-600',
 }: PasswordInputProps) {
@@ -39,6 +43,8 @@ export default function PasswordInput({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
         autoFocus={autoFocus}
+        required={required}
+        autoComplete={autoComplete}
         placeholder={placeholder}
         className={`${className} pr-10`}
       />
