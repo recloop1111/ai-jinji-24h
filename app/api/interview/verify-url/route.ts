@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { successJson, apiError } from '@/lib/api/response'
 import { createClient } from '@/lib/supabase/server'
+import { applyNextMonthLimit } from '@/lib/companies/applyNextMonthLimit'
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
 
     const { data: company, error } = await supabase
       .from('companies')
-      .select('id, name, logo_url, interview_slug, is_suspended, plan, monthly_interview_limit')
+      .select('id, name, logo_url, interview_slug, is_suspended, plan, monthly_interview_limit, next_month_interview_limit, next_month_limit_effective_month')
       .eq('interview_slug', slug)
       .single()
 
@@ -27,9 +28,18 @@ export async function POST(request: NextRequest) {
       return apiError('FORBIDDEN', 'この企業は現在利用停止中です')
     }
 
-    // 月間上限チェック
+    // 翌月上限予約の月初昇格（上限チェック前に実効値へ反映）
+    const applied = await applyNextMonthLimit({
+      id: company.id,
+      monthly_interview_limit: company.monthly_interview_limit ?? null,
+      next_month_interview_limit: company.next_month_interview_limit ?? null,
+      next_month_limit_effective_month: company.next_month_limit_effective_month ?? null,
+    })
+    const effectiveLimit = applied.monthly_interview_limit
+
+    // 月間上限チェック（昇格後の monthly_interview_limit を使用）
     let available = true
-    if (company.monthly_interview_limit) {
+    if (effectiveLimit) {
       const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
       const { count } = await supabase
         .from('interviews')
@@ -38,7 +48,7 @@ export async function POST(request: NextRequest) {
         .eq('billable', true)
         .gte('created_at', monthStart)
 
-      if ((count ?? 0) >= company.monthly_interview_limit) {
+      if ((count ?? 0) >= effectiveLimit) {
         available = false
       }
     }
