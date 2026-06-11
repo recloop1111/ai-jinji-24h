@@ -1,38 +1,46 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Search, FileText, ArrowUp } from 'lucide-react'
 
 type BillingRow = {
-  id: number
-  company: string
+  company_id: string
+  name: string
   industry: string
   plan: string
-  interviewsUsed: number
-  monthlyInterviewLimit: number
+  price_per_interview: number
+  interviews_used: number
+  monthly_interview_limit: number
+  current_amount: number
   status: string
-  nextBillingDate: string
+  next_billing_date: string
 }
 
-// 実データ接続まで空配列
-const BILLING_DATA: BillingRow[] = []
+type BillingSummary = {
+  monthly_revenue: number
+  unbilled_amount: number
+  unbilled_count: number
+  unpaid_amount: number
+  unpaid_count: number
+  overdue_count: number
+  yearly_revenue: number
+  yearly_target: number
+  achievement_rate: number
+}
 
-// 実データ接続まで空値
-const MONTHLY_SALES: number[] = Array(12).fill(0)
+const EMPTY_SUMMARY: BillingSummary = {
+  monthly_revenue: 0,
+  unbilled_amount: 0,
+  unbilled_count: 0,
+  unpaid_amount: 0,
+  unpaid_count: 0,
+  overdue_count: 0,
+  yearly_revenue: 0,
+  yearly_target: 0,
+  achievement_rate: 0,
+}
+
 const MONTH_LABELS = ['3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '1月', '2月']
-
-const SUMMARY = {
-  monthlyRevenue: 0,
-  revenueGrowth: 0,
-  unbilledAmount: 0,
-  unbilledCount: 0,
-  unpaidAmount: 0,
-  unpaidCount: 0,
-  overdueCount: 0,
-  yearlyRevenue: 0,
-  yearlyTarget: 0,
-  achievementRate: 0,
-}
 
 const ITEMS_PER_PAGE = 8
 
@@ -71,12 +79,45 @@ export default function BillingPage() {
   const [toastMessage, setToastMessage] = useState('')
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
 
-  const filteredData = BILLING_DATA.filter((item) => {
-    const matchesSearch = searchQuery === '' || item.company.includes(searchQuery)
+  const [billingData, setBillingData] = useState<BillingRow[]>([])
+  const [summary, setSummary] = useState<BillingSummary>(EMPTY_SUMMARY)
+  const [monthlySales, setMonthlySales] = useState<number[]>(Array(12).fill(0))
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    const loadBilling = async () => {
+      try {
+        const res = await fetch('/api/admin/billing/summary')
+        if (!res.ok) {
+          if (!cancelled) setError('請求データの取得に失敗しました')
+          return
+        }
+        const json = await res.json()
+        if (cancelled) return
+        setBillingData(Array.isArray(json?.rows) ? (json.rows as BillingRow[]) : [])
+        setSummary(json?.summary ? (json.summary as BillingSummary) : EMPTY_SUMMARY)
+        setMonthlySales(
+          Array.isArray(json?.monthly_sales) ? (json.monthly_sales as number[]) : Array(12).fill(0),
+        )
+      } catch {
+        if (!cancelled) setError('請求データの取得に失敗しました')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    loadBilling()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const filteredData = billingData.filter((item) => {
+    const matchesSearch = searchQuery === '' || item.name.includes(searchQuery)
     const matchesStatus = statusFilter === 'all' || item.status === statusFilter
     const matchesPlan = planFilter === 'all' || item.plan === planFilter
     return matchesSearch && matchesStatus && matchesPlan
-    // TODO: periodFilter による日付フィルタリングは実データ接続時に実装
   })
 
   const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE)
@@ -85,7 +126,9 @@ export default function BillingPage() {
     currentPage * ITEMS_PER_PAGE
   )
 
-  const maxSales = Math.max(...MONTHLY_SALES)
+  const maxSales = Math.max(...monthlySales)
+
+  const emptyMessage = loading ? '読み込み中...' : error ? error : '該当するデータがありません'
 
   const showToast = (msg: string) => {
     setToastMessage(msg)
@@ -115,34 +158,34 @@ export default function BillingPage() {
         {/* セクション2: サマリーカード4枚 */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
-            <p className="text-3xl font-bold text-white">{formatYen(SUMMARY.monthlyRevenue)}</p>
-            <p className="text-sm text-gray-400 mt-0.5">今月の売上</p>
-            <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1">
+            <p className="text-3xl font-bold text-white">{formatYen(summary.monthly_revenue)}</p>
+            <p className="text-sm text-gray-400 mt-0.5">今月の売上見込み</p>
+            <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
               <ArrowUp className="w-3 h-3" />
-              前月比 +{SUMMARY.revenueGrowth}%
+              当月利用ベース（税別・月末締め）
             </p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
-            <p className="text-3xl font-bold text-white">{formatYen(SUMMARY.unbilledAmount)}</p>
+            <p className="text-3xl font-bold text-white">{formatYen(summary.unbilled_amount)}</p>
             <p className="text-sm text-gray-400 mt-0.5">未請求額</p>
-            <p className="text-xs text-gray-500 mt-1">{SUMMARY.unbilledCount}社分</p>
+            <p className="text-xs text-gray-500 mt-1">{summary.unbilled_count}社分</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
-            <p className="text-3xl font-bold text-white">{formatYen(SUMMARY.unpaidAmount)}</p>
+            <p className="text-3xl font-bold text-white">{formatYen(summary.unpaid_amount)}</p>
             <p className="text-sm text-gray-400 mt-0.5">未入金額</p>
-            <p className="text-xs text-red-400 mt-1">{SUMMARY.unpaidCount}社・期限超過{SUMMARY.overdueCount}社</p>
+            <p className="text-xs text-red-400 mt-1">{summary.unpaid_count}社・期限超過{summary.overdue_count}社</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
-            <p className="text-3xl font-bold text-white">{formatYen(SUMMARY.yearlyRevenue)}</p>
+            <p className="text-3xl font-bold text-white">{formatYen(summary.yearly_revenue)}</p>
             <p className="text-sm text-gray-400 mt-0.5">年間累計売上</p>
-            <p className="text-xs text-gray-500 mt-1">達成率 {SUMMARY.achievementRate}%</p>
+            <p className="text-xs text-gray-500 mt-1">達成率 {summary.achievement_rate}%</p>
             <div className="mt-2 w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
               <div
                 className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                style={{ width: `${SUMMARY.achievementRate}%` }}
+                style={{ width: `${summary.achievement_rate}%` }}
               />
             </div>
-            <p className="text-xs text-gray-500 mt-1">目標 {formatYen(SUMMARY.yearlyTarget)}</p>
+            <p className="text-xs text-gray-500 mt-1">目標 {formatYen(summary.yearly_target)}</p>
           </div>
         </div>
 
@@ -166,7 +209,7 @@ export default function BillingPage() {
                   <div className="flex-1 border-t border-white/[0.06]" />
                 </div>
                 <div className="absolute inset-0 flex items-end justify-around gap-1 pb-0">
-                  {MONTHLY_SALES.map((val, i) => {
+                  {monthlySales.map((val, i) => {
                     const heightPct = maxSales > 0 ? (val / maxSales) * 100 : 0
                     const amount = val * 10000
                     return (
@@ -267,18 +310,18 @@ export default function BillingPage() {
                 {paginatedData.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="text-sm text-gray-500 py-16 text-center">
-                      該当するデータがありません
+                      {emptyMessage}
                     </td>
                   </tr>
                 ) : (
                   paginatedData.map((row) => {
                     const statusConfig = getBillingStatusConfig(row.status)
-                    const pct = row.monthlyInterviewLimit > 0 ? (row.interviewsUsed / row.monthlyInterviewLimit) * 100 : 0
+                    const pct = row.monthly_interview_limit > 0 ? (row.interviews_used / row.monthly_interview_limit) * 100 : 0
                     return (
-                      <tr key={row.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-all duration-150">
+                      <tr key={row.company_id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-all duration-150">
                         <td className="py-4 px-5">
                           <div>
-                            <p className="text-sm font-medium text-white">{row.company}</p>
+                            <p className="text-sm font-medium text-white">{row.name}</p>
                             <p className="text-xs text-gray-500">{row.industry}</p>
                           </div>
                         </td>
@@ -287,10 +330,10 @@ export default function BillingPage() {
                             {getPlanLabel(row.plan)}
                           </span>
                         </td>
-                        <td className="py-4 px-5 text-sm text-gray-300">{formatYen(row.interviewsUsed * 4000)}</td>
+                        <td className="py-4 px-5 text-sm text-gray-300">{formatYen(row.current_amount)}</td>
                         <td className="py-4 px-5">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-300">{row.interviewsUsed} / {row.monthlyInterviewLimit}</span>
+                            <span className="text-sm text-gray-300">{row.interviews_used} / {row.monthly_interview_limit}</span>
                             <div className="w-16 h-1.5 bg-white/[0.06] rounded-full overflow-hidden shrink-0">
                               <div
                                 className="bg-blue-500 h-full rounded-full"
@@ -305,7 +348,7 @@ export default function BillingPage() {
                             <span className="text-sm">{statusConfig.label}</span>
                           </div>
                         </td>
-                        <td className="py-4 px-5 text-sm text-gray-400">{row.nextBillingDate}</td>
+                        <td className="py-4 px-5 text-sm text-gray-400">{row.next_billing_date}</td>
                         <td className="py-4 px-5">
                           <button
                             type="button"
@@ -374,17 +417,17 @@ export default function BillingPage() {
         <div className="lg:hidden space-y-3">
           {paginatedData.length === 0 ? (
             <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-8 text-center text-sm text-gray-500">
-              該当するデータがありません
+              {emptyMessage}
             </div>
           ) : (
             paginatedData.map((row) => {
               const statusConfig = getBillingStatusConfig(row.status)
-              const pct = row.monthlyInterviewLimit > 0 ? (row.interviewsUsed / row.monthlyInterviewLimit) * 100 : 0
+              const pct = row.monthly_interview_limit > 0 ? (row.interviews_used / row.monthly_interview_limit) * 100 : 0
               return (
-                <div key={row.id} className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
+                <div key={row.company_id} className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div>
-                      <p className="text-sm font-medium text-white">{row.company}</p>
+                      <p className="text-sm font-medium text-white">{row.name}</p>
                       <p className="text-xs text-gray-500">{row.industry}</p>
                     </div>
                     <span className={`inline-flex text-xs rounded-lg px-2.5 py-1 shrink-0 ${getPlanBadgeClass(row.plan)}`}>
@@ -392,8 +435,8 @@ export default function BillingPage() {
                     </span>
                   </div>
                   <div className="space-y-2 mb-4">
-                    <p className="text-sm text-gray-300">当月請求額: {formatYen(row.interviewsUsed * 4000)}</p>
-                    <p className="text-sm text-gray-400">面接 {row.interviewsUsed} / {row.monthlyInterviewLimit}</p>
+                    <p className="text-sm text-gray-300">当月請求額: {formatYen(row.current_amount)}</p>
+                    <p className="text-sm text-gray-400">面接 {row.interviews_used} / {row.monthly_interview_limit}</p>
                     <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
                       <div className="bg-blue-500 h-full rounded-full" style={{ width: `${Math.min(100, pct)}%` }} />
                     </div>
@@ -401,7 +444,7 @@ export default function BillingPage() {
                       <span className={`w-2 h-2 rounded-full ${statusConfig.dotClass}`} />
                       <span className="text-xs">{statusConfig.label}</span>
                     </div>
-                    <p className="text-xs text-gray-500">次回請求: {row.nextBillingDate}</p>
+                    <p className="text-xs text-gray-500">次回請求: {row.next_billing_date}</p>
                   </div>
                   <div className="flex gap-2">
                     <button
