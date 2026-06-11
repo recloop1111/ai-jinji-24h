@@ -3,6 +3,7 @@ import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createClient } from '@/lib/supabase/server'
 import { verifySettingPassword } from '@/lib/security/setting-password'
+import { applyNextMonthLimit } from '@/lib/companies/applyNextMonthLimit'
 import { PRICE_PER_INTERVIEW, MIN_INTERVIEW_LIMIT } from '@/types/database'
 
 // 翌月1日（YYYY-MM-01）を返す
@@ -30,11 +31,19 @@ export async function GET() {
       return apiError('NOT_FOUND', '企業情報が見つかりません')
     }
 
+    // 翌月上限予約の月初昇格（適用月到来時に monthly_interview_limit へ反映）
+    const applied = await applyNextMonthLimit({
+      id: company.id,
+      monthly_interview_limit: company.monthly_interview_limit ?? null,
+      next_month_interview_limit: company.next_month_interview_limit ?? null,
+      next_month_limit_effective_month: company.next_month_limit_effective_month ?? null,
+    })
+
     // 会社ごとの単価（未設定/未適用なら通常単価）
     const pricePerInterview = company.price_per_interview ?? PRICE_PER_INTERVIEW
-    const limit = company.monthly_interview_limit ?? 10
-    const nextMonthLimit = company.next_month_interview_limit ?? null
-    const nextMonthEffectiveMonth = company.next_month_limit_effective_month ?? null
+    const limit = applied.monthly_interview_limit ?? 10
+    const nextMonthLimit = applied.next_month_interview_limit
+    const nextMonthEffectiveMonth = applied.next_month_limit_effective_month
 
     // 当月の面接件数（billable のみ）
     const now = new Date()

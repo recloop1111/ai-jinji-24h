@@ -4,6 +4,7 @@ import { successJson, apiError } from '@/lib/api/response'
 import { isValidUUID } from '@/lib/api/validation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifySettingPassword } from '@/lib/security/setting-password'
+import { applyNextMonthLimit } from '@/lib/companies/applyNextMonthLimit'
 
 export async function GET(
   _request: NextRequest,
@@ -59,9 +60,20 @@ export async function GET(
       question_count: qb.questions?.length ?? 0,
     }))
 
+    // 翌月上限予約の月初昇格
+    const applied = await applyNextMonthLimit({
+      id: company.id,
+      monthly_interview_limit: company.monthly_interview_limit ?? null,
+      next_month_interview_limit: company.next_month_interview_limit ?? null,
+      next_month_limit_effective_month: company.next_month_limit_effective_month ?? null,
+    })
+
     return successJson({
       company: {
         ...company,
+        monthly_interview_limit: applied.monthly_interview_limit,
+        next_month_interview_limit: applied.next_month_interview_limit,
+        next_month_limit_effective_month: applied.next_month_limit_effective_month,
         monthly_interview_count_actual: monthlyCount ?? 0,
       },
       job_types: jobTypes ?? [],
