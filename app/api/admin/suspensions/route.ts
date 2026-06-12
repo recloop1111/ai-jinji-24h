@@ -19,16 +19,24 @@ export async function GET() {
       return apiError('INTERNAL_ERROR', '停止申請の取得に失敗しました')
     }
 
-    const items = (suspensions ?? []).map((s) => ({
-      id: s.id,
-      company_name: (s.companies as unknown as { name: string } | null)?.name ?? '',
-      type: s.request_type,
-      status: s.status,
-      requested_at: s.created_at,
-      // suspension_requests に予定停止日カラムが存在しないため null（画面側で「—」表示）
-      scheduled_stop_at: null,
-      created_at: s.created_at,
-    }))
+    const items = (suspensions ?? []).map((s) => {
+      // 予定停止日カラムは存在しないため、通常停止のみ created_at + 1ヶ月で導出（緊急は承認後即時のため null）
+      let scheduledStopAt: string | null = null
+      if (s.request_type === 'normal' && s.created_at) {
+        const d = new Date(s.created_at)
+        d.setMonth(d.getMonth() + 1)
+        scheduledStopAt = d.toISOString()
+      }
+      return {
+        id: s.id,
+        company_name: (s.companies as unknown as { name: string } | null)?.name ?? '',
+        type: s.request_type,
+        status: s.status,
+        requested_at: s.created_at,
+        scheduled_stop_at: scheduledStopAt,
+        created_at: s.created_at,
+      }
+    })
 
     return successJson({ suspensions: items })
   } catch {

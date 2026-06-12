@@ -9,13 +9,13 @@ export async function POST() {
 
     const supabase = await createClient()
 
-    // pending 状態の停止申請を取得
+    // pending 状態（通常停止）の申請を取得
     const { data: request, error: fetchError } = await supabase
       .from('suspension_requests')
       .select('id')
       .eq('company_id', user.companyId)
       .eq('status', 'pending')
-      .order('requested_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(1)
       .single()
 
@@ -23,10 +23,10 @@ export async function POST() {
       return apiError('NOT_FOUND', '取り消し可能な停止申請が見つかりません')
     }
 
-    // ステータスを cancelled に更新
+    // ステータスを cancelled に更新（cancelled_at カラムは存在しないため status のみ）
     const { error: updateError } = await supabase
       .from('suspension_requests')
-      .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+      .update({ status: 'cancelled' })
       .eq('id', request.id)
 
     if (updateError) {

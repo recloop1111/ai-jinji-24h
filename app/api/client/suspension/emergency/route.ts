@@ -14,7 +14,7 @@ export async function POST() {
       .from('suspension_requests')
       .select('id')
       .eq('company_id', user.companyId)
-      .eq('type', 'emergency')
+      .eq('request_type', 'emergency')
       .in('status', ['pending', 'pending_approval'])
       .limit(1)
       .single()
@@ -23,16 +23,12 @@ export async function POST() {
       return apiError('CONFLICT', '既に緊急停止申請が進行中です')
     }
 
-    const now = new Date().toISOString()
-
     const { error: insertError } = await supabase
       .from('suspension_requests')
       .insert({
         company_id: user.companyId,
-        type: 'emergency',
+        request_type: 'emergency',
         status: 'pending_approval',
-        requested_at: now,
-        requested_by: user.userId,
       })
 
     if (insertError) {

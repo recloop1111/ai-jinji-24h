@@ -30,31 +30,29 @@ export async function POST(request: NextRequest) {
       return apiError('CONFLICT', '既に一時停止申請が進行中です')
     }
 
-    const now = new Date()
-    const scheduledStopAt = new Date(now)
-    scheduledStopAt.setMonth(scheduledStopAt.getMonth() + 1)
-
     const { data: req, error: insertError } = await supabase
       .from('suspension_requests')
       .insert({
         company_id: user.companyId,
-        type: 'normal',
+        request_type: 'normal',
         status: 'pending',
-        requested_at: now.toISOString(),
-        scheduled_stop_at: scheduledStopAt.toISOString(),
-        requested_by: user.userId,
       })
-      .select('requested_at, scheduled_stop_at')
+      .select('created_at')
       .single()
 
     if (insertError || !req) {
       return apiError('INTERNAL_ERROR', '停止申請の作成に失敗しました')
     }
 
+    // 予定停止日は created_at + 1ヶ月で導出（suspension_requests に専用カラムは無い）
+    const requestedAt = req.created_at
+    const scheduledStopAt = new Date(requestedAt)
+    scheduledStopAt.setMonth(scheduledStopAt.getMonth() + 1)
+
     return successJson({
       requested: true,
-      requested_at: req.requested_at,
-      scheduled_stop_at: req.scheduled_stop_at,
+      requested_at: requestedAt,
+      scheduled_stop_at: scheduledStopAt.toISOString(),
     })
   } catch {
     return apiError('INTERNAL_ERROR')
