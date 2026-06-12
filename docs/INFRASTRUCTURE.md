@@ -400,7 +400,7 @@ SENTRY_PROJECT=ai-jinji-24h
 | 13 | `selection_status_histories` | ステータス変更履歴 | ✅ |
 | 14 | `email_templates` | メールテンプレート | ✅ |
 | 15 | `sent_emails` | メール送信履歴 | ✅ |
-| 16 | `satisfaction_ratings` | 満足度評価 | - |
+| 16 | `satisfaction_ratings` | 満足度評価（**死蔵テーブル**：現コード上の書き込み元なし。実データ保存先は `applicants.satisfaction_rating`） | - |
 | 17 | `applicant_feedbacks` | 応募者フィードバック（一時保存） | - |
 | 18 | `invoices` | 請求書 | ✅ |
 | 19 | `subscription_plans` | プランマスタ | - |

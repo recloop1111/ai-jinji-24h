@@ -48,6 +48,8 @@ export type Applicant = {
   qualifications: string
   currentStatus: 'preparing' | 'in_progress' | 'completed' | 'error'
   status: 'pending' | 'second_interview' | 'rejected' | null
+  /** 面接体験の満足度評価（1〜5・任意）。実DB列 applicants.satisfaction_rating。null=未回答 */
+  satisfactionRating: number | null
   createdAt: string
   updatedAt: string
 }

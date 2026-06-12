@@ -342,6 +342,7 @@
 ### F-A-011：応募者満足度データ管理
 - 満足度評価（1〜5段階）の集計・閲覧
 - 企業別・月別の平均満足度表示
+- 満足度の実データ保存先は **`applicants.satisfaction_rating`**（面接完了画面で応募者が任意入力）。`/admin/satisfaction`（実装済み）は `GET /api/admin/satisfaction` がこの列を service role で集計して表示する。`satisfaction_ratings` テーブルは書き込み元が無い死蔵テーブルのため使わない。
 
 ## 8. 通知設計（F-N：Notification Functions）
 

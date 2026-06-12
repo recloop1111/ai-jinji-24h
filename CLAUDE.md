@@ -88,12 +88,14 @@ communication / logical_thinking / initiative / desire / stress_tolerance / inte
 - /admin/settings (792行)
 
 実質未実装（空or骨格のみ）:
-- /admin/applicant-data (3行)
-- /admin/question-bank (3行)
-- /admin/satisfaction (3行)
-- /admin/suspension (3行)
+- /admin/applicant-data (3行・準備中placeholder)
+- /admin/question-bank (3行・準備中placeholder)
 - /client/jobs (16行)
 - /client/questions (16行)
+
+実データ化済み（旧・骨格から実装済みへ）:
+- /admin/satisfaction （applicants.satisfaction_rating を GET /api/admin/satisfaction で集計表示）
+- /admin/suspension （停止申請一覧＋緊急停止の承認/却下）
 
 実装済みの応募者フロー:
 - /interview/[slug]/page.tsx 開始・同意 (328行)
@@ -131,6 +133,10 @@ openai, twilio, @aws-sdk/client-s3, idb
 - /admin/settings のダミーUI整理（EMAIL_TEMPLATES / API_LOGS 等）
 - /admin/security のダミーUI整理（SECURITY_ALERTS。実API /api/admin/security/alerts への接続 or 空状態化）
 - 応募者詳細系の DUMMY 実データ化（admin/client の applicants/[id]）は**別途方針決定が必要**（現状は触らない指定）
+- 満足度（satisfaction）周辺の整理:
+  - `satisfaction_ratings` は**書き込み元のない死蔵テーブル**（実データ保存先は `applicants.satisfaction_rating`）。削除/型整理は別タスク（今回は放置）
+  - INT-014 `POST /api/interview/satisfaction` は**未実装**。現状は `/interview/[slug]/complete` がブラウザから `applicants.satisfaction_rating` を直接 update。専用API化は将来課題
+  - `Applicant` 型に `satisfactionRating: number | null` を追加済み（実DB列に整合）。`SatisfactionRating` テーブル型は死蔵テーブルへの誤誘導になるため追加しない
 
 ### 旧・未解決課題（一部継続）
 - P-05: 質問データのDB化

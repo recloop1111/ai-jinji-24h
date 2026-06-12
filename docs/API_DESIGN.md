@@ -513,6 +513,8 @@ POST /api/interview/satisfaction
 ```
 面接体験の満足度評価を送信する。
 
+> **未実装（🔲）**。現状は専用APIを設けず、面接完了画面 `app/interview/[slug]/complete/page.tsx` が**ブラウザから `applicants.satisfaction_rating`（applicant_id ベース）を直接 update** している。専用API化（interview_id ベース等への統一）は将来課題。
+
 **認証:** セッショントークン
 
 **リクエスト:**
@@ -1680,6 +1682,8 @@ POST /api/admin/security/unlock/[id]
 GET /api/admin/satisfaction?company_id=&period=2025-01
 ```
 
+> **集計元は `applicants.satisfaction_rating`**（満足度の実データ保存先）。`satisfaction_ratings` テーブルは書き込み元が無い死蔵テーブルのため使わない。運営は全企業横断で集計するため **service role**（RLS非依存）で取得する。レスポンス形は下記のとおり既存互換。
+
 **レスポンス（200）:**
 ```json
 {
@@ -1897,7 +1901,7 @@ GET /api/health
 | INT-011 | POST | `/api/interview/recording/part-url` | `app/api/interview/recording/part-url/route.ts` | 🔲 |
 | INT-012 | POST | `/api/interview/recording/complete` | `app/api/interview/recording/complete/route.ts` | 🔲 |
 | INT-013 | GET | `/api/interview/feedback` | `app/api/interview/feedback/route.ts` | 🔲 |
-| INT-014 | POST | `/api/interview/satisfaction` | `app/api/interview/satisfaction/route.ts` | 🔲 |
+| INT-014 | POST | `/api/interview/satisfaction`（未実装。現状は complete画面が `applicants.satisfaction_rating` を直接update） | `app/api/interview/satisfaction/route.ts` | 🔲 |
 | INT-015 | POST | `/api/interview/prank-count` | `app/api/interview/prank-count/route.ts` | 🔲 |
 
 ### 企業API（24本）
@@ -1952,7 +1956,7 @@ GET /api/health
 | ADM-016 | GET | `/api/admin/security/alerts` | `app/api/admin/security/alerts/route.ts` | 🔲 |
 | ADM-017 | CRUD | `/api/admin/security/ip-block` | `app/api/admin/security/ip-block/route.ts` | 🔲 |
 | ADM-018 | GET/POST | `/api/admin/security/locked-accounts` `unlock/[id]` | `app/api/admin/security/*/route.ts` | 🔲 |
-| ADM-019 | GET | `/api/admin/satisfaction` | `app/api/admin/satisfaction/route.ts` | 🔲 |
+| ADM-019 | GET | `/api/admin/satisfaction`（集計元 `applicants.satisfaction_rating`・service role） | `app/api/admin/satisfaction/route.ts` | ✅ |
 
 ### Webhook（4本）
 
