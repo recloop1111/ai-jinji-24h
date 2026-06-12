@@ -29,7 +29,7 @@ const FAQ_ITEMS = [
 
 
 export default function SuspensionPage() {
-  const [currentStatus, setCurrentStatus] = useState<'active' | 'pending_suspension' | 'suspended'>('active')
+  const [currentStatus, setCurrentStatus] = useState<'active' | 'pending_suspension' | 'emergency_pending' | 'suspended'>('active')
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [suspensionModal, setSuspensionModal] = useState({ isOpen: false })
@@ -47,16 +47,28 @@ export default function SuspensionPage() {
   const [scheduledDate, setScheduledDate] = useState('')
   const daysRemaining: number | null = null
 
-  // 初期ステータス取得（停止判定の正は companies.is_suspended。pending の永続取得用APIは未整備のため active/suspended のみ確定）
+  // 初期ステータス取得（GET /api/client/suspension で復元。停止判定の正は companies.is_suspended）
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch('/api/client/company')
+        const res = await fetch('/api/client/suspension')
         if (!res.ok) return
         const json = await res.json().catch(() => ({}))
         if (cancelled) return
-        if (json?.is_suspended === true) setCurrentStatus('suspended')
+        if (json?.is_suspended === true) {
+          // is_suspended が最優先
+          setCurrentStatus('suspended')
+        } else if (json?.request?.status === 'pending') {
+          if (json.request.request_type === 'emergency') {
+            setCurrentStatus('emergency_pending')
+          } else {
+            setCurrentStatus('pending_suspension')
+            if (json.request.scheduled_stop_at) {
+              setScheduledDate(new Date(json.request.scheduled_stop_at).toLocaleDateString('ja-JP'))
+            }
+          }
+        }
       } catch {
         // 取得失敗時は既定の 'active' のまま
       }
@@ -164,6 +176,8 @@ export default function SuspensionPage() {
         return '稼働中'
       case 'pending_suspension':
         return '一時停止申請済み'
+      case 'emergency_pending':
+        return '緊急停止申請中（承認待ち）'
       case 'suspended':
         return '停止中'
       default:
@@ -177,6 +191,8 @@ export default function SuspensionPage() {
         return 'text-emerald-700'
       case 'pending_suspension':
         return 'text-amber-700'
+      case 'emergency_pending':
+        return 'text-red-700'
       case 'suspended':
         return 'text-gray-600'
       default:
@@ -190,6 +206,8 @@ export default function SuspensionPage() {
         return 'bg-emerald-500'
       case 'pending_suspension':
         return 'bg-amber-500'
+      case 'emergency_pending':
+        return 'bg-red-500'
       case 'suspended':
         return 'bg-gray-500'
       default:
