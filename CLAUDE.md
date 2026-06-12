@@ -136,6 +136,7 @@ openai, twilio, @aws-sdk/client-s3, idb
   - **invoices 参照は billing_records に是正済み**（実DBに invoices テーブルは無い。admin/client billing は billing_records 読み。amount=amount_jpy / tax=tax_jpy / period=billing_month→YYYY-MM / status=payment_status）
   - **確定請求 writer / Stripe月末締めバッチ（BATCH-001 `/api/internal/batch/monthly-billing`）は未実装** → 確定請求履歴・未入金・年間累計・月次グラフは writer 実装まで空状態。Stripe導入（P-10）連動で将来対応
   - `payment_status` の値集合は未確認（billing_records 0件）。writer 実装時に summary の status 正規化を再確認
+  - **死蔵エンドポイント**: `GET /api/admin/billing`（非summary）・`GET /api/client/billing` はどの画面からも未呼び出し（admin画面は summary、client画面はブラウザ直クエリを使用）。billing_records 対応済みで schema-valid だが未使用。削除は破壊的なため当面据え置き（将来整理）
 - /admin/settings のダミーUI整理（EMAIL_TEMPLATES / API_LOGS 等）
 - /admin/security のダミーUI整理（SECURITY_ALERTS。実API /api/admin/security/alerts への接続 or 空状態化）
 - 応募者詳細系の DUMMY 実データ化（admin/client の applicants/[id]）は**別途方針決定が必要**（現状は触らない指定）

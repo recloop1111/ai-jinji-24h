@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Pause as PauseIcon, AlertTriangle as AlertIcon, ChevronDown as ChevronDownIcon, ChevronUp as ChevronUpIcon, Eye as EyeIcon, EyeOff as EyeOffIcon } from 'lucide-react'
 
-// TODO: 実データに差替え
+// 固定FAQ（停止フローのヘルプ。実データ取得は不要）
 const FAQ_ITEMS = [
   {
     id: 1,
@@ -18,12 +18,17 @@ const FAQ_ITEMS = [
   {
     id: 3,
     question: '停止後に再開するにはどうすればいいですか？',
-    answer: '運営チームまでメールまたは管理画面のお問い合わせフォームからご連絡ください。通常1〜2営業日以内に再開手続きを行います。',
+    answer: '運営チームまでメールまたは管理画面のお問い合わせフォームからご連絡ください。運営側で再開手続き（契約再開）を行います。',
   },
   {
     id: 4,
     question: '停止中の実施済み面接の請求はどうなりますか？',
-    answer: '停止申請前に実施済みの面接分は請求対象となります（¥4,000/件）。停止後に新たに面接が実施されることはありません。',
+    answer: '停止申請前に実施済みの面接分は従量課金の請求対象となります（単価は契約に準じます）。停止後に新たに面接が実施されることはありません。',
+  },
+  {
+    id: 5,
+    question: '停止申請に管理者設定用パスワードは必要ですか？',
+    answer: '一時停止・緊急停止のいずれの申請にも、ログインパスワードとは別の「管理者設定用パスワード」が必要です。未設定の場合は申請できないため、運営担当者へお問い合わせください。',
   },
 ]
 
@@ -350,7 +355,6 @@ export default function SuspensionPage() {
               </div>
             ))}
           </div>
-          {/* TODO: 実データに差替え */}
         </div>
       </div>
 
@@ -388,7 +392,7 @@ export default function SuspensionPage() {
           <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold text-gray-900">管理者認証</h3>
             <p className="text-sm text-gray-600 mt-2">
-              一時停止の申請には管理者用パスワードが必要です。
+              一時停止の申請には管理者設定用パスワード（ログインパスワードとは別）が必要です。
             </p>
             <div className="mt-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">パスワード</label>
@@ -400,7 +404,7 @@ export default function SuspensionPage() {
                     setAdminPassword(e.target.value)
                     setAdminAuthError('')
                   }}
-                  placeholder="管理者用パスワードを入力"
+                  placeholder="管理者設定用パスワードを入力"
                   className="w-full px-4 py-2.5 pr-10 border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
                 />
                 <button
