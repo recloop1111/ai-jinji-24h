@@ -87,11 +87,13 @@ communication / logical_thinking / initiative / desire / stress_tolerance / inte
 - /admin/security (840行)
 - /admin/settings (792行)
 
-実質未実装（空or骨格のみ）:
-- /admin/applicant-data (3行・準備中placeholder)
-- /admin/question-bank (3行・準備中placeholder)
-- /client/jobs (16行)
-- /client/questions (16行)
+削除済み（重複・孤立スタブ）:
+- /admin/applicant-data → /admin/applicants と重複のため削除（API /api/admin/applicant-data は別物・存続）
+- /admin/question-bank → /admin/questions と重複のため削除
+
+実機能（骨格と誤検出されていたが実装済み）:
+- /client/jobs （求人管理・JobManager。サイドバー導線あり）
+- /client/questions （面接質問設定・QuestionEditor。サイドバー導線あり）
 
 実データ化済み（旧・骨格から実装済みへ）:
 - /admin/satisfaction （applicants.satisfaction_rating を GET /api/admin/satisfaction で集計表示）
