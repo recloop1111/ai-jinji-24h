@@ -17,11 +17,12 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient()
 
-    // 既に停止申請中でないか確認
+    // 既に通常停止申請中でないか確認（request_type='temporary' かつ status='pending'）
     const { data: existing } = await supabase
       .from('suspension_requests')
       .select('id')
       .eq('company_id', user.companyId)
+      .eq('request_type', 'temporary')
       .eq('status', 'pending')
       .limit(1)
       .single()
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
       .from('suspension_requests')
       .insert({
         company_id: user.companyId,
-        request_type: 'normal',
+        request_type: 'temporary',
         status: 'pending',
       })
       .select('created_at')

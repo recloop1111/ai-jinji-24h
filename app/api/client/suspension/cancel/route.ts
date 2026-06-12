@@ -9,11 +9,12 @@ export async function POST() {
 
     const supabase = await createClient()
 
-    // pending 状態（通常停止）の申請を取得
+    // pending 状態の通常停止申請を取得（request_type='temporary'。緊急申請は取消対象外）
     const { data: request, error: fetchError } = await supabase
       .from('suspension_requests')
       .select('id')
       .eq('company_id', user.companyId)
+      .eq('request_type', 'temporary')
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
       .limit(1)

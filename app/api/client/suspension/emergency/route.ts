@@ -9,13 +9,13 @@ export async function POST() {
 
     const supabase = await createClient()
 
-    // 既に緊急停止申請中でないか確認
+    // 既に緊急停止申請中でないか確認（status は CHECK 制約上 'pending' を使用）
     const { data: existing } = await supabase
       .from('suspension_requests')
       .select('id')
       .eq('company_id', user.companyId)
       .eq('request_type', 'emergency')
-      .in('status', ['pending', 'pending_approval'])
+      .eq('status', 'pending')
       .limit(1)
       .single()
 
@@ -28,7 +28,7 @@ export async function POST() {
       .insert({
         company_id: user.companyId,
         request_type: 'emergency',
-        status: 'pending_approval',
+        status: 'pending',
       })
 
     if (insertError) {

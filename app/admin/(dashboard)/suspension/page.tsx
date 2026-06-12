@@ -19,12 +19,14 @@ function getTypeBadge(type: string): { label: string; className: string } {
   return { label: '通常', className: 'bg-blue-500/10 text-blue-400 border border-blue-500/20' }
 }
 
-function getStatusBadge(status: string): { label: string; className: string } {
+function getStatusBadge(type: string, status: string): { label: string; className: string } {
+  // 緊急 + pending は「承認待ち」、通常(temporary) + pending は「停止予定」（DBの status は pending を共有）
+  if (type === 'emergency' && status === 'pending') {
+    return { label: '承認待ち', className: 'bg-red-500/10 text-red-400 border border-red-500/20' }
+  }
   const map: Record<string, { label: string; className: string }> = {
     pending: { label: '停止予定', className: 'bg-amber-500/10 text-amber-400 border border-amber-500/20' },
-    pending_approval: { label: '承認待ち', className: 'bg-red-500/10 text-red-400 border border-red-500/20' },
-    approved: { label: '承認済み', className: 'bg-blue-500/10 text-blue-400 border border-blue-500/20' },
-    executed: { label: '停止済み', className: 'bg-gray-500/10 text-gray-400 border border-gray-500/20' },
+    approved: { label: '停止処理済み', className: 'bg-blue-500/10 text-blue-400 border border-blue-500/20' },
     cancelled: { label: '取消済み', className: 'bg-gray-500/10 text-gray-500 border border-gray-500/20' },
     rejected: { label: '却下', className: 'bg-gray-500/10 text-gray-500 border border-gray-500/20' },
   }
@@ -110,7 +112,7 @@ export default function AdminSuspensionPage() {
                 <tbody>
                   {items.map((item) => {
                     const typeBadge = getTypeBadge(item.type)
-                    const statusBadge = getStatusBadge(item.status)
+                    const statusBadge = getStatusBadge(item.type, item.status)
                     return (
                       <tr key={item.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
                         <td className="py-4 px-5 text-sm font-medium text-white">{item.company_name || '—'}</td>
@@ -140,7 +142,7 @@ export default function AdminSuspensionPage() {
           <div className="lg:hidden space-y-3">
             {items.map((item) => {
               const typeBadge = getTypeBadge(item.type)
-              const statusBadge = getStatusBadge(item.status)
+              const statusBadge = getStatusBadge(item.type, item.status)
               return (
                 <div key={item.id} className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
                   <div className="flex items-start justify-between gap-3 mb-2">

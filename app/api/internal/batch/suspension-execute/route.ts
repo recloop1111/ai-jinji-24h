@@ -19,11 +19,11 @@ export async function POST(request: NextRequest) {
     cutoff.setMonth(cutoff.getMonth() - 1)
     const cutoffIso = cutoff.toISOString()
 
-    // request_type='normal' かつ status='pending' かつ created_at <= (現在 - 1ヶ月) の停止申請を取得
+    // request_type='temporary' かつ status='pending' かつ created_at <= (現在 - 1ヶ月) の停止申請を取得
     const { data: requests, error: fetchError } = await supabase
       .from('suspension_requests')
       .select('id, company_id')
-      .eq('request_type', 'normal')
+      .eq('request_type', 'temporary')
       .eq('status', 'pending')
       .lte('created_at', cutoffIso)
 
@@ -46,10 +46,10 @@ export async function POST(request: NextRequest) {
 
       if (updateError) continue
 
-      // 停止申請ステータスを executed に更新（executed_at カラムは存在しないため status のみ）
+      // 停止処理済みとして status='approved' に更新（CHECK 制約上 'executed' は使用不可。再実行対象から外れる）
       await supabase
         .from('suspension_requests')
-        .update({ status: 'executed' })
+        .update({ status: 'approved' })
         .eq('id', req.id)
 
       suspendedCompanies.push(req.company_id)

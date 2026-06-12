@@ -20,9 +20,9 @@ export async function GET() {
     }
 
     const items = (suspensions ?? []).map((s) => {
-      // 予定停止日カラムは存在しないため、通常停止のみ created_at + 1ヶ月で導出（緊急は承認後即時のため null）
+      // 予定停止日カラムは存在しないため、通常停止(temporary)のみ created_at + 1ヶ月で導出（緊急は承認後即時のため null）
       let scheduledStopAt: string | null = null
-      if (s.request_type === 'normal' && s.created_at) {
+      if (s.request_type === 'temporary' && s.created_at) {
         const d = new Date(s.created_at)
         d.setMonth(d.getMonth() + 1)
         scheduledStopAt = d.toISOString()
