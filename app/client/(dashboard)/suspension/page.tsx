@@ -38,7 +38,8 @@ export default function SuspensionPage() {
   const [adminAuthError, setAdminAuthError] = useState('')
   const [showAdminPassword, setShowAdminPassword] = useState(false)
   const [cancelModal, setCancelModal] = useState({ isOpen: false })
-  const [emergencyModal, setEmergencyModal] = useState({ isOpen: false, reason: '' })
+  const [emergencyModal, setEmergencyModal] = useState({ isOpen: false, reason: '', password: '' })
+  const [emergencyError, setEmergencyError] = useState('')
   const [faqOpen, setFaqOpen] = useState<Record<number, boolean>>({})
   const [submitting, setSubmitting] = useState(false)
 
@@ -151,22 +152,25 @@ export default function SuspensionPage() {
 
   const handleEmergencyConfirm = async () => {
     if (submitting) return
+    setEmergencyError('')
     setSubmitting(true)
     try {
       const res = await fetch('/api/client/suspension/emergency', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: emergencyModal.reason }),
+        // 理由＋管理者設定用パスワード（モーダル入力値・保存しない）をサーバ検証用に送信
+        body: JSON.stringify({ reason: emergencyModal.reason, settingPassword: emergencyModal.password }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) {
-        showToast(json?.error?.message ?? '緊急停止申請の送信に失敗しました')
+        // 失敗時はモーダルを閉じず、モーダル内にエラー表示
+        setEmergencyError(json?.error?.message ?? '緊急停止申請の送信に失敗しました')
         return
       }
       showToast('緊急停止申請を送信しました。運営チームが確認次第ご連絡いたします。')
-      setEmergencyModal({ isOpen: false, reason: '' })
+      setEmergencyModal({ isOpen: false, reason: '', password: '' })
     } catch {
-      showToast('緊急停止申請の送信に失敗しました')
+      setEmergencyError('緊急停止申請の送信に失敗しました')
     } finally {
       setSubmitting(false)
     }
@@ -313,7 +317,7 @@ export default function SuspensionPage() {
           </div>
           <button
             type="button"
-            onClick={() => setEmergencyModal({ isOpen: true, reason: '' })}
+            onClick={() => { setEmergencyError(''); setEmergencyModal({ isOpen: true, reason: '', password: '' }) }}
             className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors"
           >
             緊急停止を申請する
@@ -479,18 +483,33 @@ export default function SuspensionPage() {
                 className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
               />
             </div>
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">管理者設定用パスワード（必須）</label>
+              <input
+                type="password"
+                value={emergencyModal.password}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setEmergencyError('')
+                  setEmergencyModal((prev) => ({ ...prev, password: v }))
+                }}
+                placeholder="管理者設定用パスワードを入力"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+              />
+            </div>
+            {emergencyError && <p className="mt-2 text-sm text-red-600">{emergencyError}</p>}
             <div className="flex gap-3 mt-6">
               <button
                 type="button"
                 onClick={handleEmergencyConfirm}
-                disabled={!emergencyModal.reason.trim()}
+                disabled={submitting || !emergencyModal.reason.trim() || !emergencyModal.password.trim()}
                 className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
               >
                 申請する
               </button>
               <button
                 type="button"
-                onClick={() => setEmergencyModal({ isOpen: false, reason: '' })}
+                onClick={() => { setEmergencyError(''); setEmergencyModal({ isOpen: false, reason: '', password: '' }) }}
                 className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
               >
                 キャンセル
