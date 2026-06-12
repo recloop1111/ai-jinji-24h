@@ -4,6 +4,10 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 // ============================================
 // AI人事24h 共通型定義（Supabase テーブル対応）
 // ============================================
+// 【注意】本ファイルは参照用であり、実DBスキーマと一部ドリフトがある。
+// - 正は Supabase の実スキーマ（snake_case）。本ファイルの型はコードから型として import されておらず（実際の利用は PRICE_PER_INTERVIEW / MIN_INTERVIEW_LIMIT 定数のみ）、API/画面は inline 型注釈で実DB列を直接扱う。
+// - 一部の型は実DBに該当テーブルが無い、または列名・列構成がズレている（各型のコメント参照）。
+// - 新規実装でテーブルを扱う際は、本ファイルではなく実DBの列・CHECK制約を確認すること。
 
 export type Company = {
   id: string
@@ -136,6 +140,7 @@ export type Memo = {
   createdAt: string
 }
 
+// 【ドリフト】`invoices` テーブルは実DBに存在しない。実在は `billing_records`（列: billing_month / amount_jpy / tax_jpy / total_jpy / payment_status 等）。billing 参照コードの是正は別タスク。
 export type Invoice = {
   id: string
   companyId: string
@@ -167,9 +172,15 @@ export type SuspensionRequest = {
   requestType: 'temporary' | 'emergency'
   status: 'pending' | 'approved' | 'rejected' | 'cancelled'
   reason: string | null
+  /** 実DBに存在する監査/予定列（現コードは未使用。承認/却下の監査記録は別タスク） */
+  requestedStartDate: string | null
+  reviewedBy: string | null
+  reviewedAt: string | null
+  reviewComment: string | null
   createdAt: string
 }
 
+// 【ドリフト】`admin_users` テーブルは実DBに存在しない。admin 判定は `profiles.role`（admin / super_admin）で行う。
 export type AdminUser = {
   id: string
   email: string
@@ -194,6 +205,7 @@ export type SecurityAlert = {
   createdAt: string
 }
 
+// 【ドリフト】`audit_logs` テーブルは実DBに存在しない（監査ログ用テーブル未整備）。
 export type AuditLog = {
   id: string
   userId: string | null
@@ -206,6 +218,7 @@ export type AuditLog = {
   createdAt: string
 }
 
+// 【ドリフト】`question_bank` テーブルは実DBに存在しない。実在は `questions` / `question_patterns`（質問は job_questions / common_questions にも保持）。
 export type QuestionBank = {
   id: string
   category: string
