@@ -319,14 +319,6 @@ function AnswerQualityLegend() {
   )
 }
 
-function getProgressBarColor(score: number, max: number) {
-  const pct = (score / max) * 100
-  if (pct >= 80) return 'bg-emerald-500'
-  if (pct >= 55) return 'bg-blue-500'
-  if (pct >= 30) return 'bg-amber-500'
-  return 'bg-red-500'
-}
-
 export default function ApplicantDetailPage() {
   const params = useParams()
   const id = params.id as string
@@ -334,7 +326,7 @@ export default function ApplicantDetailPage() {
   
   
   const [activeTab, setActiveTab] = useState<TabKey>('summary')
-  const [selectedStatus, setSelectedStatus] = useState<string | null>(DUMMY.status)
+  const [selectedStatus, setSelectedStatus] = useState<string | null>(null)
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
   const [statusToast, setStatusToast] = useState(false)
@@ -440,7 +432,7 @@ export default function ApplicantDetailPage() {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
-  const [selectionMemo, setSelectionMemo] = useState(DUMMY.memo)
+  const [selectionMemo, setSelectionMemo] = useState('')
   const [toast, setToast] = useState('')
   // 録画再生タブ用
   const [playbackSpeed, setPlaybackSpeed] = useState('1x')
@@ -459,21 +451,11 @@ export default function ApplicantDetailPage() {
     { key: 'share', label: '共有' },
   ]
 
-  const cx = 100
-  const cy = 100
-  const maxR = 72
-  const getPoint = (i: number, r: number) => {
-    const angle = (-90 + i * 60) * (Math.PI / 180)
-    return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) }
-  }
-  const radarPoints = DUMMY.radarAxis.map((d, i) => getPoint(i, (d.value / 100) * maxR))
-  const radarPath = radarPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
-
-  // データが取得できた場合は実データを使用、取得中または取得失敗時はダミーデータを使用
+  // 基本情報は applicants の実データのみ（取得できない場合は空状態）
   const displayData = applicant || DUMMY
-  const displayName = applicant ? `${applicant.last_name || ''} ${applicant.first_name || ''}`.trim() || '名前未設定' : DUMMY.name
-  const displayEmail = applicant?.email || DUMMY.email
-  const displayPhone = applicant?.phone_number || DUMMY.phone
+  const displayName = applicant ? `${applicant.last_name || ''} ${applicant.first_name || ''}`.trim() || '名前未設定' : '—'
+  const displayEmail = applicant?.email || '—'
+  const displayPhone = applicant?.phone_number || '—'
 
   if (loading) {
     return (
@@ -796,28 +778,31 @@ export default function ApplicantDetailPage() {
             <div className="rounded-2xl bg-white border border-slate-200/80 p-8 shadow-sm text-center">
               <p className="text-slate-600 font-medium">面接が完了していないため、AI分析レポートは生成されていません</p>
             </div>
+          ) : !interviewResult ? (
+            <div className="rounded-2xl bg-white border border-slate-200/80 p-8 shadow-sm text-center">
+              <p className="text-slate-600 font-medium">AI評価レポートはまだ生成されていません</p>
+            </div>
           ) : (
             <>
               {/* AIサマリー */}
               <div className="rounded-2xl bg-blue-50/90 border-l-4 border-blue-500 p-6 sm:p-7 shadow-md shadow-slate-200/50 border border-blue-100/50">
                 <h2 className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-5">AI 面接分析</h2>
                 <div className="space-y-5 text-sm sm:text-base text-slate-700 leading-relaxed">
-                  <section>
-                    <p className="font-semibold text-gray-700 mb-1">人物像</p>
-                    <p className="font-bold text-slate-800">{DUMMY.aiSummary.profile}</p>
-                  </section>
-                  <section>
-                    <p className="font-semibold text-gray-700 mb-1.5">経歴・実績</p>
-                    <p>{DUMMY.aiSummary.career}</p>
-                  </section>
-                  <section>
-                    <p className="font-semibold text-gray-700 mb-1.5">面接での印象</p>
-                    <p>{DUMMY.aiSummary.impression}</p>
-                  </section>
-                  <section>
-                    <p className="font-semibold text-gray-700 mb-1.5">強みと懸念点</p>
-                    <p>{DUMMY.aiSummary.strengthsAndConcerns}</p>
-                  </section>
+                  {interviewResult.summary_text && (
+                    <section>
+                      <p className="font-semibold text-gray-700 mb-1">人物像・サマリー</p>
+                      <p className="font-bold text-slate-800">{interviewResult.summary_text}</p>
+                    </section>
+                  )}
+                  {interviewResult.feedback_text && (
+                    <section>
+                      <p className="font-semibold text-gray-700 mb-1.5">講評</p>
+                      <p>{interviewResult.feedback_text}</p>
+                    </section>
+                  )}
+                  {!interviewResult.summary_text && !interviewResult.feedback_text && (
+                    <p className="text-sm text-slate-500">サマリーデータはまだありません。</p>
+                  )}
                 </div>
               </div>
 
@@ -825,13 +810,15 @@ export default function ApplicantDetailPage() {
               <div>
                 <div className="flex flex-col sm:flex-row sm:items-start gap-6 p-5 rounded-2xl bg-white border border-slate-200/80 shadow-md shadow-slate-200/50">
                   <span
-                    className={`inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-2xl text-4xl font-bold shrink-0 ${GRADE_STYLES[DUMMY.recommendGrade]}`}
+                    className={`inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-2xl text-4xl font-bold shrink-0 ${GRADE_STYLES[interviewResult.detail_json?.recommendation_rank] || 'bg-slate-100 text-slate-500'}`}
                   >
-                    {DUMMY.recommendGrade}
+                    {interviewResult.detail_json?.recommendation_rank || '—'}
                   </span>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-900">推奨</p>
-                    <p className="text-sm text-slate-600 mt-1 max-w-xl leading-relaxed">{DUMMY.recommendReason}</p>
+                    {interviewResult.feedback_text && (
+                      <p className="text-sm text-slate-600 mt-1 max-w-xl leading-relaxed">{interviewResult.feedback_text}</p>
+                    )}
                     {/* AI面接スコアとカルチャーフィット */}
                     {interviewResult?.total_score != null && (
                       <div className="mt-4 pt-4 border-t border-slate-100">
@@ -850,114 +837,47 @@ export default function ApplicantDetailPage() {
                 <RecommendLegend />
               </div>
 
-              {/* レーダーチャート（6角形）+ 各軸スコア */}
-              <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
-                <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7 shrink-0">
-                  <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-5">6軸レーダーチャート</h2>
-                  <div className="flex justify-center p-4 bg-slate-50/50 rounded-2xl">
-                    <svg viewBox="0 0 200 200" className="w-48 h-48 sm:w-56 sm:h-56 drop-shadow-sm">
-                      <defs>
-                        <linearGradient id="radarFill" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.35" />
-                          <stop offset="100%" stopColor="#6366f1" stopOpacity="0.35" />
-                        </linearGradient>
-                      </defs>
-                      {[1, 2, 3, 4, 5].map((l) => {
-                        const r = (l / 5) * maxR
-                        const pts = [0, 1, 2, 3, 4, 5].map((i) => getPoint(i, r))
-                        const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
-                        return (
-                          <path
-                            key={l}
-                            d={path}
-                            fill="none"
-                            stroke="rgb(148 163 184 / 0.5)"
-                            strokeWidth="1.2"
-                          />
-                        )
-                      })}
-                      {[0, 1, 2, 3, 4, 5].map((i) => {
-                        const p = getPoint(i, maxR)
-                        return (
-                          <line
-                            key={i}
-                            x1={cx}
-                            y1={cy}
-                            x2={p.x}
-                            y2={p.y}
-                            stroke="rgb(148 163 184 / 0.5)"
-                            strokeWidth="1.2"
-                          />
-                        )
-                      })}
-                      <path d={radarPath} fill="url(#radarFill)" stroke="#0ea5e9" strokeWidth="2.5" />
-                      {DUMMY.radarAxis.map((d, i) => {
-                        const p = getPoint(i, maxR + 14)
-                        return (
-                          <text
-                            key={i}
-                            x={p.x}
-                            y={p.y}
-                            textAnchor="middle"
-                            fill="#475569"
-                            fontSize="10"
-                            fontWeight="600"
-                          >
-                            {d.label}
-                          </text>
-                        )
-                      })}
-                    </svg>
+              {/* 総合スコア */}
+              {interviewResult.total_score != null && (
+                <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-semibold text-slate-900">総合スコア</span>
+                    <span className="text-2xl font-extrabold text-blue-600 tabular-nums">{interviewResult.total_score}<span className="text-sm font-normal text-slate-400"> / 100</span></span>
+                  </div>
+                  <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full bg-blue-500" style={{ width: `${interviewResult.total_score}%` }} />
                   </div>
                 </div>
-                <div className="flex-1 min-w-0 space-y-4">
-                  {/* 総合スコア */}
-                  <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-5">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-slate-900">総合スコア</span>
-                      <span className="text-2xl font-extrabold text-blue-600 tabular-nums">{DUMMY.totalScore}<span className="text-sm font-normal text-slate-400"> / 100</span></span>
-                    </div>
-                    <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full bg-blue-500" style={{ width: `${DUMMY.totalScore}%` }} />
-                    </div>
-                    <p className="text-xs text-slate-500 mt-2">同職種平均: {DUMMY.averageScore}点</p>
-                  </div>
-                  {/* 各軸スコア一覧 */}
-                  {DUMMY.radarAxis.map((d, i) => (
-                    <div key={i} className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-4 hover:shadow-lg transition-shadow">
-                      <div className="flex justify-between items-baseline mb-1.5">
-                        <span className="text-sm font-medium text-slate-900">{d.label}</span>
-                        <span className="text-sm font-bold text-slate-700 tabular-nums">{d.value}<span className="text-xs font-normal text-slate-400"> / 100</span></span>
-                      </div>
-                      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden mb-2">
-                        <div className={`h-full rounded-full ${getProgressBarColor(d.value, 100)}`} style={{ width: `${d.value}%` }} />
-                      </div>
-                      <p className="text-xs text-slate-500 leading-relaxed">{d.comment}</p>
-                    </div>
-                  ))}
-                </div>
+              )}
+
+              {/* 評価軸スコア（interview_results.evaluation_axes は現状データなし） */}
+              <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
+                <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">評価軸スコア</h2>
+                <p className="text-sm text-slate-500">評価軸データはまだありません。</p>
               </div>
 
               {/* パーソナリティタイプ（旧レポートタブから統合） */}
               <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
                 <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">パーソナリティタイプ</h2>
-                <p className="text-lg font-bold text-slate-900 mb-3 tracking-tight">{DUMMY.personalityType}</p>
-                <p className="text-sm text-slate-600 leading-relaxed mb-4">{DUMMY.personalityDesc}</p>
-                <p className="text-sm text-slate-700 bg-slate-50 rounded-xl p-4 border border-slate-200/80">
-                  {DUMMY.personalityForCompany}
-                </p>
+                {interviewResult.personality_type && <p className="text-lg font-bold text-slate-900 mb-3 tracking-tight">{interviewResult.personality_type}</p>}
+                {interviewResult.personality_description && <p className="text-sm text-slate-600 leading-relaxed">{interviewResult.personality_description}</p>}
+                {!interviewResult.personality_type && !interviewResult.personality_description && (
+                  <p className="text-sm text-slate-500">パーソナリティデータはまだありません。</p>
+                )}
               </div>
 
               {/* 強み */}
               <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
                 <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">強み</h2>
                 <ul className="space-y-5">
-                  {DUMMY.strengths.map((s, i) => (
+                  {(Array.isArray(interviewResult.strengths) ? interviewResult.strengths : []).map((s: string, i: number) => (
                     <li key={i} className="pl-4 border-l-2 border-emerald-200">
-                      <p className="text-sm font-semibold text-slate-900">{s.title}</p>
-                      <p className="text-sm text-slate-600 mt-1 leading-relaxed">{s.desc}</p>
+                      <p className="text-sm text-slate-700 leading-relaxed">{s}</p>
                     </li>
                   ))}
+                  {(!Array.isArray(interviewResult.strengths) || interviewResult.strengths.length === 0) && (
+                    <li className="text-sm text-slate-500">強みデータはまだありません。</li>
+                  )}
                 </ul>
               </div>
 
@@ -966,12 +886,14 @@ export default function ApplicantDetailPage() {
                 <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">弱み・改善点</h2>
                 <p className="text-xs text-slate-500 mb-4">応募者には見せない企業専用の情報</p>
                 <ul className="space-y-5">
-                  {DUMMY.weaknesses.map((w, i) => (
+                  {(Array.isArray(interviewResult.improvement_points) ? interviewResult.improvement_points : []).map((w: string, i: number) => (
                     <li key={i} className="pl-4 border-l-2 border-amber-200">
-                      <p className="text-sm font-semibold text-slate-900">{w.title}</p>
-                      <p className="text-sm text-slate-600 mt-1 leading-relaxed">{w.desc}</p>
+                      <p className="text-sm text-slate-700 leading-relaxed">{w}</p>
                     </li>
                   ))}
+                  {(!Array.isArray(interviewResult.improvement_points) || interviewResult.improvement_points.length === 0) && (
+                    <li className="text-sm text-slate-500">改善点データはまだありません。</li>
+                  )}
                 </ul>
               </div>
             </>
@@ -1232,84 +1154,16 @@ export default function ApplicantDetailPage() {
             </div>
           ) : (
             <>
-              {/* TODO: Phase 4 - Supabaseから会話ログを取得 */}
-              {/* 途中離脱の場合でもデータがあれば表示、データがなければメッセージ表示 */}
-              {DUMMY.conversationLog.length > 0 ? (
-                <>
-                  <div className="rounded-2xl bg-slate-50 border border-slate-200/90 px-5 py-4 shadow-sm">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">面接会話ログ</p>
-                    <p className="text-xs text-slate-400">全{DUMMY.conversationLog.length}問の質問と回答を時系列で表示しています</p>
-                  </div>
-                  {DUMMY.conversationLog.map((entry) => (
-                    <div key={entry.number} className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 overflow-hidden">
-                      {/* 質問ヘッダー */}
-                      <div className="p-6 sm:p-7 bg-slate-50/50 border-b border-slate-200/80">
-                        <div className="flex items-start justify-between gap-3 mb-3">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <span className="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-700 text-sm font-bold">
-                              {entry.number}
-                            </span>
-                            <p className="text-sm sm:text-base font-bold text-slate-900 leading-relaxed">{entry.question}</p>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2 ml-11">
-                          {entry.axisLabels.map((axis) => (
-                            <span key={axis} className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200/60">
-                              {axis}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                      {/* 回答本文 */}
-                      <div className="p-6 sm:p-7 space-y-4">
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">回答</p>
-                            <span className="text-xs text-slate-400 tabular-nums">{entry.answerDuration}</span>
-                          </div>
-                          <p className="text-sm text-slate-800 leading-relaxed bg-sky-50/60 rounded-xl p-4 border border-sky-100">
-                            {entry.answer}
-                          </p>
-                        </div>
-                        {/* AIの一言メモ */}
-                        <div className="flex items-start gap-2.5 pl-1">
-                          <span className="shrink-0 mt-0.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-600 text-[10px] font-bold">AI</span>
-                          <p className="text-xs text-blue-700 font-medium leading-relaxed">{entry.aiMemo}</p>
-                        </div>
-
-                        {/* フォローアップ質問（ある場合） */}
-                        {entry.followUp && (
-                          <div className="mt-4 ml-4 pl-4 border-l-2 border-blue-200 space-y-3">
-                            <div>
-                              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-1.5">深掘り質問</p>
-                              <p className="text-sm text-slate-700 leading-relaxed font-medium">{entry.followUp.question}</p>
-                            </div>
-                            <div>
-                              <div className="flex items-center justify-between mb-1.5">
-                                <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider">深掘り回答</p>
-                                <span className="text-xs text-slate-400 tabular-nums">{entry.followUp.answerDuration}</span>
-                              </div>
-                              <p className="text-sm text-slate-800 leading-relaxed bg-blue-50/50 rounded-xl p-4 border border-blue-100">
-                                {entry.followUp.answer}
-                              </p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </>
-              ) : (
-                // データがない場合（途中離脱でデータがない場合も含む）
-                <div className="rounded-2xl bg-white border border-slate-200/80 p-8 shadow-sm text-center">
-                  <p className="text-slate-600">回答ログはありません</p>
-                  <p className="text-sm text-slate-500 mt-2">
-                    {applicant?.status === '途中離脱'
-                      ? '面接が途中で終了したため、回答ログが記録されていません。'
-                      : '回答ログが記録されていません。'}
-                  </p>
-                </div>
-              )}
+              {/* 会話ログ（質問・回答のトランスクリプト）は現状データ源が無いため空状態。
+                  interview_logs は0件・transcript列なし。AI面接ログ生成（P-10/OpenAI）が前提 */}
+              <div className="rounded-2xl bg-white border border-slate-200/80 p-8 shadow-sm text-center">
+                <p className="text-slate-600">回答ログはありません</p>
+                <p className="text-sm text-slate-500 mt-2">
+                  {applicant?.status === '途中離脱'
+                    ? '面接が途中で終了したため、回答ログが記録されていません。'
+                    : '会話ログ（質問・回答のトランスクリプト）は現状記録されていません。'}
+                </p>
+              </div>
             </>
           )}
         </div>
