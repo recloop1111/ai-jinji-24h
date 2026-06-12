@@ -69,15 +69,27 @@ export default function BillingPage() {
 
         setMonthlyCount(count ?? 0)
 
-        // 過去請求履歴
-        const { data: invoiceData } = await supabase
-          .from('invoices')
-          .select('id, period, interview_count, amount, tax_amount, status, stripe_invoice_url, created_at')
+        // 過去請求履歴（確定請求は実DBの billing_records。invoices テーブルは存在しない）
+        // マッピング: amount=amount_jpy(税抜) / tax_amount=tax_jpy / status=payment_status / period=billing_month(date)→YYYY-MM / stripe_invoice_url=invoice_pdf_url
+        const { data: recordData } = await supabase
+          .from('billing_records')
+          .select('id, billing_month, interview_count, amount_jpy, tax_jpy, payment_status, invoice_pdf_url, created_at')
           .eq('company_id', companyId)
-          .order('period', { ascending: false })
+          .order('billing_month', { ascending: false })
           .limit(20)
 
-        setInvoices(invoiceData ?? [])
+        setInvoices(
+          (recordData ?? []).map((r) => ({
+            id: r.id,
+            period: r.billing_month ? String(r.billing_month).slice(0, 7) : '',
+            interview_count: r.interview_count,
+            amount: r.amount_jpy ?? 0,
+            tax_amount: r.tax_jpy,
+            status: r.payment_status,
+            stripe_invoice_url: r.invoice_pdf_url,
+            created_at: r.created_at,
+          })),
+        )
       } catch {
         // エラー時はデフォルト値のまま
       } finally {

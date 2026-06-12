@@ -17,19 +17,33 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createClient()
 
-    const { data: invoices, count, error } = await supabase
-      .from('invoices')
-      .select('id, period, plan, interview_count, amount, tax_amount, status, stripe_invoice_url, created_at', { count: 'exact' })
+    // 確定請求は実DBの billing_records（invoices テーブルは存在しない）。
+    // 既存レスポンス互換へマッピング: amount=amount_jpy(税抜) / tax_amount=tax_jpy / status=payment_status / period=billing_month(date)→YYYY-MM / stripe_invoice_url=invoice_pdf_url
+    const { data: records, count, error } = await supabase
+      .from('billing_records')
+      .select('id, billing_month, plan_at_billing, interview_count, amount_jpy, tax_jpy, payment_status, invoice_pdf_url, created_at', { count: 'exact' })
       .eq('company_id', user.companyId)
-      .order('period', { ascending: false })
+      .order('billing_month', { ascending: false })
       .range(offset, offset + perPage - 1)
 
     if (error) {
       return apiError('INTERNAL_ERROR', '請求データの取得に失敗しました')
     }
 
+    const invoices = (records ?? []).map((r) => ({
+      id: r.id,
+      period: r.billing_month ? String(r.billing_month).slice(0, 7) : '',
+      plan: r.plan_at_billing,
+      interview_count: r.interview_count,
+      amount: r.amount_jpy,
+      tax_amount: r.tax_jpy,
+      status: r.payment_status,
+      stripe_invoice_url: r.invoice_pdf_url,
+      created_at: r.created_at,
+    }))
+
     return successJson({
-      invoices: invoices ?? [],
+      invoices,
       total_count: count ?? 0,
     })
   } catch {

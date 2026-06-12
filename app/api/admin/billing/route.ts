@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 
 export async function GET(request: NextRequest) {
   try {
-    const { data: _admin, error: authError } = await getAdminUser()
+    const { error: authError } = await getAdminUser()
     if (authError) return authError
 
     const { searchParams } = request.nextUrl
@@ -22,38 +22,44 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createClient()
 
+    // 確定請求は実DBの billing_records（invoices テーブルは存在しない）。
+    // 既存レスポンス互換のためマッピング: amount=amount_jpy(税抜) / status=payment_status / period=billing_month(date)→YYYY-MM
     let query = supabase
-      .from('invoices')
-      .select('id, company_id, plan, interview_count, amount, status, stripe_invoice_url, period, companies ( name )')
+      .from('billing_records')
+      .select('id, company_id, plan_at_billing, interview_count, amount_jpy, payment_status, invoice_pdf_url, billing_month, companies ( name )')
 
     if (companyId) {
       query = query.eq('company_id', companyId)
     }
     if (period) {
-      query = query.eq('period', period)
+      // billing_month は date。当月の範囲で絞る（period=YYYY-MM）
+      const [y, m] = period.split('-').map(Number)
+      const start = `${period}-01`
+      const end = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`
+      query = query.gte('billing_month', start).lt('billing_month', end)
     }
 
-    query = query.order('period', { ascending: false })
+    query = query.order('billing_month', { ascending: false })
 
-    const { data: invoices, error } = await query
+    const { data: records, error } = await query
 
     if (error) {
       return apiError('INTERNAL_ERROR', '請求データの取得に失敗しました')
     }
 
     let totalRevenue = 0
-    const items = (invoices ?? []).map((inv) => {
-      const companyName = (inv.companies as unknown as { name: string } | null)?.name ?? ''
-      const amount = typeof inv.amount === 'number' ? inv.amount : 0
+    const items = (records ?? []).map((rec) => {
+      const companyName = (rec.companies as unknown as { name: string } | null)?.name ?? ''
+      const amount = typeof rec.amount_jpy === 'number' ? rec.amount_jpy : 0
       totalRevenue += amount
       return {
-        company_id: inv.company_id,
+        company_id: rec.company_id,
         company_name: companyName,
-        plan: inv.plan,
-        interview_count: inv.interview_count,
+        plan: rec.plan_at_billing,
+        interview_count: rec.interview_count,
         amount,
-        status: inv.status,
-        stripe_invoice_url: inv.stripe_invoice_url,
+        status: rec.payment_status,
+        stripe_invoice_url: rec.invoice_pdf_url,
       }
     })
 

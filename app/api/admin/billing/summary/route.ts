@@ -63,13 +63,32 @@ export async function GET() {
       )
     }
 
-    // 過去12ヶ月の invoices（月次グラフ・年間累計・未入金・当月ステータス算出に使用）
-    const { data: invoiceData } = await supabase
-      .from('invoices')
-      .select('company_id, period, amount, status')
-      .gte('period', oldestPeriod)
+    // 過去12ヶ月の確定請求（月次グラフ・年間累計・未入金・当月ステータス算出に使用）。
+    // 実DBは billing_records（invoices テーブルは存在しない）。downstream 互換のため
+    // { company_id, period(YYYY-MM), amount(amount_jpy/税抜), status } へ正規化する。
+    const { data: recordData } = await supabase
+      .from('billing_records')
+      .select('company_id, billing_month, amount_jpy, payment_status')
+      .gte('billing_month', `${oldestPeriod}-01`)
 
-    const invoices = invoiceData ?? []
+    // payment_status を既存ロジックが期待する paid/billed/overdue へ保守的に正規化。
+    // 値集合は未確認かつ billing_records は現状0件。writer（Stripe請求バッチ）実装時に要再確認。
+    const normalizeStatus = (s: string | null): string => {
+      if (s === 'paid') return 'paid'
+      if (s === 'overdue') return 'overdue'
+      return 'billed' // billed/unpaid/pending/open/null/その他 → 発行済み未入金相当
+    }
+    const invoices = (recordData ?? []).map((r: {
+      company_id: string
+      billing_month: string | null
+      amount_jpy: number | null
+      payment_status: string | null
+    }) => ({
+      company_id: r.company_id,
+      period: r.billing_month ? String(r.billing_month).slice(0, 7) : '',
+      amount: typeof r.amount_jpy === 'number' ? r.amount_jpy : 0,
+      status: normalizeStatus(r.payment_status),
+    }))
 
     // 当月 period の請求ステータス（company_id -> status）
     const currentStatusByCompany: Record<string, string> = {}
