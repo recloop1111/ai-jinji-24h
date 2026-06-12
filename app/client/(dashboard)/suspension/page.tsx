@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Pause as PauseIcon, AlertTriangle as AlertIcon, ChevronDown as ChevronDownIcon, ChevronUp as ChevronUpIcon, Eye as EyeIcon, EyeOff as EyeOffIcon } from 'lucide-react'
 
 // TODO: 実データに差替え
@@ -40,11 +40,29 @@ export default function SuspensionPage() {
   const [cancelModal, setCancelModal] = useState({ isOpen: false })
   const [emergencyModal, setEmergencyModal] = useState({ isOpen: false, reason: '' })
   const [faqOpen, setFaqOpen] = useState<Record<number, boolean>>({})
+  const [submitting, setSubmitting] = useState(false)
 
-  // 実データ接続まで未設定
+  // 申請日時・予定停止日（通常停止申請の成功時に設定）
   const applyDate = ''
-  const scheduledDate = ''
+  const [scheduledDate, setScheduledDate] = useState('')
   const daysRemaining: number | null = null
+
+  // 初期ステータス取得（停止判定の正は companies.is_suspended。pending の永続取得用APIは未整備のため active/suspended のみ確定）
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/client/company')
+        if (!res.ok) return
+        const json = await res.json().catch(() => ({}))
+        if (cancelled) return
+        if (json?.is_suspended === true) setCurrentStatus('suspended')
+      } catch {
+        // 取得失敗時は既定の 'active' のまま
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   const showToast = (msg: string) => {
     setToastMessage(msg)
@@ -63,29 +81,81 @@ export default function SuspensionPage() {
     setAdminAuthError('')
   }
 
-  const handleAdminAuthConfirm = () => {
+  const handleAdminAuthConfirm = async () => {
     if (!adminPassword.trim()) {
       setAdminAuthError('パスワードを入力してください')
       return
     }
-    // TODO: Phase 4 - Supabaseで管理者認証・一時停止処理
-    setCurrentStatus('pending_suspension')
-    setAdminAuthModalOpen(false)
-    setAdminPassword('')
-    setAdminAuthError('')
-    showToast('一時停止を申請しました')
+    if (submitting) return
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/client/suspension/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'normal' }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        showToast(json?.error?.message ?? '一時停止の申請に失敗しました')
+        return
+      }
+      if (json?.scheduled_stop_at) {
+        setScheduledDate(new Date(json.scheduled_stop_at).toLocaleDateString('ja-JP'))
+      }
+      setCurrentStatus('pending_suspension')
+      setAdminAuthModalOpen(false)
+      setAdminPassword('')
+      setAdminAuthError('')
+      showToast('一時停止を申請しました')
+    } catch {
+      showToast('一時停止の申請に失敗しました')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  const handleCancelConfirm = () => {
-    setCurrentStatus('active')
-    showToast('申請を取り消しました')
-    setCancelModal({ isOpen: false })
+  const handleCancelConfirm = async () => {
+    if (submitting) return
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/client/suspension/cancel', { method: 'POST' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        showToast(json?.error?.message ?? '申請の取り消しに失敗しました')
+        return
+      }
+      setCurrentStatus('active')
+      setScheduledDate('')
+      showToast('申請を取り消しました')
+      setCancelModal({ isOpen: false })
+    } catch {
+      showToast('申請の取り消しに失敗しました')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  const handleEmergencyConfirm = () => {
-    showToast('緊急停止申請を送信しました。運営チームが確認次第ご連絡いたします。')
-    setEmergencyModal({ isOpen: false, reason: '' })
-    // TODO: Supabaseに保存, // TODO: 運営に通知
+  const handleEmergencyConfirm = async () => {
+    if (submitting) return
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/client/suspension/emergency', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: emergencyModal.reason }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        showToast(json?.error?.message ?? '緊急停止申請の送信に失敗しました')
+        return
+      }
+      showToast('緊急停止申請を送信しました。運営チームが確認次第ご連絡いたします。')
+      setEmergencyModal({ isOpen: false, reason: '' })
+    } catch {
+      showToast('緊急停止申請の送信に失敗しました')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const getStatusLabel = () => {

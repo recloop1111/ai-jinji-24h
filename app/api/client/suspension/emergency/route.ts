@@ -2,10 +2,13 @@ import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createClient } from '@/lib/supabase/server'
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
+
+    const body = await request.json().catch(() => null)
+    const reason = typeof body?.reason === 'string' && body.reason.trim() ? body.reason.trim() : null
 
     const supabase = await createClient()
 
@@ -29,6 +32,7 @@ export async function POST() {
         company_id: user.companyId,
         request_type: 'emergency',
         status: 'pending',
+        reason,
       })
 
     if (insertError) {

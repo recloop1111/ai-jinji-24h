@@ -35,6 +35,8 @@ export async function GET() {
       interview_slug: company.interview_slug,
       plan: company.plan,
       monthly_interview_limit: applied.monthly_interview_limit,
+      // 停止判定の正は is_suspended（status は後方互換の派生値）
+      is_suspended: company.is_suspended === true,
       status: company.is_suspended ? 'suspended' : 'active',
       onboarding_completed: company.onboarding_completed,
       created_at: company.created_at,

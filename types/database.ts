@@ -158,16 +158,14 @@ export type JobType = {
   createdAt: string
 }
 
+// 実DB suspension_requests に整合（CHECK: request_type=temporary|emergency / status=pending|approved|rejected|cancelled）
 export type SuspensionRequest = {
   id: string
   companyId: string
-  type: 'normal' | 'emergency'
-  reason: string | null
+  requestType: 'temporary' | 'emergency'
   status: 'pending' | 'approved' | 'rejected' | 'cancelled'
-  requestedAt: string
-  scheduledDate: string | null
-  processedAt: string | null
-  processedBy: string | null
+  reason: string | null
+  createdAt: string
 }
 
 export type AdminUser = {
