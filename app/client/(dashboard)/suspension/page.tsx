@@ -104,11 +104,13 @@ export default function SuspensionPage() {
       const res = await fetch('/api/client/suspension/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'normal' }),
+        // 管理者設定用パスワードをサーバ検証用に送信（モーダル入力値・保存しない）
+        body: JSON.stringify({ type: 'normal', settingPassword: adminPassword }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) {
-        showToast(json?.error?.message ?? '一時停止の申請に失敗しました')
+        // 失敗時はモーダルを閉じず、認証エラーとして表示
+        setAdminAuthError(json?.error?.message ?? '一時停止の申請に失敗しました')
         return
       }
       if (json?.scheduled_stop_at) {

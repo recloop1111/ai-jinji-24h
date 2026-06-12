@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createClient } from '@/lib/supabase/server'
+import { verifySettingPassword } from '@/lib/security/setting-password'
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,12 +11,30 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => null)
     const type = body?.type ?? 'normal'
+    const settingPassword = body?.settingPassword
 
     if (type !== 'normal') {
       return apiError('VALIDATION_ERROR', 'type は "normal" のみ指定可能です')
     }
 
     const supabase = await createClient()
+
+    // 管理者設定用パスワード（ログインPWとは別）をサーバ側で検証
+    const { data: company, error: compError } = await supabase
+      .from('companies')
+      .select('company_setting_password_hash')
+      .eq('id', user.companyId)
+      .single()
+
+    if (compError || !company) {
+      return apiError('NOT_FOUND', '企業情報が見つかりません')
+    }
+    if (!company.company_setting_password_hash) {
+      return apiError('FORBIDDEN', '管理者設定用パスワードが未設定です。運営担当者へお問い合わせください')
+    }
+    if (typeof settingPassword !== 'string' || !verifySettingPassword(settingPassword, company.company_setting_password_hash)) {
+      return apiError('FORBIDDEN', '管理者設定用パスワードが正しくありません')
+    }
 
     // 既に通常停止申請中でないか確認（request_type='temporary' かつ status='pending'）
     const { data: existing } = await supabase
