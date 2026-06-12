@@ -1113,6 +1113,8 @@ PATCH /api/client/plan
 GET /api/client/billing?page=1&per_page=12
 ```
 
+> **取得元は `billing_records`**（確定請求の正テーブル。`invoices` テーブルは実DBに存在しない）。レスポンスは互換のため次のマッピングで返す: `amount=amount_jpy(税抜)` / `tax_amount=tax_jpy` / `period=billing_month(date)→YYYY-MM` / `status=payment_status` / `stripe_invoice_url=invoice_pdf_url` / `plan=plan_at_billing`。**writer（BATCH-001 / Stripe月末締め）が未実装のため、確定請求履歴は現状空になり得る**。
+
 **レスポンス（200）:**
 ```json
 {
@@ -1485,6 +1487,10 @@ Content-Disposition: attachment; filename="admin_applicants_20250115.csv"
 GET /api/admin/billing?company_id=&period=2025-01
 ```
 
+> **取得元は `billing_records`**（確定請求の正テーブル。`invoices` テーブルは実DBに存在しない）。マッピングは CLI-022 と同様（`amount=amount_jpy` / `status=payment_status` / `period=billing_month→YYYY-MM` 等）。**writer 未実装のため確定請求は現状空**。
+> ※ 運営の課金管理画面（`/admin/billing`）は `GET /api/admin/billing/summary` を使用し、**当月見込み**（companies × interviews(billable) × price_per_interview, Stripe非依存）はリアルタイムに動作する。未入金・年間累計・月次グラフは billing_records 由来のため writer 実装まで 0/空。
+> `payment_status` の値集合は未確認（billing_records 0件・CHECK確認不能）。`summary` の status 正規化（paid/overdue/その他→billed）は暫定で、writer 実装時に要再確認。
+
 **レスポンス（200）:**
 ```json
 {
@@ -1783,13 +1789,15 @@ POST /api/internal/batch/monthly-billing
 ```
 全企業の月次面接件数を集計し、Stripeで請求書を発行する。
 
+> **未実装（🔲）**。`/api/internal/batch/monthly-billing` ルートは存在しない＝**`billing_records` の writer が無い**。そのため確定請求（CLI-022 / ADM-012）は現状空。Stripe 連携（P-10）とセットで将来実装。
+
 **実行タイミング:** 毎月1日 00:00 JST
 
 **処理:**
 1. 全企業の前月面接件数を集計（10分超のみカウント）
 2. プラン料金を算出
 3. Stripe Invoice作成・自動発行
-4. invoicesテーブルに記録
+4. **`billing_records` に記録**（旧記述の `invoices` テーブルは実DBに存在しない）
 
 **レスポンス（200）:**
 ```json
@@ -1929,7 +1937,7 @@ GET /api/health
 | CLI-019 | GET | `/api/client/plan` | `app/api/client/plan/route.ts` | 🔲 |
 | CLI-020 | POST | `/api/client/plan/change` | `app/api/client/plan/change/route.ts` | 🔲 |
 | CLI-021 | POST | `/api/client/plan/auto-upgrade` | `app/api/client/plan/auto-upgrade/route.ts` | 🔲 |
-| CLI-022 | GET | `/api/client/billing` | `app/api/client/billing/route.ts` | 🔲 |
+| CLI-022 | GET | `/api/client/billing`（billing_records 読み。writer未実装のため確定請求は空） | `app/api/client/billing/route.ts` | ✅ |
 | CLI-023 | POST | `/api/client/suspension/request` | `app/api/client/suspension/request/route.ts` | ✅ |
 | CLI-024 | POST | `/api/client/suspension/cancel` `POST /api/client/suspension/emergency` | `app/api/client/suspension/*/route.ts` | ✅ |
 | CLI-025 | GET | `/api/client/suspension`（現在の停止状態・最新pending申請の取得） | `app/api/client/suspension/route.ts` | ✅ |
@@ -1949,7 +1957,7 @@ GET /api/health
 | ADM-009 | CRUD | `/api/admin/companies/[id]/questions` | `app/api/admin/companies/[id]/questions/*/route.ts` | 🔲 |
 | ADM-010 | GET | `/api/admin/applicant-data` | `app/api/admin/applicant-data/route.ts` | 🔲 |
 | ADM-011 | GET | `/api/admin/applicant-data/export` | `app/api/admin/applicant-data/export/route.ts` | 🔲 |
-| ADM-012 | GET | `/api/admin/billing` | `app/api/admin/billing/route.ts` | 🔲 |
+| ADM-012 | GET | `/api/admin/billing`（billing_records 読み。writer未実装のため確定請求は空。当月見込みは `/api/admin/billing/summary`） | `app/api/admin/billing/route.ts` | ✅ |
 | ADM-013 | GET | `/api/admin/suspensions` | `app/api/admin/suspensions/route.ts` | ✅ |
 | ADM-014 | POST | `/api/admin/suspensions/[id]/approve` `reject`（緊急停止のみ） | `app/api/admin/suspensions/[id]/*/route.ts` | ✅ |
 | ADM-015 | PATCH | `/api/admin/companies/[id]`（契約停止/再開で `is_suspended`+`status` を更新。`toggle-status` 専用EPは不採用） | `app/api/admin/companies/[id]/route.ts` | ✅ |
@@ -1971,7 +1979,7 @@ GET /api/health
 
 | ID | メソッド | パス | ファイル | 実行タイミング | 実装状況 |
 |----|---------|------|---------|--------------|---------|
-| BATCH-001 | POST | `/api/internal/batch/monthly-billing` | `app/api/internal/batch/monthly-billing/route.ts` | 毎月1日 00:00 | 🔲 |
+| BATCH-001 | POST | `/api/internal/batch/monthly-billing`（未実装。記録先は `billing_records`。billing_records writer はこれ） | `app/api/internal/batch/monthly-billing/route.ts` | 毎月1日 00:00 | 🔲 |
 | BATCH-002 | POST | `/api/internal/batch/suspension-execute` | `app/api/internal/batch/suspension-execute/route.ts` | 毎日 01:00 | ✅ |
 | BATCH-003 | POST | `/api/internal/batch/auto-upgrade-check` | `app/api/internal/batch/auto-upgrade-check/route.ts` | 面接完了時 | 🔲 |
 | BATCH-004 | POST | `/api/internal/batch/report-retry` | `app/api/internal/batch/report-retry/route.ts` | 毎時00分 | 🔲 |

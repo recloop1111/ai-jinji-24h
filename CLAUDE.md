@@ -131,7 +131,11 @@ communication / logical_thinking / initiative / desire / stress_tolerance / inte
 openai, twilio, @aws-sdk/client-s3, idb
 
 ### 残課題（料金まわり以降）
-- /admin/billing の実データ化（現状 BILLING_DATA は空ダミー、`* 4000` 直書き残存。実データ取得は per-company の price_per_interview を使う）
+- billing 整理状況:
+  - **当月見込みは実データ化済み**（admin `/api/admin/billing/summary`・client billing とも companies × interviews(billable) × price_per_interview のリアルタイム算出。Stripe非依存で動作）
+  - **invoices 参照は billing_records に是正済み**（実DBに invoices テーブルは無い。admin/client billing は billing_records 読み。amount=amount_jpy / tax=tax_jpy / period=billing_month→YYYY-MM / status=payment_status）
+  - **確定請求 writer / Stripe月末締めバッチ（BATCH-001 `/api/internal/batch/monthly-billing`）は未実装** → 確定請求履歴・未入金・年間累計・月次グラフは writer 実装まで空状態。Stripe導入（P-10）連動で将来対応
+  - `payment_status` の値集合は未確認（billing_records 0件）。writer 実装時に summary の status 正規化を再確認
 - /admin/settings のダミーUI整理（EMAIL_TEMPLATES / API_LOGS 等）
 - /admin/security のダミーUI整理（SECURITY_ALERTS。実API /api/admin/security/alerts への接続 or 空状態化）
 - 応募者詳細系の DUMMY 実データ化（admin/client の applicants/[id]）は**別途方針決定が必要**（現状は触らない指定）

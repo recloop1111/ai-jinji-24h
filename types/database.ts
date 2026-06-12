@@ -140,7 +140,9 @@ export type Memo = {
   createdAt: string
 }
 
-// 【ドリフト】`invoices` テーブルは実DBに存在しない。実在は `billing_records`（列: billing_month / amount_jpy / tax_jpy / total_jpy / payment_status 等）。billing 参照コードの是正は別タスク。
+// 【ドリフト】`invoices` テーブルは実DBに存在しない。実在は `billing_records`（列: billing_month / amount_jpy / tax_jpy / total_jpy / payment_status / invoice_pdf_url 等）。
+// billing 参照コード（admin/client billing）は `billing_records` 読みに修正済み（amount=amount_jpy / tax_amount=tax_jpy / period=billing_month→YYYY-MM / status=payment_status）。
+// ただし billing_records の writer（Stripe月末締めバッチ BATCH-001）は未実装のため、確定請求は現状空になり得る。
 export type Invoice = {
   id: string
   companyId: string

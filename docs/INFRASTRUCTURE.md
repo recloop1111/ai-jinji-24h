@@ -402,7 +402,7 @@ SENTRY_PROJECT=ai-jinji-24h
 | 15 | `sent_emails` | メール送信履歴 | ✅ |
 | 16 | `satisfaction_ratings` | 満足度評価（**死蔵テーブル**：現コード上の書き込み元なし。実データ保存先は `applicants.satisfaction_rating`） | - |
 | 17 | `applicant_feedbacks` | 応募者フィードバック（一時保存） | - |
-| 18 | `invoices` | 請求書 | ✅ |
+| 18 | `billing_records` | 確定請求記録（請求履歴の正。列: billing_month / amount_jpy / tax_jpy / total_jpy / payment_status / invoice_pdf_url 等）。**writer（BATCH-001/Stripe月末締め）未実装のため現状0件**。`invoices` テーブルは実DBに存在しない | - |
 | 19 | `subscription_plans` | プランマスタ | - |
 | 20 | `suspension_requests` | 停止申請 | ✅ |
 | 21 | `admin_users` | 運営ユーザー | - |
