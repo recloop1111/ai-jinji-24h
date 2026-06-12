@@ -269,14 +269,16 @@
 - 月次請求一覧（対象月、プラン、カウント件数、請求金額）
 - Stripe連携の請求書PDFリンク
 
-### F-B-007：一時停止申請
-- 申請日から1ヶ月後に自動停止
-- 停止前であれば取り消し可能
-- 申請時に運営メール通知
+### F-B-007：一時停止申請（通常停止）
+- 公開入力 `type:"normal"` → DB保存は `request_type='temporary'`, `status='pending'`（DB値として `normal` は使わない）
+- 申請日から1ヶ月後に自動停止（BATCH-002 が `created_at + 1ヶ月` 経過で実行）
+- 停止前であれば取り消し可能（`status='cancelled'`）
+- 申請時に運営メール通知 ※未実装（将来対応）
 
 ### F-B-008：緊急停止申請
-- 運営承認後に即時停止
-- 申請時に運営メール通知
+- `request_type='emergency'`, `status='pending'` で作成
+- 運営の承認後に即時停止（`companies.is_suspended=true` ＋ `status='approved'`）／却下時は `status='rejected'`
+- 申請時に運営メール通知 ※未実装（将来対応）
 
 ### サイドバー
 - 下部に面接URLコピーボタン常時表示
@@ -323,9 +325,9 @@
 - 企業別請求履歴閲覧
 
 ### F-A-008：停止・再開管理
-- 一時停止申請確認
-- 緊急停止申請の承認・却下
-- 強制ON/OFF切替（再活性化）
+- 一時停止申請確認（/admin/suspension 一覧）
+- 緊急停止申請の承認・却下（対象は `emergency` かつ `status='pending'` のみ）
+- 強制ON/OFF切替（再活性化）＝ /admin/companies/[id] の契約停止/再開（`companies.is_suspended` ＋ `status` を更新。停止の正は `is_suspended`）
 
 ### F-A-009：企業結果の運営反映
 - 企業側の選考結果（二次面接通過/不採用）を運営側で閲覧可能
@@ -351,8 +353,8 @@
 - **月間上限到達通知:** 月間上限（monthly_interview_limit）到達時
 - **翌月上限予約通知:** 翌月上限予約の登録・変更時（適用は翌月1日）
 - **支払い失敗通知:** Stripe決済失敗時
-- **一時停止受付通知:** 一時停止申請受付時
-- **緊急停止完了通知:** 緊急停止承認・実行時
+- **一時停止受付通知:** 一時停止申請受付時 ※未実装（将来対応）
+- **緊急停止完了通知:** 緊急停止承認・実行時 ※未実装（将来対応）
 - **重複応募者検知通知:** 氏名＋生年月日一致検知時
 - **アカウントロック通知:** 10回連続失敗ロック時
 
@@ -362,8 +364,8 @@
 - **録画アップロード失敗通知:** 部分欠損/録画なし発生時
 - **SMS異常検知通知:** 大量SMSリクエスト検知時
 - **ログイン異常検知通知:** 企業管理画面への異常試行検知時
-- **緊急停止申請通知:** 企業から緊急停止申請時
-- **一時停止申請通知:** 企業から一時停止申請時
+- **緊急停止申請通知:** 企業から緊急停止申請時 ※未実装（将来対応）
+- **一時停止申請通知:** 企業から一時停止申請時 ※未実装（将来対応）
 - **支払い失敗通知:** 企業のStripe決済失敗時
 - **重複応募者検知通知:** 氏名＋生年月日一致検知時
 - **アカウントロック通知:** 企業アカウントロック時
@@ -425,9 +427,14 @@
 
 ## 11. 停止・再開
 
-- **通常停止:** 企業申請 → 1ヶ月後自動停止（取り消し可能）
-- **緊急停止:** 企業申請 → 運営承認後に即時停止
-- **強制停止:** 運営管理画面から企業ON/OFF強制切替
+停止状態の正は **`companies.is_suspended`**（`companies.status` は admin一覧/詳細の表示で `status==='suspended'` を二次判定に使う補助項目であり、停止判定の正ではない）。面接受付ゲート（verify-url 等）は `is_suspended` のみで判定する。
+
+- **通常停止（temporary）:** 企業申請（公開入力 `type:"normal"` → DB `request_type='temporary'`, `status='pending'`）→ 停止前は取り消し可能（`status='cancelled'`）→ BATCH-002 が `created_at + 1ヶ月` 経過で `companies.is_suspended=true` ＋ `suspension_requests.status='approved'`。
+- **緊急停止（emergency）:** 企業申請（`request_type='emergency'`, `status='pending'`）→ 運営が承認/却下。承認時 `is_suspended=true` ＋ `status='approved'`、却下時 `status='rejected'`。
+- **再開:** /admin/companies/[id] の「契約再開」で `is_suspended=false` ＋ `status='active'`（緊急承認・BATCH-002 で停止した企業も同様に復帰）。`suspension_requests` は履歴としてそのまま、`is_active` / `interview_url_active` は触らない。
+- **強制停止:** /admin/companies/[id] の「契約停止」で `is_suspended=true` ＋ `status='suspended'`。
+
+**suspension_requests スキーマ（実DB）:** `id, company_id, request_type, status, reason, created_at`。CHECK 制約は `request_type ∈ {temporary, emergency}` / `status ∈ {pending, approved, rejected, cancelled}`。`scheduled_stop_at` はDBカラムではなく `created_at + 1ヶ月` の導出値。`requested_by / cancelled_at / executed_at` 列は存在せず、`normal / pending_approval / executed` の値も使わない。
 
 ## 12. 非機能要件
 

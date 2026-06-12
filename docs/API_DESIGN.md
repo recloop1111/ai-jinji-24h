@@ -1133,7 +1133,7 @@ GET /api/client/billing?page=1&per_page=12
 
 ---
 
-### CLI-023: 一時停止申請
+### CLI-023: 一時停止申請（通常停止）
 ```
 POST /api/client/suspension/request
 ```
@@ -1144,6 +1144,7 @@ POST /api/client/suspension/request
   "type": "normal"
 }
 ```
+> 公開入力の `type:"normal"` は互換のため維持。**DB（suspension_requests）には `request_type='temporary'` として保存**する（DB値として `normal` は使わない）。`status='pending'` で作成。
 
 **レスポンス（200）:**
 ```json
@@ -1153,6 +1154,7 @@ POST /api/client/suspension/request
   "scheduled_stop_at": "2025-02-15T10:00:00Z"
 }
 ```
+> `requested_at` は `created_at`、`scheduled_stop_at` は **DBカラムではなく `created_at + 1ヶ月` で導出したレスポンス値**（`scheduled_stop_at` 列は現DBに存在しない）。
 
 ---
 
@@ -1160,7 +1162,7 @@ POST /api/client/suspension/request
 ```
 POST /api/client/suspension/cancel
 ```
-一時停止申請を取り消す。
+通常停止申請（`request_type='temporary'` かつ `status='pending'`）を取り消す。**`status='cancelled'` に更新**する（`cancelled_at` 列は現DBに存在しないため使わない）。
 
 **レスポンス（200）:**
 ```json
@@ -1172,7 +1174,7 @@ POST /api/client/suspension/cancel
 ```
 POST /api/client/suspension/emergency
 ```
-緊急停止を申請する。運営承認後に即時停止。
+緊急停止を申請する。**`request_type='emergency'`, `status='pending'` で作成**（必須の `reason` を保存）。運営の承認後に即時停止。
 
 **レスポンス（200）:**
 ```json
@@ -1181,6 +1183,11 @@ POST /api/client/suspension/emergency
   "awaiting_approval": true
 }
 ```
+
+> **suspension_requests スキーマ（実DB）**: `id, company_id, request_type, status, reason, created_at` の6列のみ。
+> - CHECK: `request_type ∈ {temporary, emergency}` / `status ∈ {pending, approved, rejected, cancelled}`
+> - **停止状態の正は `companies.is_suspended`**（`companies.status` は admin表示の補助的な二次判定であり、停止判定の正ではない）。
+> - 現DBに存在しない列: `scheduled_stop_at / requested_by / cancelled_at / executed_at`。使わない値: `request_type='normal'` / `status='pending_approval'` / `status='executed'`。
 
 ---
 
@@ -1509,20 +1516,28 @@ GET /api/admin/suspensions
       "id": "uuid",
       "company_name": "株式会社C",
       "type": "emergency",
-      "status": "pending_approval",
-      "requested_at": "2025-01-20T10:00:00Z"
+      "status": "pending",
+      "requested_at": "2025-01-20T10:00:00Z",
+      "scheduled_stop_at": null,
+      "created_at": "2025-01-20T10:00:00Z"
     }
   ]
 }
 ```
+> `type` は `request_type`（`temporary` / `emergency`）。`status` は `pending / approved / rejected / cancelled`（`pending_approval` は使わない）。`scheduled_stop_at` は `temporary` のみ `created_at + 1ヶ月` の導出値、`emergency` は `null`。`requested_at` は `created_at`。
 
 ---
 
-### ADM-014: 停止申請承認/却下
+### ADM-014: 停止申請承認/却下（緊急停止のみ）
 ```
 POST /api/admin/suspensions/[id]/approve
 POST /api/admin/suspensions/[id]/reject
 ```
+**対象は `request_type='emergency'` かつ `status='pending'` のみ**（通常停止 `temporary` は対象外。BATCH-002 が自動実行する）。
+
+- **承認（approve）**: `companies.is_suspended=true`（即時停止反映）＋ `suspension_requests.status='approved'`。
+- **却下（reject）**: `suspension_requests.status='rejected'`（`companies.is_suspended` は変更しない）。
+- 停止状態の正は `companies.is_suspended`（`companies.status` は触らない）。`status='executed'` は使わず、終端は `approved`。
 
 **approve レスポンス（200）:**
 ```json
@@ -1532,29 +1547,38 @@ POST /api/admin/suspensions/[id]/reject
 }
 ```
 
----
-
-### ADM-015: 企業強制ON/OFF
-```
-POST /api/admin/companies/[id]/toggle-status
-```
-
-**リクエスト:**
+**reject レスポンス（200）:**
 ```json
 {
+  "rejected": true
+}
+```
+
+---
+
+### ADM-015: 企業強制 停止/再開（契約停止・契約再開）
+専用エンドポイント `toggle-status` は存在せず、企業詳細 `/admin/companies/[id]` の「契約停止／契約再開」から **`PATCH /api/admin/companies/[id]`** で行う。
+```
+PATCH /api/admin/companies/[id]
+```
+
+**リクエスト（契約停止）:**
+```json
+{
+  "is_suspended": true,
   "status": "suspended"
 }
 ```
 
-`status`: `active` / `suspended`
-
-**レスポンス（200）:**
+**リクエスト（契約再開 / resume）:**
 ```json
 {
-  "updated": true,
-  "new_status": "suspended"
+  "is_suspended": false,
+  "status": "active"
 }
 ```
+
+> 停止状態の正は `is_suspended`。再開は `is_suspended=false`＋（admin一覧/詳細が `status==='suspended'` を二次判定に使うため表示整合用に）`status='active'` を更新する。`is_active` / `interview_url_active` / `suspension_requests`（履歴）は触らない。緊急承認・BATCH-002 で停止（`is_suspended=true`）した企業も同じ契約再開で復帰できる。
 
 ---
 
@@ -1778,14 +1802,16 @@ POST /api/internal/batch/monthly-billing
 ```
 POST /api/internal/batch/suspension-execute
 ```
-申請日から1ヶ月経過した一時停止を自動実行する。
+通常停止（temporary）申請日から1ヶ月経過したものを自動実行する。`scheduled_stop_at` 列は存在しないため、`created_at` を基準に判定する。
 
 **実行タイミング:** 毎日 01:00 JST
 
 **処理:**
-1. `scheduled_stop_at <= now()` の停止申請を検索
-2. 該当企業のステータスを `suspended` に変更
-3. 面接URLを無効化
+1. `request_type='temporary'` かつ `status='pending'` かつ `created_at <= (now - 1ヶ月)` の停止申請を検索
+2. 該当企業を `companies.is_suspended=true` に更新（停止状態の正は `is_suspended`。`companies.status` は変更しない）
+3. 該当申請を `suspension_requests.status='approved'` に更新（再実行対象から外す。`status='executed'` は使わない）
+
+> ※ 面接URLの無効化（`interview_url_active`）は**未実装**。面接受付の停止は `is_suspended` ゲート（verify-url 等）で成立する。
 
 **レスポンス（200）:**
 ```json
@@ -1900,8 +1926,9 @@ GET /api/health
 | CLI-020 | POST | `/api/client/plan/change` | `app/api/client/plan/change/route.ts` | 🔲 |
 | CLI-021 | POST | `/api/client/plan/auto-upgrade` | `app/api/client/plan/auto-upgrade/route.ts` | 🔲 |
 | CLI-022 | GET | `/api/client/billing` | `app/api/client/billing/route.ts` | 🔲 |
-| CLI-023 | POST | `/api/client/suspension/request` | `app/api/client/suspension/request/route.ts` | 🔲 |
-| CLI-024 | POST | `/api/client/suspension/cancel` `POST /api/client/suspension/emergency` | `app/api/client/suspension/*/route.ts` | 🔲 |
+| CLI-023 | POST | `/api/client/suspension/request` | `app/api/client/suspension/request/route.ts` | ✅ |
+| CLI-024 | POST | `/api/client/suspension/cancel` `POST /api/client/suspension/emergency` | `app/api/client/suspension/*/route.ts` | ✅ |
+| CLI-025 | GET | `/api/client/suspension`（現在の停止状態・最新pending申請の取得） | `app/api/client/suspension/route.ts` | ✅ |
 
 ### 運営API（19本）
 
@@ -1919,9 +1946,9 @@ GET /api/health
 | ADM-010 | GET | `/api/admin/applicant-data` | `app/api/admin/applicant-data/route.ts` | 🔲 |
 | ADM-011 | GET | `/api/admin/applicant-data/export` | `app/api/admin/applicant-data/export/route.ts` | 🔲 |
 | ADM-012 | GET | `/api/admin/billing` | `app/api/admin/billing/route.ts` | 🔲 |
-| ADM-013 | GET | `/api/admin/suspensions` | `app/api/admin/suspensions/route.ts` | 🔲 |
-| ADM-014 | POST | `/api/admin/suspensions/[id]/approve` `reject` | `app/api/admin/suspensions/[id]/*/route.ts` | 🔲 |
-| ADM-015 | POST | `/api/admin/companies/[id]/toggle-status` | `app/api/admin/companies/[id]/toggle-status/route.ts` | 🔲 |
+| ADM-013 | GET | `/api/admin/suspensions` | `app/api/admin/suspensions/route.ts` | ✅ |
+| ADM-014 | POST | `/api/admin/suspensions/[id]/approve` `reject`（緊急停止のみ） | `app/api/admin/suspensions/[id]/*/route.ts` | ✅ |
+| ADM-015 | PATCH | `/api/admin/companies/[id]`（契約停止/再開で `is_suspended`+`status` を更新。`toggle-status` 専用EPは不採用） | `app/api/admin/companies/[id]/route.ts` | ✅ |
 | ADM-016 | GET | `/api/admin/security/alerts` | `app/api/admin/security/alerts/route.ts` | 🔲 |
 | ADM-017 | CRUD | `/api/admin/security/ip-block` | `app/api/admin/security/ip-block/route.ts` | 🔲 |
 | ADM-018 | GET/POST | `/api/admin/security/locked-accounts` `unlock/[id]` | `app/api/admin/security/*/route.ts` | 🔲 |
@@ -1941,7 +1968,7 @@ GET /api/health
 | ID | メソッド | パス | ファイル | 実行タイミング | 実装状況 |
 |----|---------|------|---------|--------------|---------|
 | BATCH-001 | POST | `/api/internal/batch/monthly-billing` | `app/api/internal/batch/monthly-billing/route.ts` | 毎月1日 00:00 | 🔲 |
-| BATCH-002 | POST | `/api/internal/batch/suspension-execute` | `app/api/internal/batch/suspension-execute/route.ts` | 毎日 01:00 | 🔲 |
+| BATCH-002 | POST | `/api/internal/batch/suspension-execute` | `app/api/internal/batch/suspension-execute/route.ts` | 毎日 01:00 | ✅ |
 | BATCH-003 | POST | `/api/internal/batch/auto-upgrade-check` | `app/api/internal/batch/auto-upgrade-check/route.ts` | 面接完了時 | 🔲 |
 | BATCH-004 | POST | `/api/internal/batch/report-retry` | `app/api/internal/batch/report-retry/route.ts` | 毎時00分 | 🔲 |
 
