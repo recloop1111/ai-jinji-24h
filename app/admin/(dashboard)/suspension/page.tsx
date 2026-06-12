@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 type SuspensionItem = {
   id: string
@@ -49,30 +49,54 @@ export default function AdminSuspensionPage() {
   const [items, setItems] = useState<SuspensionItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [actioningId, setActioningId] = useState<string | null>(null)
+  const [toast, setToast] = useState('')
 
-  useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      try {
-        const res = await fetch('/api/admin/suspensions')
-        if (!res.ok) {
-          if (!cancelled) setError('停止申請の取得に失敗しました')
-          return
-        }
-        const json = await res.json()
-        if (cancelled) return
-        setItems(Array.isArray(json?.suspensions) ? (json.suspensions as SuspensionItem[]) : [])
-      } catch {
-        if (!cancelled) setError('停止申請の取得に失敗しました')
-      } finally {
-        if (!cancelled) setLoading(false)
+  const showToast = (msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(''), 2500)
+  }
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/suspensions')
+      if (!res.ok) {
+        setError('停止申請の取得に失敗しました')
+        return
       }
-    }
-    load()
-    return () => {
-      cancelled = true
+      const json = await res.json()
+      setItems(Array.isArray(json?.suspensions) ? (json.suspensions as SuspensionItem[]) : [])
+      setError('')
+    } catch {
+      setError('停止申請の取得に失敗しました')
+    } finally {
+      setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  // 緊急停止申請の承認/却下（emergency かつ pending のみ対象）
+  const handleAction = async (id: string, action: 'approve' | 'reject') => {
+    if (actioningId) return
+    setActioningId(id)
+    try {
+      const res = await fetch(`/api/admin/suspensions/${id}/${action}`, { method: 'POST' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        showToast(json?.error?.message ?? '処理に失敗しました')
+        return
+      }
+      showToast(action === 'approve' ? '緊急停止を承認しました' : '緊急停止申請を却下しました')
+      await load()
+    } catch {
+      showToast('処理に失敗しました')
+    } finally {
+      setActioningId(null)
+    }
+  }
 
   return (
     <div className="space-y-6 min-w-0 max-w-[100vw] pb-10">
@@ -107,6 +131,7 @@ export default function AdminSuspensionPage() {
                     <th className="text-left text-xs text-gray-500 py-3 px-5">ステータス</th>
                     <th className="text-left text-xs text-gray-500 py-3 px-5">申請日時</th>
                     <th className="text-left text-xs text-gray-500 py-3 px-5">予定停止日</th>
+                    <th className="text-left text-xs text-gray-500 py-3 px-5">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -129,6 +154,30 @@ export default function AdminSuspensionPage() {
                         <td className="py-4 px-5 text-sm text-gray-400">{formatDateTime(item.requested_at)}</td>
                         <td className="py-4 px-5 text-sm text-gray-400">
                           {item.type === 'emergency' ? '即時（承認後）' : formatDate(item.scheduled_stop_at)}
+                        </td>
+                        <td className="py-4 px-5">
+                          {item.type === 'emergency' && item.status === 'pending' ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleAction(item.id, 'approve')}
+                                disabled={actioningId !== null}
+                                className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                承認
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAction(item.id, 'reject')}
+                                disabled={actioningId !== null}
+                                className="text-xs px-3 py-1.5 rounded-lg bg-white/[0.06] text-gray-300 border border-white/[0.08] hover:bg-white/[0.1] disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                却下
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-600">—</span>
+                          )}
                         </td>
                       </tr>
                     )
@@ -160,11 +209,38 @@ export default function AdminSuspensionPage() {
                   <p className="text-xs text-gray-400 mt-1">
                     予定停止日: {item.type === 'emergency' ? '即時（承認後）' : formatDate(item.scheduled_stop_at)}
                   </p>
+                  {item.type === 'emergency' && item.status === 'pending' && (
+                    <div className="flex items-center gap-2 mt-3">
+                      <button
+                        type="button"
+                        onClick={() => handleAction(item.id, 'approve')}
+                        disabled={actioningId !== null}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        承認
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAction(item.id, 'reject')}
+                        disabled={actioningId !== null}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-white/[0.06] text-gray-300 border border-white/[0.08] hover:bg-white/[0.1] disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        却下
+                      </button>
+                    </div>
+                  )}
                 </div>
               )
             })}
           </div>
         </>
+      )}
+
+      {/* トースト */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-white/[0.08] backdrop-blur-2xl border border-white/[0.06] rounded-xl px-4 py-3 text-sm text-white shadow-lg">
+          {toast}
+        </div>
       )}
     </div>
   )
