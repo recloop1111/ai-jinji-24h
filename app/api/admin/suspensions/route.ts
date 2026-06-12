@@ -12,7 +12,7 @@ export async function GET() {
 
     const { data: suspensions, error } = await supabase
       .from('suspension_requests')
-      .select('id, company_id, request_type, status, reason, created_at, companies ( name )')
+      .select('id, company_id, request_type, status, reason, created_at, reviewed_at, review_comment, companies ( name )')
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -35,6 +35,9 @@ export async function GET() {
         requested_at: s.created_at,
         scheduled_stop_at: scheduledStopAt,
         created_at: s.created_at,
+        // 監査情報（reviewed_by の uuid は画面表示しないため返さない）
+        reviewed_at: s.reviewed_at ?? null,
+        review_comment: s.review_comment ?? null,
       }
     })
 

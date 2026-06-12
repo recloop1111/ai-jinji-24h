@@ -10,7 +10,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { error: authError } = await getAdminUser()
+    const { data: admin, error: authError } = await getAdminUser()
     if (authError) return authError
 
     const { id } = await params
@@ -44,10 +44,10 @@ export async function POST(
       return apiError('INTERNAL_ERROR', '企業の停止反映に失敗しました')
     }
 
-    // 申請を承認済み（終端）に更新
+    // 申請を承認済み（終端）に更新＋監査記録（reviewed_by=admin の auth user id / profiles.id）
     const { error: updateError } = await supabase
       .from('suspension_requests')
-      .update({ status: 'approved' })
+      .update({ status: 'approved', reviewed_by: admin.userId, reviewed_at: now })
       .eq('id', id)
     if (updateError) {
       return apiError('INTERNAL_ERROR', '停止申請の承認に失敗しました')

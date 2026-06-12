@@ -1546,6 +1546,7 @@ POST /api/admin/suspensions/[id]/reject
 - **承認（approve）**: `companies.is_suspended=true`（即時停止反映）＋ `suspension_requests.status='approved'`。
 - **却下（reject）**: `suspension_requests.status='rejected'`（`companies.is_suspended` は変更しない）。
 - 停止状態の正は `companies.is_suspended`（`companies.status` は触らない）。`status='executed'` は使わず、終端は `approved`。
+- **監査記録（DB変更なし・既存列を使用）**: 承認/却下とも `reviewed_by`（admin の auth user id = `profiles.id`）と `reviewed_at`（処理日時）を記録。**却下は任意で `review_comment`**（理由）を `body.review_comment` で受け取り記録（空は null）。承認は `review_comment` を設定しない。
 
 **approve レスポンス（200）:**
 ```json
