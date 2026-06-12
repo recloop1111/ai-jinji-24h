@@ -3,24 +3,17 @@
 import { useState, useEffect } from 'react'
 import PasswordInput from '@/components/shared/PasswordInput'
 
-// TODO: 実データに差替え
-const EMAIL_TEMPLATES = [
-  { name: '面接案内メール', status: '使用中' },
-  { name: '面接リマインダー', status: '使用中' },
-  { name: '面接完了通知', status: '使用中' },
-  { name: '結果通知メール', status: '未設定' },
-]
+// メールテンプレートは既存API /api/admin/email-templates（email_templates テーブル）から取得
+type EmailTemplate = {
+  id: string
+  company_id: string | null
+  company_name: string
+  template_type: string
+  subject: string
+  body: string
+  updated_at: string
+}
 
-// TODO: 実データに差替え
-const API_LOGS = [
-  { date: '2026-02-15 14:32', service: 'OpenAI', action: '面接実行', status: '成功', detail: '1,250 tokens' },
-  { date: '2026-02-15 14:28', service: 'Resend', action: '面接案内メール', status: '成功', detail: '—' },
-  { date: '2026-02-15 13:55', service: 'OpenAI', action: '質問変更判定', status: '成功', detail: '830 tokens' },
-  { date: '2026-02-15 13:40', service: 'OpenAI', action: '面接実行', status: '成功', detail: '1,480 tokens' },
-  { date: '2026-02-15 12:10', service: 'Resend', action: 'リマインダー', status: '失敗', detail: '—' },
-]
-
-// TODO: 実データに差替え
 const EVALUATION_AXES = [
   { name: 'コミュニケーション力', weight: 16.7 },
   { name: '論理的思考力', weight: 16.7 },
@@ -85,14 +78,14 @@ export default function SettingsPage() {
   const [adminSettingPwLoading, setAdminSettingPwLoading] = useState(false)
 
   // TODO: 実データに差替え（メール設定の初期値）
-  const [resendApiKey, setResendApiKey] = useState('re_xxxx...xxxx')
+  const [resendApiKey, setResendApiKey] = useState('')
   const [fromEmail, setFromEmail] = useState('noreply@ai-interview.example.com')
   const [fromName, setFromName] = useState('AI面接官')
 
   // TODO: 実データに差替え（面接設定の初期値）
   const [defaultDuration, setDefaultDuration] = useState('30')
   const [defaultQuestionCount, setDefaultQuestionCount] = useState('9')
-  const [openaiApiKey, setOpenaiApiKey] = useState('sk-xxxx...xxxx')
+  const [openaiApiKey, setOpenaiApiKey] = useState('')
   const [openaiModel, setOpenaiModel] = useState('GPT-4o')
   const [voiceModel, setVoiceModel] = useState('alloy')
   const [interviewTone, setInterviewTone] = useState('セミフォーマル')
@@ -114,6 +107,10 @@ export default function SettingsPage() {
     invoiceIssued: true,
     maintenanceNotice: false,
   })
+
+  // メールテンプレート（実データ: email_templates）
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([])
+  const [emailTemplatesLoading, setEmailTemplatesLoading] = useState(true)
 
   const showToast = (msg: string) => {
     setToastMessage(msg)
@@ -140,6 +137,28 @@ export default function SettingsPage() {
         setAdminSettingPwConfigured(res.ok ? !!json.configured : false)
       } catch {
         if (!cancelled) setAdminSettingPwConfigured(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  // メールテンプレート一覧を取得
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/email-templates')
+        if (!res.ok) {
+          if (!cancelled) setEmailTemplates([])
+          return
+        }
+        const json = await res.json().catch(() => ({}))
+        if (cancelled) return
+        setEmailTemplates(Array.isArray(json?.templates) ? (json.templates as EmailTemplate[]) : [])
+      } catch {
+        if (!cancelled) setEmailTemplates([])
+      } finally {
+        if (!cancelled) setEmailTemplatesLoading(false)
       }
     })()
     return () => { cancelled = true }
@@ -270,7 +289,7 @@ export default function SettingsPage() {
               </div>
               <button
                 type="button"
-                onClick={() => showToast('設定を保存しました')}
+                onClick={() => showToast('この設定の保存機能はまだ未実装です')}
                 className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors"
               >
                 保存
@@ -374,7 +393,7 @@ export default function SettingsPage() {
               </p>
               <button
                 type="button"
-                onClick={() => showToast('設定を保存しました')}
+                onClick={() => showToast('この設定の保存機能はまだ未実装です')}
                 className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
               >
                 保存
@@ -428,7 +447,7 @@ export default function SettingsPage() {
               </div>
               <button
                 type="button"
-                onClick={() => showToast('設定を保存しました')}
+                onClick={() => showToast('この設定の保存機能はまだ未実装です')}
                 className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
               >
                 保存
@@ -439,25 +458,33 @@ export default function SettingsPage() {
             <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
               <h2 className="text-lg font-semibold text-white mb-4">メールテンプレート一覧</h2>
               <div className="space-y-2">
-                {EMAIL_TEMPLATES.map((t, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between bg-white/[0.04] border border-white/[0.06] rounded-xl p-4"
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-white">{t.name}</p>
-                      <p className="text-xs text-gray-500">{t.status}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => showToast('テンプレート編集機能は今後実装予定です')}
-                      className="text-sm text-blue-400 hover:text-blue-300"
+                {emailTemplatesLoading ? (
+                  <p className="text-sm text-gray-500 py-6 text-center">読み込み中...</p>
+                ) : emailTemplates.length === 0 ? (
+                  <p className="text-sm text-gray-500 py-6 text-center">メールテンプレートはまだありません</p>
+                ) : (
+                  emailTemplates.map((t) => (
+                    <div
+                      key={t.id}
+                      className="flex items-center justify-between bg-white/[0.04] border border-white/[0.06] rounded-xl p-4"
                     >
-                      編集
-                    </button>
-                    {/* TODO: テンプレート編集モーダル */}
-                  </div>
-                ))}
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{t.subject || t.template_type}</p>
+                        <p className="text-xs text-gray-500 truncate">
+                          {t.template_type}
+                          {t.company_name ? ` ・ ${t.company_name}` : ''}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => showToast('テンプレート編集機能は今後実装予定です')}
+                        className="text-sm text-blue-400 hover:text-blue-300 shrink-0 ml-3"
+                      >
+                        編集
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -505,7 +532,7 @@ export default function SettingsPage() {
               </div>
               <button
                 type="button"
-                onClick={() => showToast('設定を保存しました')}
+                onClick={() => showToast('この設定の保存機能はまだ未実装です')}
                 className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
               >
                 保存
@@ -575,7 +602,7 @@ export default function SettingsPage() {
               </div>
               <button
                 type="button"
-                onClick={() => showToast('設定を保存しました')}
+                onClick={() => showToast('この設定の保存機能はまだ未実装です')}
                 className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
               >
                 保存
@@ -598,7 +625,7 @@ export default function SettingsPage() {
               </p>
               <button
                 type="button"
-                onClick={() => showToast('設定を保存しました')}
+                onClick={() => showToast('この設定の保存機能はまだ未実装です')}
                 className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
               >
                 保存
@@ -612,7 +639,8 @@ export default function SettingsPage() {
         {activeTab === 'api' && (
           <div className="space-y-4">
             <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">外部API連携</h2>
+              <h2 className="text-lg font-semibold text-white mb-2">外部API連携</h2>
+              <p className="text-xs text-gray-500 mb-4">接続状態の自動判定・APIキー表示は未実装です。実際の値は環境変数（.env）で管理しています。</p>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[400px]">
                   <thead>
@@ -627,12 +655,12 @@ export default function SettingsPage() {
                     <tr className="border-b border-white/[0.04]">
                       <td className="py-4 px-4 text-sm text-white">OpenAI</td>
                       <td className="py-4 px-4">
-                        <span className="inline-flex items-center gap-2 text-sm text-emerald-400">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                          接続済み
+                        <span className="inline-flex items-center gap-2 text-sm text-gray-500">
+                          <span className="w-2 h-2 rounded-full bg-gray-500" />
+                          未判定
                         </span>
                       </td>
-                      <td className="py-4 px-4 text-sm text-gray-500">sk-xxxx...xxxx</td>
+                      <td className="py-4 px-4 text-sm text-gray-500">—</td>
                       <td className="py-4 px-4">
                         <button
                           type="button"
@@ -647,12 +675,12 @@ export default function SettingsPage() {
                     <tr className="border-b border-white/[0.04]">
                       <td className="py-4 px-4 text-sm text-white">Resend</td>
                       <td className="py-4 px-4">
-                        <span className="inline-flex items-center gap-2 text-sm text-emerald-400">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                          接続済み
+                        <span className="inline-flex items-center gap-2 text-sm text-gray-500">
+                          <span className="w-2 h-2 rounded-full bg-gray-500" />
+                          未判定
                         </span>
                       </td>
-                      <td className="py-4 px-4 text-sm text-gray-500">re-xxxx...xxxx</td>
+                      <td className="py-4 px-4 text-sm text-gray-500">—</td>
                       <td className="py-4 px-4">
                         <button
                           type="button"
@@ -685,12 +713,12 @@ export default function SettingsPage() {
                     <tr className="border-b border-white/[0.04]">
                       <td className="py-4 px-4 text-sm text-white">Supabase</td>
                       <td className="py-4 px-4">
-                        <span className="inline-flex items-center gap-2 text-sm text-emerald-400">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                          接続済み
+                        <span className="inline-flex items-center gap-2 text-sm text-gray-500">
+                          <span className="w-2 h-2 rounded-full bg-gray-500" />
+                          未判定
                         </span>
                       </td>
-                      <td className="py-4 px-4 text-sm text-gray-500">eyJxx...xxxx</td>
+                      <td className="py-4 px-4 text-sm text-gray-500">—</td>
                       <td className="py-4 px-4">
                         <button
                           type="button"
@@ -709,30 +737,8 @@ export default function SettingsPage() {
             <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
               <h2 className="text-lg font-semibold text-white mb-4">直近のAPIコール</h2>
               <div className="space-y-2">
-                {API_LOGS.map((log, i) => (
-                  <div
-                    key={i}
-                    className="flex flex-wrap items-center gap-2 bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-sm"
-                  >
-                    <span className="text-gray-500">{log.date}</span>
-                    <span className="text-gray-400">|</span>
-                    <span className="text-white">{log.service}</span>
-                    <span className="text-gray-400">|</span>
-                    <span className="text-gray-300">{log.action}</span>
-                    <span className="text-gray-400">|</span>
-                    <span
-                      className={
-                        log.status === '成功' ? 'text-emerald-400' : 'text-red-400'
-                      }
-                    >
-                      {log.status}
-                    </span>
-                    <span className="text-gray-400">|</span>
-                    <span className="text-gray-500">{log.detail}</span>
-                  </div>
-                ))}
+                <p className="text-sm text-gray-500 py-6 text-center">APIコール履歴はまだありません</p>
               </div>
-              {/* TODO: 実データに差替え */}
             </div>
           </div>
         )}
@@ -774,7 +780,7 @@ export default function SettingsPage() {
               </div>
               <button
                 type="button"
-                onClick={() => showToast('設定を保存しました')}
+                onClick={() => showToast('この設定の保存機能はまだ未実装です')}
                 className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
               >
                 保存
@@ -804,7 +810,7 @@ export default function SettingsPage() {
               </div>
               <button
                 type="button"
-                onClick={() => showToast('設定を保存しました')}
+                onClick={() => showToast('この設定の保存機能はまだ未実装です')}
                 className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
               >
                 保存
