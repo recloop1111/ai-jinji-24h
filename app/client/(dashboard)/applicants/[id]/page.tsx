@@ -234,52 +234,73 @@ const RECOMMEND_LEGEND = [
   { grade: 'D', label: '非推奨', desc: '現時点では要件を満たしていない' },
 ] as const
 
-const ANSWER_QUALITY_LEGEND = [
-  { grade: 'A', label: '優れた回答' },
-  { grade: 'B', label: '良好な回答' },
-  { grade: 'C', label: '改善の余地あり' },
-  { grade: 'D', label: '不十分な回答' },
-] as const
-
 type TabKey = 'summary' | 'detail' | 'conversation' | 'recording' | 'share' | 'resume'
 
-function StatusBadge({ status }: { status: string | null }) {
-  const classes: Record<string, string> = {
-    pending: 'bg-gray-100 text-gray-600 border border-gray-200/80 shadow-sm',
-    considering: 'bg-amber-50 text-amber-700 border border-amber-200/80 shadow-sm',
-    second_pass: 'bg-sky-50 text-sky-700 border border-sky-200/80 shadow-sm',
-    rejected: 'bg-rose-50 text-rose-700 border border-rose-200/80 shadow-sm',
-  }
-  // statusがnull/pending＝面接完了・結果未設定時の初期値→未対応表示
-  const label = status == null || status === 'pending' ? '未対応' : STATUS_OPTIONS.find((o) => o.value === status)?.label || status
-  const key = status == null ? 'pending' : status
-  return (
-    <span
-      className={`inline-flex px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide ${classes[key] || 'bg-slate-100 text-slate-600 border border-slate-200'}`}
-    >
-      {label}
-    </span>
-  )
+// 画面で参照する実DBカラムに合わせた最小型（supabase の戻り値を受ける。全面型生成はしない）
+type ApplicantRow = {
+  last_name?: string | null
+  first_name?: string | null
+  last_name_kana?: string | null
+  first_name_kana?: string | null
+  email?: string | null
+  phone_number?: string | null
+  age?: number | null
+  education?: string | null
+  employment_type?: string | null
+  gender?: string | null
+  industry_experience?: string | null
+  prefecture?: string | null
+  qualifications?: string | null
+  status?: string | null
+  work_history?: string | null
+  company_id?: string | null
+  result?: string | null
+  job_listings?: { title?: string } | null
 }
+
+type InterviewRow = {
+  started_at?: string | null
+  ended_at?: string | null
+  recording_url?: string | null
+  total_questions?: number | null
+  answered_questions?: number | null
+}
+
+type InterviewResultRow = {
+  total_score?: number | null
+  detail_json?: { recommendation_rank?: string } | null
+  summary_text?: string | null
+  feedback_text?: string | null
+  personality_type?: string | null
+  personality_description?: string | null
+  strengths?: string[] | null
+  improvement_points?: string[] | null
+  // 文化分析ブロックは optional chaining なしでアクセスするため非optional（実行時は既存ガードで存在前提）
+  big_five_scores: { openness: number; conscientiousness: number; extraversion: number; agreeableness: number; neuroticism: number; [key: string]: number }
+  culture_fit_score?: number | null
+  culture_fit_detail?: { summary?: string } | null
+}
+
+type CultureProfileRow = {
+  department?: string | null
+  employment_type?: string | null
+  // optional chaining なしでアクセスするため非optional
+  avg_openness: number
+  avg_conscientiousness: number
+  avg_extraversion: number
+  avg_agreeableness: number
+  avg_neuroticism: number
+}
+
+// カルチャーフィット詳細分析は v5 では MVP対象外（将来復活時に true に）。
+// boolean 型にすることで TS が後続のガード（interviewResult 等の非null絞り込み）を到達可能として扱う。
+const SHOW_CULTURE_ANALYSIS: boolean = false
 
 const GRADE_STYLES: Record<string, string> = {
   A: 'bg-emerald-500 text-white shadow-md shadow-emerald-500/25',
   B: 'bg-sky-500 text-white shadow-md shadow-sky-500/25',
   C: 'bg-amber-500 text-white shadow-md shadow-amber-500/25',
   D: 'bg-rose-500 text-white shadow-md shadow-rose-500/25',
-}
-
-function GradeBadge({ grade, size = 'md' }: { grade: string; size?: 'sm' | 'md' }) {
-  const isSm = size === 'sm'
-  return (
-    <span
-      className={`inline-flex items-center justify-center rounded-full font-bold shrink-0 ${GRADE_STYLES[grade] || 'bg-slate-500 text-white shadow-md'} ${
-        isSm ? 'w-7 h-7 text-xs' : 'w-16 h-16 text-2xl'
-      }`}
-    >
-      {grade}
-    </span>
-  )
 }
 
 function RecommendLegend() {
@@ -303,21 +324,6 @@ function RecommendLegend() {
   )
 }
 
-function AnswerQualityLegend() {
-  return (
-    <div className="mb-6 rounded-2xl bg-slate-50 border border-slate-200/90 px-5 py-4 shadow-sm flex flex-wrap items-center gap-x-5 gap-y-2.5">
-      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider shrink-0">回答の質の目安</span>
-      {ANSWER_QUALITY_LEGEND.map(({ grade, label }) => (
-        <span key={grade} className="inline-flex items-center gap-2 text-xs font-medium text-slate-700">
-          <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${GRADE_STYLES[grade]}`}>
-            {grade}
-          </span>
-          {label}
-        </span>
-      ))}
-    </div>
-  )
-}
 
 export default function ApplicantDetailPage() {
   const params = useParams()
@@ -330,10 +336,10 @@ export default function ApplicantDetailPage() {
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
   const [statusToast, setStatusToast] = useState(false)
-  const [applicant, setApplicant] = useState<any>(null)
-  const [interview, setInterview] = useState<any>(null)
-  const [interviewResult, setInterviewResult] = useState<any>(null)
-  const [cultureProfile, setCultureProfile] = useState<any>(null)
+  const [applicant, setApplicant] = useState<ApplicantRow | null>(null)
+  const [interview, setInterview] = useState<InterviewRow | null>(null)
+  const [interviewResult, setInterviewResult] = useState<InterviewResultRow | null>(null)
+  const [cultureProfile, setCultureProfile] = useState<CultureProfileRow | null>(null)
   const [cultureAnalysisEnabled, setCultureAnalysisEnabled] = useState<boolean>(false)
   const [loading, setLoading] = useState(true)
 
@@ -415,7 +421,7 @@ export default function ApplicantDetailPage() {
         } else {
           setApplicant(null)
         }
-      } catch (err) {
+      } catch {
         setApplicant(null)
       }
       setLoading(false)
@@ -452,7 +458,6 @@ export default function ApplicantDetailPage() {
   ]
 
   // 基本情報は applicants の実データのみ（取得できない場合は空状態）
-  const displayData = applicant || DUMMY
   const displayName = applicant ? `${applicant.last_name || ''} ${applicant.first_name || ''}`.trim() || '名前未設定' : '—'
   const displayEmail = applicant?.email || '—'
   const displayPhone = applicant?.phone_number || '—'
@@ -810,7 +815,7 @@ export default function ApplicantDetailPage() {
               <div>
                 <div className="flex flex-col sm:flex-row sm:items-start gap-6 p-5 rounded-2xl bg-white border border-slate-200/80 shadow-md shadow-slate-200/50">
                   <span
-                    className={`inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-2xl text-4xl font-bold shrink-0 ${GRADE_STYLES[interviewResult.detail_json?.recommendation_rank] || 'bg-slate-100 text-slate-500'}`}
+                    className={`inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-2xl text-4xl font-bold shrink-0 ${GRADE_STYLES[interviewResult.detail_json?.recommendation_rank || ''] || 'bg-slate-100 text-slate-500'}`}
                   >
                     {interviewResult.detail_json?.recommendation_rank || '—'}
                   </span>
@@ -1007,8 +1012,8 @@ export default function ApplicantDetailPage() {
               {/* セクション区切り */}
               <hr className="my-8 border-gray-200" />
 
-              {/* セクション2: カルチャーフィット詳細分析セクション（v5: MVP対象外。将来復活時に false && を削除する） */}
-              {false && cultureAnalysisEnabled && interviewResult?.culture_fit_score != null && interviewResult?.big_five_scores && cultureProfile && applicant?.status === '完了' && (
+              {/* セクション2: カルチャーフィット詳細分析セクション（v5: MVP対象外。将来復活時に末尾の && false を削除する） */}
+              {cultureAnalysisEnabled && interviewResult != null && interviewResult.culture_fit_score != null && interviewResult.big_five_scores != null && cultureProfile != null && applicant?.status === '完了' && SHOW_CULTURE_ANALYSIS && (
                 <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 overflow-hidden">
                   <div className="p-6 sm:p-7">
                     {/* ① セクションタイトル */}
@@ -1098,9 +1103,10 @@ export default function ApplicantDetailPage() {
                               const applicantValue = factor.invert 
                                 ? (10 - interviewResult.big_five_scores[factor.key]).toFixed(1)
                                 : interviewResult.big_five_scores[factor.key].toFixed(1)
+                              const avgValue = (cultureProfile as unknown as Record<string, number>)[factor.avgKey]
                               const companyValue = factor.invert
-                                ? (10 - cultureProfile[factor.avgKey]).toFixed(1)
-                                : cultureProfile[factor.avgKey].toFixed(1)
+                                ? (10 - avgValue).toFixed(1)
+                                : avgValue.toFixed(1)
                               const diff = (Number(applicantValue) - Number(companyValue)).toFixed(1)
                               const diffNum = Number(diff)
                               const absDiff = Math.abs(diffNum)
