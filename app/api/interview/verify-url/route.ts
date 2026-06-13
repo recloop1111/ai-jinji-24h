@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
         .from('interviews')
         .select('id', { count: 'exact', head: true })
         .eq('company_id', company.id)
-        .eq('billable', true)
+        .eq('is_billable', true)
         .gte('created_at', monthStart)
 
       if ((count ?? 0) >= effectiveLimit) {

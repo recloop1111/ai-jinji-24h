@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
         .from('interviews')
         .select('company_id')
         .in('company_id', companyIds)
-        .eq('billable', true)
+        .eq('is_billable', true)
         .gte('created_at', monthStart)
 
       monthlyCounts = (interviewData ?? []).reduce((acc: Record<string, number>, row: { company_id: string }) => {

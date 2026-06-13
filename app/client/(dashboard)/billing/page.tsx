@@ -64,7 +64,7 @@ export default function BillingPage() {
           .from('interviews')
           .select('id', { count: 'exact', head: true })
           .eq('company_id', companyId)
-          .eq('billable', true)
+          .eq('is_billable', true)
           .gte('created_at', monthStart)
 
         setMonthlyCount(count ?? 0)

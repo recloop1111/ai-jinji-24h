@@ -52,7 +52,7 @@ export async function GET() {
       .from('interviews')
       .select('id', { count: 'exact', head: true })
       .eq('company_id', user.companyId)
-      .eq('billable', true)
+      .eq('is_billable', true)
       .gte('created_at', monthStart)
 
     const used = monthlyCount ?? 0
