@@ -29,6 +29,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [copySuccess, setCopySuccess] = useState(false)
   const [companyName, setCompanyName] = useState('')
+  // demo mode 判定（サイドバー遷移で ?demo=true を引き継ぐために使用）。通常ログイン時は false。
+  const [isDemo, setIsDemo] = useState(false)
 
   // ヘッダーの企業名: demo時は「デモ企業」、実ログイン時は /api/client/company から取得
   useEffect(() => {
@@ -39,7 +41,10 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       const storedDemo =
         typeof window !== 'undefined' && sessionStorage.getItem(DEMO_STORAGE_KEY) === 'true'
       if (urlDemo || storedDemo) {
-        if (!cancelled) setCompanyName('デモ企業')
+        if (!cancelled) {
+          setCompanyName('デモ企業')
+          setIsDemo(true)
+        }
         return
       }
       try {
@@ -105,7 +110,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                href={isDemo ? `${item.href}?demo=true` : item.href}
                 onClick={() => setSidebarOpen(false)}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
                   isActive(item.href)
