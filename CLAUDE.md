@@ -42,6 +42,14 @@ A(80-100) / B(65-79) / C(50-64) / D(35-49) / E(0-34) の5段階
 ## 評価軸キー（確定）
 communication / logical_thinking / initiative / desire / stress_tolerance / integrity
 
+## AI評価方式（確定）: Evidence-based Competency Analysis（エビデンスベース・コンピテンシー分析）
+- 企業ごとに質問が異なっても、AIが**面接全体の回答を横断的に分析**し、発言内容・具体性・一貫性・行動傾向を根拠（evidence）に6軸でコンピテンシーをスコア化する方式
+- 各軸に **score / rank / evidence / confidence / insufficient_reason** を付与。根拠不足の軸は無理に断定せず `score=null` ＋「判断材料不足（insufficient_reason）」として扱う
+- **旧方式（質問ごとに primary_axis / secondary_axis / weight を運営が事前設定し加重平均）は廃止**（カスタム質問と相性が悪いため）。質問の軸ヒントは任意・評価に非必須
+- 格納先 = `interview_results.evaluation_axes`（jsonb・DB変更不要）。スキーマは docs/API_DESIGN.md（CLI-006 レポート取得）参照
+  - 形式: `[{ axis, label, score(0-20 or null), rank(A-E or null), evidence:[], confidence: high|medium|low, insufficient_reason: string|null }]`
+- **P-10 実装課題**: 面接終了後、OpenAIが全Q&Aを横断入力として6軸評価を生成し `evaluation_axes` / `total_score` / `detail_json` へ書き込む writer（現状 writer 無し＝シードのみ）。表示側 `normalizeEvaluationAxes`（admin/client 応募者詳細）は将来 evidence/confidence/判断材料不足 の表示に拡張が必要
+
 ## 現在の進捗 (2026-06-12)
 
 ### Phase 4C: 完了（料金モデル・上限・パスワード）

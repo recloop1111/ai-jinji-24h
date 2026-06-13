@@ -749,22 +749,11 @@ GET /api/client/applicants/[id]/report
   },
   "axis_scores": [
     { "axis": "communication", "axis_score": 16, "axis_rank": "B" },
-    { "axis": "logic", "axis_score": 14, "axis_rank": "B" },
+    { "axis": "logical_thinking", "axis_score": 14, "axis_rank": "B" },
     { "axis": "initiative", "axis_score": 15, "axis_rank": "B" },
-    { "axis": "motivation", "axis_score": 17, "axis_rank": "A" },
+    { "axis": "desire", "axis_score": 17, "axis_rank": "A" },
     { "axis": "stress_tolerance", "axis_score": 12, "axis_rank": "C" },
     { "axis": "integrity", "axis_score": 16, "axis_rank": "B" }
-  ],
-  "question_scores": [
-    {
-      "question_text_snapshot": "自己紹介をお願いします",
-      "axis": "communication",
-      "score": 16,
-      "rank": "B",
-      "evidence_quote": "私は3年間営業として...",
-      "evaluation_reason": "具体的なエピソードを交えて...",
-      "improvement_point": null
-    }
   ],
   "qa_summaries": [
     {
@@ -776,7 +765,45 @@ GET /api/client/applicants/[id]/report
 }
 ```
 
-`status` が `partial` の場合、未回答質問は `score: null, rank: null` で「未実施」表示。
+`status` が `partial`（10分超で中断した部分レポート）の場合、判断材料が得られない軸は `score: null` とし `insufficient_reason` を付与する（後述の evaluation_axes スキーマ参照）。
+
+#### 評価方式：Evidence-based Competency Analysis（エビデンスベース・コンピテンシー分析）
+
+AI評価は**面接全体の回答を横断的に分析**し、6軸でコンピテンシーを根拠ベースにスコア化する（質問ごとに軸/重みを事前設定する旧方式は廃止。カスタム質問でも評価可能）。評価結果は **`interview_results.evaluation_axes`（jsonb）** に格納する。
+
+**6軸キー（統一）:** `communication` / `logical_thinking` / `initiative` / `desire` / `stress_tolerance` / `integrity`
+
+**evaluation_axes スキーマ:**
+```json
+[
+  {
+    "axis": "communication",
+    "label": "コミュニケーション力",
+    "score": 16,
+    "rank": "B",
+    "evidence": ["質問の意図を正確に汲み、具体的な数値で簡潔に回答していた"],
+    "confidence": "high",
+    "insufficient_reason": null
+  },
+  {
+    "axis": "integrity",
+    "label": "誠実性・一貫性",
+    "score": null,
+    "rank": null,
+    "evidence": [],
+    "confidence": "low",
+    "insufficient_reason": "該当軸を判断できる発言が面接中に得られなかった"
+  }
+]
+```
+
+- `score`: 0〜20（**判断材料不足の軸は `null`**）。`rank`: A〜E（不足時は `null`）。
+- `evidence`: 応募者の発言（原文/要約）に基づく根拠の配列（1つ以上が望ましい）。
+- `confidence`: `high` / `medium` / `low`。
+- `insufficient_reason`: 判断材料不足時の理由（断定できる根拠が無い軸）。十分なら `null`。
+- 総合スコア（total_score・100換算）は判断可能な軸を集約して算出する。
+
+**書き込み（P-10 / OpenAI評価生成）:** 面接終了後、OpenAIが全Q&Aを横断入力として6軸の `score / rank / evidence / confidence / insufficient_reason` を生成し、`interview_results.evaluation_axes` と `total_score` / `detail_json` に書き込む（writer は P-10 で実装。現状は未実装でシードデータのみ）。`evaluation_axes` 列は jsonb のため **DBスキーマ変更は不要**。
 
 ---
 
@@ -1412,6 +1439,8 @@ GET /api/admin/companies/[id]/questions
 ```
 
 `job_type_id: null` は全職種共通。
+
+> **EBCA 移行に伴う注記:** `primary_axis` / `secondary_axis` / `weight` は旧「質問ごと採点（加重平均）」方式の名残であり、Evidence-based Competency Analysis では**評価に必須ではない**（任意の軸ヒントとして保持可。値が無くても面接全体横断評価で6軸を算出する）。質問の自由作成（カスタム質問）を妨げない。
 
 ---
 
