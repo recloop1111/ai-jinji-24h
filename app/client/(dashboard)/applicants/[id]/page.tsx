@@ -279,6 +279,7 @@ type InterviewResultRow = {
   big_five_scores: { openness: number; conscientiousness: number; extraversion: number; agreeableness: number; neuroticism: number; [key: string]: number }
   culture_fit_score?: number | null
   culture_fit_detail?: { summary?: string } | null
+  evaluation_axes?: unknown
 }
 
 type CultureProfileRow = {
@@ -295,6 +296,65 @@ type CultureProfileRow = {
 // カルチャーフィット詳細分析は v5 では MVP対象外（将来復活時に true に）。
 // boolean 型にすることで TS が後続のガード（interviewResult 等の非null絞り込み）を到達可能として扱う。
 const SHOW_CULTURE_ANALYSIS: boolean = false
+
+// EBCA（Evidence-based Competency Analysis）の1軸。score=null は「判断材料不足」。
+type EvalAxis = {
+  label: string
+  score: number | null
+  rank: string | null
+  evidence: string[]
+  confidence: 'high' | 'medium' | 'low' | null
+  insufficientReason: string | null
+}
+
+const CONFIDENCE_LABELS: Record<'high' | 'medium' | 'low', string> = { high: '高', medium: '中', low: '低' }
+
+// 6評価軸キー → 日本語ラベル（evaluation_axes が label を持たない場合のフォールバック）
+const AXIS_LABELS: Record<string, string> = {
+  communication: 'コミュニケーション',
+  logical_thinking: '論理的思考',
+  initiative: '主体性・行動力',
+  desire: '仕事意欲',
+  stress_tolerance: 'ストレス耐性・柔軟性',
+  integrity: '誠実性・一貫性',
+}
+
+// interview_results.evaluation_axes を安全に正規化（EBCA形式）。
+// 配列 [{axis,label,score,rank,evidence[],confidence,insufficient_reason}] が主。
+// 旧形式 [{label,value}] / オブジェクト {key:number} にも最低限対応。
+// 重要: score=null（判断材料不足）は 0 に変換せず null のまま保持する。想定外/空/null は [] を返す（DUMMY補完なし）。
+function normalizeEvaluationAxes(raw: unknown): EvalAxis[] {
+  if (!raw || typeof raw !== 'object') return []
+  const toAxis = (
+    label: string, scoreRaw: unknown, rankRaw: unknown,
+    evidenceRaw: unknown, confRaw: unknown, insuffRaw: unknown,
+  ): EvalAxis => {
+    const score = typeof scoreRaw === 'number' && Number.isFinite(scoreRaw) ? scoreRaw : null
+    const rank = typeof rankRaw === 'string' && rankRaw ? rankRaw : null
+    const evidence = Array.isArray(evidenceRaw)
+      ? evidenceRaw.filter((e): e is string => typeof e === 'string' && e.length > 0)
+      : []
+    const confidence = confRaw === 'high' || confRaw === 'medium' || confRaw === 'low' ? confRaw : null
+    const insufficientReason = typeof insuffRaw === 'string' && insuffRaw ? insuffRaw : null
+    return { label, score, rank, evidence, confidence, insufficientReason }
+  }
+  const out: EvalAxis[] = []
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue
+      const obj = item as Record<string, unknown>
+      const keyStr = typeof obj.axis === 'string' ? obj.axis : typeof obj.key === 'string' ? obj.key : ''
+      const labelRaw = obj.label ?? obj.name
+      const label = typeof labelRaw === 'string' && labelRaw ? labelRaw : AXIS_LABELS[keyStr] ?? (keyStr || '評価軸')
+      out.push(toAxis(label, obj.score ?? obj.value, obj.rank, obj.evidence, obj.confidence, obj.insufficient_reason))
+    }
+  } else {
+    for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+      out.push(toAxis(AXIS_LABELS[key] ?? key, val, undefined, undefined, undefined, undefined))
+    }
+  }
+  return out
+}
 
 const GRADE_STYLES: Record<string, string> = {
   A: 'bg-emerald-500 text-white shadow-md shadow-emerald-500/25',
@@ -855,10 +915,52 @@ export default function ApplicantDetailPage() {
                 </div>
               )}
 
-              {/* 評価軸スコア（interview_results.evaluation_axes は現状データなし） */}
+              {/* 評価軸スコア（EBCA: Evidence-based Competency Analysis）。score=null は「判断材料不足」。DUMMY補完なし */}
               <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
-                <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">評価軸スコア</h2>
-                <p className="text-sm text-slate-500">評価軸データはまだありません。</p>
+                <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">評価軸スコア</h2>
+                {(() => {
+                  const evalAxes = normalizeEvaluationAxes(interviewResult.evaluation_axes)
+                  if (evalAxes.length === 0) {
+                    return <p className="text-sm text-slate-500">評価軸データはまだありません。</p>
+                  }
+                  return (
+                    <div className="space-y-4">
+                      {evalAxes.map((d, i) => (
+                        <div key={i} className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-4">
+                          <div className="flex justify-between items-baseline gap-3 mb-1.5">
+                            <span className="text-sm font-medium text-slate-800">{d.label}</span>
+                            {d.score != null ? (
+                              <span className="text-sm font-bold text-slate-900 tabular-nums whitespace-nowrap">
+                                {d.score}<span className="text-xs font-normal text-slate-400"> / 20</span>
+                                {d.rank && <span className="ml-2 text-xs font-semibold text-blue-600">{d.rank}</span>}
+                              </span>
+                            ) : (
+                              <span className="text-xs font-semibold text-amber-600 whitespace-nowrap">判断材料不足</span>
+                            )}
+                          </div>
+                          {d.score != null && (
+                            <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden mb-1.5">
+                              <div className="h-full rounded-full bg-blue-500" style={{ width: `${(Math.max(0, Math.min(20, d.score)) / 20) * 100}%` }} />
+                            </div>
+                          )}
+                          {d.confidence && (
+                            <p className="text-xs text-slate-500 mb-1">信頼度: {CONFIDENCE_LABELS[d.confidence]}</p>
+                          )}
+                          {d.score == null && d.insufficientReason && (
+                            <p className="text-xs text-amber-700/80 mb-1">{d.insufficientReason}</p>
+                          )}
+                          {d.evidence.length > 0 && (
+                            <ul className="mt-1.5 space-y-1">
+                              {d.evidence.map((e, j) => (
+                                <li key={j} className="text-xs text-slate-500 leading-relaxed border-l-2 border-slate-300 pl-2.5">{e}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* パーソナリティタイプ（旧レポートタブから統合） */}

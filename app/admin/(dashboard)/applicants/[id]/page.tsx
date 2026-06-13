@@ -7,9 +7,19 @@ import { createClient } from '@/lib/supabase/client'
 import { ChevronLeft as ChevronLeftIcon, Play as PlayIcon } from 'lucide-react'
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, ResponsiveContainer } from 'recharts'
 
-type RadarAxis = { label: string; value: number }
+// EBCA（Evidence-based Competency Analysis）の1軸。score=null は「判断材料不足」。
+type EvalAxis = {
+  label: string
+  score: number | null
+  rank: string | null
+  evidence: string[]
+  confidence: 'high' | 'medium' | 'low' | null
+  insufficientReason: string | null
+}
 
-// 6評価軸キー → 日本語ラベル（interview_results.evaluation_axes 表示用）
+const CONFIDENCE_LABELS: Record<'high' | 'medium' | 'low', string> = { high: '高', medium: '中', low: '低' }
+
+// 6評価軸キー → 日本語ラベル（evaluation_axes が label を持たない場合のフォールバック）
 const AXIS_LABELS: Record<string, string> = {
   communication: 'コミュニケーション',
   logical_thinking: '論理的思考',
@@ -19,27 +29,38 @@ const AXIS_LABELS: Record<string, string> = {
   integrity: '誠実性・一貫性',
 }
 
-// evaluation_axes を安全に正規化。配列 [{label/key, value/score}] と
-// オブジェクト { key: number } の両形式に対応。想定外/空/null は [] を返す（DUMMYでは補完しない）。
-function normalizeEvaluationAxes(raw: unknown): RadarAxis[] {
+// interview_results.evaluation_axes を安全に正規化（EBCA形式）。
+// 配列 [{axis,label,score,rank,evidence[],confidence,insufficient_reason}] が主。
+// 旧形式 [{label,value}] / オブジェクト {key:number} にも最低限対応。
+// 重要: score=null（判断材料不足）は 0 に変換せず null のまま保持する。想定外/空/null は [] を返す（DUMMY補完なし）。
+function normalizeEvaluationAxes(raw: unknown): EvalAxis[] {
   if (!raw || typeof raw !== 'object') return []
-  const out: RadarAxis[] = []
+  const toAxis = (
+    label: string, scoreRaw: unknown, rankRaw: unknown,
+    evidenceRaw: unknown, confRaw: unknown, insuffRaw: unknown,
+  ): EvalAxis => {
+    const score = typeof scoreRaw === 'number' && Number.isFinite(scoreRaw) ? scoreRaw : null
+    const rank = typeof rankRaw === 'string' && rankRaw ? rankRaw : null
+    const evidence = Array.isArray(evidenceRaw)
+      ? evidenceRaw.filter((e): e is string => typeof e === 'string' && e.length > 0)
+      : []
+    const confidence = confRaw === 'high' || confRaw === 'medium' || confRaw === 'low' ? confRaw : null
+    const insufficientReason = typeof insuffRaw === 'string' && insuffRaw ? insuffRaw : null
+    return { label, score, rank, evidence, confidence, insufficientReason }
+  }
+  const out: EvalAxis[] = []
   if (Array.isArray(raw)) {
     for (const item of raw) {
       if (!item || typeof item !== 'object') continue
       const obj = item as Record<string, unknown>
-      const rawKey = obj.label ?? obj.name ?? obj.axis ?? obj.key
-      const rawVal = obj.value ?? obj.score
-      const value = typeof rawVal === 'number' ? rawVal : Number(rawVal)
-      if (!Number.isFinite(value)) continue
-      const keyStr = typeof rawKey === 'string' ? rawKey : ''
-      out.push({ label: AXIS_LABELS[keyStr] ?? (keyStr || '評価軸'), value })
+      const keyStr = typeof obj.axis === 'string' ? obj.axis : typeof obj.key === 'string' ? obj.key : ''
+      const labelRaw = obj.label ?? obj.name
+      const label = typeof labelRaw === 'string' && labelRaw ? labelRaw : AXIS_LABELS[keyStr] ?? (keyStr || '評価軸')
+      out.push(toAxis(label, obj.score ?? obj.value, obj.rank, obj.evidence, obj.confidence, obj.insufficient_reason))
     }
   } else {
-    for (const [key, rawVal] of Object.entries(raw as Record<string, unknown>)) {
-      const value = typeof rawVal === 'number' ? rawVal : Number(rawVal)
-      if (!Number.isFinite(value)) continue
-      out.push({ label: AXIS_LABELS[key] ?? key, value })
+    for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+      out.push(toAxis(AXIS_LABELS[key] ?? key, val, undefined, undefined, undefined, undefined))
     }
   }
   return out
@@ -232,8 +253,10 @@ export default function AdminApplicantDetailPage() {
   }
 
   // 評価軸は interview_results.evaluation_axes の実データのみ（DUMMY補完なし）。空なら空状態。
-  const radarAxes = normalizeEvaluationAxes(interviewResult?.evaluation_axes)
-  const axisCount = radarAxes.length
+  const evalAxes = normalizeEvaluationAxes(interviewResult?.evaluation_axes)
+  // レーダーは判定済み（score≠null）の軸のみで描画。判断材料不足の軸は除外（0点として描かない）。
+  const scoredAxes = evalAxes.filter((a) => a.score != null)
+  const axisCount = scoredAxes.length
   const cx = 100
   const cy = 100
   const maxR = 72
@@ -242,7 +265,8 @@ export default function AdminApplicantDetailPage() {
     const angle = (-90 + i * step) * (Math.PI / 180)
     return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) }
   }
-  const radarPoints = radarAxes.map((d, i) => getPoint(i, (Math.max(0, Math.min(100, d.value)) / 100) * maxR))
+  // score は 0〜20。20点満点で正規化。
+  const radarPoints = scoredAxes.map((d, i) => getPoint(i, (Math.max(0, Math.min(20, d.score ?? 0)) / 20) * maxR))
   const radarPath = radarPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
 
   if (loading) {
@@ -482,48 +506,72 @@ export default function AdminApplicantDetailPage() {
                       </div>
                     )}
 
-                    {/* レーダーチャート（evaluation_axes 実データがある場合のみ表示。無ければ空状態） */}
-                    {radarAxes.length > 0 ? (
+                    {/* 評価軸（EBCA）。score=null は「判断材料不足」。レーダーは判定済み軸のみ。無ければ空状態 */}
+                    {evalAxes.length > 0 ? (
                       <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
                         <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 sm:p-7 shrink-0">
                           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-5">評価軸レーダーチャート</h2>
-                          <div className="flex justify-center p-4 bg-gray-900/50 rounded-2xl">
-                            <svg viewBox="0 0 200 200" className="w-48 h-48 sm:w-56 sm:h-56">
-                              <defs>
-                                <linearGradient id="radarFillAdmin" x1="0%" y1="0%" x2="100%" y2="100%">
-                                  <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.35" />
-                                  <stop offset="100%" stopColor="#6366f1" stopOpacity="0.35" />
-                                </linearGradient>
-                              </defs>
-                              {[1, 2, 3, 4, 5].map((l) => {
-                                const r = (l / 5) * maxR
-                                const pts = radarAxes.map((_, i) => getPoint(i, r))
-                                const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
-                                return <path key={l} d={path} fill="none" stroke="#4B5563" strokeWidth="1.2" />
-                              })}
-                              {radarAxes.map((_, i) => {
-                                const p = getPoint(i, maxR)
-                                return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="#4B5563" strokeWidth="1.2" />
-                              })}
-                              <path d={radarPath} fill="url(#radarFillAdmin)" stroke="#0ea5e9" strokeWidth="2.5" />
-                              {radarAxes.map((d, i) => {
-                                const p = getPoint(i, maxR + 14)
-                                return (
-                                  <text key={i} x={p.x} y={p.y} textAnchor="middle" fill="#D1D5DB" fontSize="11" fontWeight="600">
-                                    {d.label}
-                                  </text>
-                                )
-                              })}
-                            </svg>
-                          </div>
+                          {scoredAxes.length > 0 ? (
+                            <div className="flex justify-center p-4 bg-gray-900/50 rounded-2xl">
+                              <svg viewBox="0 0 200 200" className="w-48 h-48 sm:w-56 sm:h-56">
+                                <defs>
+                                  <linearGradient id="radarFillAdmin" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.35" />
+                                    <stop offset="100%" stopColor="#6366f1" stopOpacity="0.35" />
+                                  </linearGradient>
+                                </defs>
+                                {[1, 2, 3, 4, 5].map((l) => {
+                                  const r = (l / 5) * maxR
+                                  const pts = scoredAxes.map((_, i) => getPoint(i, r))
+                                  const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
+                                  return <path key={l} d={path} fill="none" stroke="#4B5563" strokeWidth="1.2" />
+                                })}
+                                {scoredAxes.map((_, i) => {
+                                  const p = getPoint(i, maxR)
+                                  return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="#4B5563" strokeWidth="1.2" />
+                                })}
+                                <path d={radarPath} fill="url(#radarFillAdmin)" stroke="#0ea5e9" strokeWidth="2.5" />
+                                {scoredAxes.map((d, i) => {
+                                  const p = getPoint(i, maxR + 14)
+                                  return (
+                                    <text key={i} x={p.x} y={p.y} textAnchor="middle" fill="#D1D5DB" fontSize="11" fontWeight="600">
+                                      {d.label}
+                                    </text>
+                                  )
+                                })}
+                              </svg>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-400 p-4">レーダー表示できる評価軸がありません（全軸が判断材料不足）</p>
+                          )}
                         </div>
                         <div className="flex-1 min-w-0 space-y-4">
-                          {radarAxes.map((d, i) => (
+                          {evalAxes.map((d, i) => (
                             <div key={i} className="bg-gray-800 rounded-2xl border border-gray-700 p-4">
-                              <div className="flex justify-between items-baseline mb-1.5">
+                              <div className="flex justify-between items-baseline gap-3 mb-1.5">
                                 <span className="text-sm font-medium text-gray-200">{d.label}</span>
-                                <span className="text-sm font-bold text-gray-100 tabular-nums">{d.value}</span>
+                                {d.score != null ? (
+                                  <span className="text-sm font-bold text-gray-100 tabular-nums whitespace-nowrap">
+                                    {d.score}<span className="text-xs font-normal text-gray-500"> / 20</span>
+                                    {d.rank && <span className="ml-2 text-xs font-semibold text-sky-400">{d.rank}</span>}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs font-semibold text-amber-400 whitespace-nowrap">判断材料不足</span>
+                                )}
                               </div>
+                              {d.confidence && (
+                                <p className="text-xs text-gray-500 mb-1">信頼度: {CONFIDENCE_LABELS[d.confidence]}</p>
+                              )}
+                              {d.score == null && d.insufficientReason && (
+                                <p className="text-xs text-amber-300/80 mb-1">{d.insufficientReason}</p>
+                              )}
+                              {d.evidence.length > 0 && (
+                                <ul className="mt-1.5 space-y-1">
+                                  {d.evidence.map((e, j) => (
+                                    <li key={j} className="text-xs text-gray-400 leading-relaxed border-l-2 border-gray-600 pl-2.5">{e}</li>
+                                  ))}
+                                </ul>
+                              )}
                             </div>
                           ))}
                         </div>
