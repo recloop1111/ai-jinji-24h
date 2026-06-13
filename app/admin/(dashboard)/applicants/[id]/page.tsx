@@ -7,28 +7,42 @@ import { createClient } from '@/lib/supabase/client'
 import { ChevronLeft as ChevronLeftIcon, Play as PlayIcon } from 'lucide-react'
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, ResponsiveContainer } from 'recharts'
 
-const DUMMY = {
-  aiSummary: {
-    profile: '飲食業界で5年の店長経験を持つ、数値管理と現場改善に強い実行力重視の人材。',
-    career: '大学卒業後、大手飲食チェーンに入社し、入社2年目で副店長、3年目で店長に昇進。担当店舗では月間売上を前年比115%に改善し、人手不足の状況下で3ヶ月間に5名の新規採用を実現した。8名のスタッフのシフト管理・教育にも携わり、現場マネジメントの実務経験が豊富。',
-    impression: '質問の意図を正確に汲み取り、具体的な数値を交えて簡潔に回答する傾向がある。特に過去の実績に関する質問では、課題→施策→結果の構造で論理的に語れており、説得力が高い。一方で、想定外の質問にはやや回答に時間がかかる場面が見られた。',
-    strengthsAndConcerns: '最大の強みは、現場で培った問題解決力と数値に基づく説明力。即戦力としてマネジメント業務への適性が高い。懸念点は、3〜5年後のキャリアビジョンが漠然としており、長期定着への確信が持ちにくい点。また、チームワークに関する具体的なエピソードが少なく、協調性の実態は面接だけでは判断しきれない。',
-  },
-  recommendGrade: 'B',
-  recommendReason: '実務経験とコミュニケーションが高く即戦力として期待できる。キャリアビジョンの明確化が課題。',
-  radarAxis: [
-    { label: 'コミュニケーション', value: 78 },
-    { label: '論理的思考', value: 65 },
-    { label: '仕事意欲', value: 85 },
-    { label: 'ストレス耐性・柔軟性', value: 80 },
-    { label: '誠実性・一貫性', value: 58 },
-    { label: '主体性・行動力', value: 70 },
-  ],
-  conversationLog: [
-    { number: 1, question: 'これまでのご経歴を簡単に教えてください。', answer: '大学卒業後、大手飲食チェーンに入社し5年間勤務しております。入社2年目で副店長、3年目で店長に昇進しました。', answerDuration: '2分30秒' },
-    { number: 2, question: 'なぜ当社に応募されたのですか。', answer: '現職での店舗運営経験を活かし、より大きな組織でマネジメントに関わりたいと考えました。', answerDuration: '1分45秒' },
-    { number: 3, question: '最も成果を上げた経験を教えてください。', answer: '人手不足で売上が低迷していた店舗に配属された際、採用プロセスを見直し3ヶ月で5名の採用に成功しました。', answerDuration: '2分15秒' },
-  ],
+type RadarAxis = { label: string; value: number }
+
+// 6評価軸キー → 日本語ラベル（interview_results.evaluation_axes 表示用）
+const AXIS_LABELS: Record<string, string> = {
+  communication: 'コミュニケーション',
+  logical_thinking: '論理的思考',
+  initiative: '主体性・行動力',
+  desire: '仕事意欲',
+  stress_tolerance: 'ストレス耐性・柔軟性',
+  integrity: '誠実性・一貫性',
+}
+
+// evaluation_axes を安全に正規化。配列 [{label/key, value/score}] と
+// オブジェクト { key: number } の両形式に対応。想定外/空/null は [] を返す（DUMMYでは補完しない）。
+function normalizeEvaluationAxes(raw: unknown): RadarAxis[] {
+  if (!raw || typeof raw !== 'object') return []
+  const out: RadarAxis[] = []
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue
+      const obj = item as Record<string, unknown>
+      const rawKey = obj.label ?? obj.name ?? obj.axis ?? obj.key
+      const rawVal = obj.value ?? obj.score
+      const value = typeof rawVal === 'number' ? rawVal : Number(rawVal)
+      if (!Number.isFinite(value)) continue
+      const keyStr = typeof rawKey === 'string' ? rawKey : ''
+      out.push({ label: AXIS_LABELS[keyStr] ?? (keyStr || '評価軸'), value })
+    }
+  } else {
+    for (const [key, rawVal] of Object.entries(raw as Record<string, unknown>)) {
+      const value = typeof rawVal === 'number' ? rawVal : Number(rawVal)
+      if (!Number.isFinite(value)) continue
+      out.push({ label: AXIS_LABELS[key] ?? key, value })
+    }
+  }
+  return out
 }
 
 const STATUS_OPTIONS = [
@@ -217,14 +231,18 @@ export default function AdminApplicantDetailPage() {
     }
   }
 
+  // 評価軸は interview_results.evaluation_axes の実データのみ（DUMMY補完なし）。空なら空状態。
+  const radarAxes = normalizeEvaluationAxes(interviewResult?.evaluation_axes)
+  const axisCount = radarAxes.length
   const cx = 100
   const cy = 100
   const maxR = 72
   const getPoint = (i: number, r: number) => {
-    const angle = (-90 + i * 60) * (Math.PI / 180)
+    const step = axisCount > 0 ? 360 / axisCount : 60
+    const angle = (-90 + i * step) * (Math.PI / 180)
     return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) }
   }
-  const radarPoints = DUMMY.radarAxis.map((d, i) => getPoint(i, (d.value / 100) * maxR))
+  const radarPoints = radarAxes.map((d, i) => getPoint(i, (Math.max(0, Math.min(100, d.value)) / 100) * maxR))
   const radarPath = radarPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
 
   if (loading) {
@@ -376,102 +394,147 @@ export default function AdminApplicantDetailPage() {
                   <p className="text-gray-400 font-medium">面接が完了していないため、AI分析レポートは生成されていません</p>
                 </div>
               ) : (
-                <>
-                  {/* AIサマリー */}
-                  <div className="rounded-2xl bg-indigo-900/30 border-l-4 border-indigo-500 p-6 sm:p-7 border border-indigo-800/50">
-                    <h2 className="text-xs font-semibold text-indigo-400 uppercase tracking-wider mb-5">AI 面接分析</h2>
-                    <div className="space-y-5 text-sm sm:text-base text-gray-300 leading-relaxed">
-                      <section>
-                        <p className="font-semibold text-gray-200 mb-1">人物像</p>
-                        <p className="font-bold text-gray-100">{DUMMY.aiSummary.profile}</p>
-                      </section>
-                      <section>
-                        <p className="font-semibold text-gray-200 mb-1.5">経歴・実績</p>
-                        <p>{DUMMY.aiSummary.career}</p>
-                      </section>
-                      <section>
-                        <p className="font-semibold text-gray-200 mb-1.5">面接での印象</p>
-                        <p>{DUMMY.aiSummary.impression}</p>
-                      </section>
-                      <section>
-                        <p className="font-semibold text-gray-200 mb-1.5">強みと懸念点</p>
-                        <p>{DUMMY.aiSummary.strengthsAndConcerns}</p>
-                      </section>
-                    </div>
+                !interviewResult ? (
+                  <div className="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center">
+                    <p className="text-gray-400 font-medium">AI評価レポートはまだ生成されていません</p>
                   </div>
+                ) : (
+                  <>
+                    {/* AIサマリー（interview_results 実データ） */}
+                    {(interviewResult.personality_type || interviewResult.summary_text || interviewResult.feedback_text ||
+                      (Array.isArray(interviewResult.strengths) && interviewResult.strengths.length > 0) ||
+                      (Array.isArray(interviewResult.improvement_points) && interviewResult.improvement_points.length > 0)) && (
+                      <div className="rounded-2xl bg-indigo-900/30 border-l-4 border-indigo-500 p-6 sm:p-7 border border-indigo-800/50">
+                        <h2 className="text-xs font-semibold text-indigo-400 uppercase tracking-wider mb-5">AI 面接分析</h2>
+                        <div className="space-y-5 text-sm sm:text-base text-gray-300 leading-relaxed">
+                          {interviewResult.personality_type && (
+                            <section>
+                              <p className="font-semibold text-gray-200 mb-1">人物像</p>
+                              <p className="font-bold text-gray-100">{interviewResult.personality_type}</p>
+                              {interviewResult.personality_description && (
+                                <p className="mt-1.5">{interviewResult.personality_description}</p>
+                              )}
+                            </section>
+                          )}
+                          {interviewResult.summary_text && (
+                            <section>
+                              <p className="font-semibold text-gray-200 mb-1.5">総評</p>
+                              <p>{interviewResult.summary_text}</p>
+                            </section>
+                          )}
+                          {interviewResult.feedback_text && (
+                            <section>
+                              <p className="font-semibold text-gray-200 mb-1.5">面接での印象</p>
+                              <p>{interviewResult.feedback_text}</p>
+                            </section>
+                          )}
+                          {Array.isArray(interviewResult.strengths) && interviewResult.strengths.length > 0 && (
+                            <section>
+                              <p className="font-semibold text-gray-200 mb-1.5">強み</p>
+                              <ul className="list-disc list-inside space-y-1">
+                                {interviewResult.strengths.map((s: string, idx: number) => (
+                                  <li key={idx}>{s}</li>
+                                ))}
+                              </ul>
+                            </section>
+                          )}
+                          {Array.isArray(interviewResult.improvement_points) && interviewResult.improvement_points.length > 0 && (
+                            <section>
+                              <p className="font-semibold text-gray-200 mb-1.5">改善点</p>
+                              <ul className="list-disc list-inside space-y-1">
+                                {interviewResult.improvement_points.map((p: string, idx: number) => (
+                                  <li key={idx}>{p}</li>
+                                ))}
+                              </ul>
+                            </section>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
-                  {/* 推薦度バッジ */}
-                  <div>
-                    <div className="flex flex-col sm:flex-row sm:items-start gap-6 p-5 rounded-2xl bg-gray-800 border border-gray-700">
-                      <span className={`inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-2xl text-4xl font-bold shrink-0 ${GRADE_STYLES[interviewResult?.detail_json?.recommendation_rank || DUMMY.recommendGrade]}`}>
-                        {interviewResult?.detail_json?.recommendation_rank || DUMMY.recommendGrade}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-gray-100">推奨</p>
-                        <p className="text-sm text-gray-400 mt-1 max-w-xl leading-relaxed">{DUMMY.recommendReason}</p>
-                        {interviewResult?.total_score != null && (
-                          <div className="mt-4 pt-4 border-t border-gray-700">
-                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
-                              <div>
-                                <span className="text-sm text-gray-500">AI面接スコア: </span>
-                                <span className="text-lg font-semibold text-gray-100">{interviewResult.total_score}</span>
-                                <span className="text-sm text-gray-500"> / 100</span>
+                    {/* 推薦度バッジ（実データ recommendation_rank がある場合のみ） */}
+                    {interviewResult.detail_json?.recommendation_rank && (
+                      <div>
+                        <div className="flex flex-col sm:flex-row sm:items-start gap-6 p-5 rounded-2xl bg-gray-800 border border-gray-700">
+                          <span className={`inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-2xl text-4xl font-bold shrink-0 ${GRADE_STYLES[interviewResult.detail_json.recommendation_rank] || 'bg-gray-600 text-white'}`}>
+                            {interviewResult.detail_json.recommendation_rank}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-gray-100">推奨</p>
+                            {interviewResult.feedback_text && (
+                              <p className="text-sm text-gray-400 mt-1 max-w-xl leading-relaxed">{interviewResult.feedback_text}</p>
+                            )}
+                            {interviewResult.total_score != null && (
+                              <div className="mt-4 pt-4 border-t border-gray-700">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
+                                  <div>
+                                    <span className="text-sm text-gray-500">AI面接スコア: </span>
+                                    <span className="text-lg font-semibold text-gray-100">{interviewResult.total_score}</span>
+                                    <span className="text-sm text-gray-500"> / 100</span>
+                                  </div>
+                                  {/* v5: カルチャーフィット表示はMVP対象外（将来復活時にコメントを外す） */}
+                                </div>
                               </div>
-                              {/* v5: カルチャーフィット表示はMVP対象外（将来復活時にコメントを外す） */}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <RecommendLegendDark />
-                  </div>
-
-                  {/* レーダーチャート */}
-                  <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
-                    <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 sm:p-7 shrink-0">
-                      <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-5">6軸レーダーチャート</h2>
-                      <div className="flex justify-center p-4 bg-gray-900/50 rounded-2xl">
-                        <svg viewBox="0 0 200 200" className="w-48 h-48 sm:w-56 sm:h-56">
-                          <defs>
-                            <linearGradient id="radarFillAdmin" x1="0%" y1="0%" x2="100%" y2="100%">
-                              <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.35" />
-                              <stop offset="100%" stopColor="#6366f1" stopOpacity="0.35" />
-                            </linearGradient>
-                          </defs>
-                          {[1, 2, 3, 4, 5].map((l) => {
-                            const r = (l / 5) * maxR
-                            const pts = [0, 1, 2, 3, 4, 5].map((i) => getPoint(i, r))
-                            const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
-                            return <path key={l} d={path} fill="none" stroke="#4B5563" strokeWidth="1.2" />
-                          })}
-                          {[0, 1, 2, 3, 4, 5].map((i) => {
-                            const p = getPoint(i, maxR)
-                            return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="#4B5563" strokeWidth="1.2" />
-                          })}
-                          <path d={radarPath} fill="url(#radarFillAdmin)" stroke="#0ea5e9" strokeWidth="2.5" />
-                          {DUMMY.radarAxis.map((d, i) => {
-                            const p = getPoint(i, maxR + 14)
-                            return (
-                              <text key={i} x={p.x} y={p.y} textAnchor="middle" fill="#D1D5DB" fontSize="11" fontWeight="600">
-                                {d.label}
-                              </text>
-                            )
-                          })}
-                        </svg>
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0 space-y-4">
-                      {DUMMY.radarAxis.map((d, i) => (
-                        <div key={i} className="bg-gray-800 rounded-2xl border border-gray-700 p-4">
-                          <div className="flex justify-between items-baseline mb-1.5">
-                            <span className="text-sm font-medium text-gray-200">{d.label}</span>
-                            <span className="text-sm font-bold text-gray-100 tabular-nums">{d.value}</span>
+                            )}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
+                        <RecommendLegendDark />
+                      </div>
+                    )}
+
+                    {/* レーダーチャート（evaluation_axes 実データがある場合のみ表示。無ければ空状態） */}
+                    {radarAxes.length > 0 ? (
+                      <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
+                        <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 sm:p-7 shrink-0">
+                          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-5">評価軸レーダーチャート</h2>
+                          <div className="flex justify-center p-4 bg-gray-900/50 rounded-2xl">
+                            <svg viewBox="0 0 200 200" className="w-48 h-48 sm:w-56 sm:h-56">
+                              <defs>
+                                <linearGradient id="radarFillAdmin" x1="0%" y1="0%" x2="100%" y2="100%">
+                                  <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.35" />
+                                  <stop offset="100%" stopColor="#6366f1" stopOpacity="0.35" />
+                                </linearGradient>
+                              </defs>
+                              {[1, 2, 3, 4, 5].map((l) => {
+                                const r = (l / 5) * maxR
+                                const pts = radarAxes.map((_, i) => getPoint(i, r))
+                                const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
+                                return <path key={l} d={path} fill="none" stroke="#4B5563" strokeWidth="1.2" />
+                              })}
+                              {radarAxes.map((_, i) => {
+                                const p = getPoint(i, maxR)
+                                return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="#4B5563" strokeWidth="1.2" />
+                              })}
+                              <path d={radarPath} fill="url(#radarFillAdmin)" stroke="#0ea5e9" strokeWidth="2.5" />
+                              {radarAxes.map((d, i) => {
+                                const p = getPoint(i, maxR + 14)
+                                return (
+                                  <text key={i} x={p.x} y={p.y} textAnchor="middle" fill="#D1D5DB" fontSize="11" fontWeight="600">
+                                    {d.label}
+                                  </text>
+                                )
+                              })}
+                            </svg>
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0 space-y-4">
+                          {radarAxes.map((d, i) => (
+                            <div key={i} className="bg-gray-800 rounded-2xl border border-gray-700 p-4">
+                              <div className="flex justify-between items-baseline mb-1.5">
+                                <span className="text-sm font-medium text-gray-200">{d.label}</span>
+                                <span className="text-sm font-bold text-gray-100 tabular-nums">{d.value}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-gray-800 rounded-2xl border border-gray-700 p-8 text-center">
+                        <p className="text-gray-400 font-medium">評価軸データはまだありません</p>
+                      </div>
+                    )}
+                  </>
+                )
               )}
             </div>
           )}
@@ -707,33 +770,11 @@ export default function AdminApplicantDetailPage() {
                 <div className="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center">
                   <p className="text-gray-400 font-medium">面接がまだ開始されていません</p>
                 </div>
-              ) : DUMMY.conversationLog.length === 0 ? (
+              ) : (
+                // 会話ログ（interview_logs）は録画/文字起こしパイプライン（P-10）導入後に表示
                 <div className="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center">
                   <p className="text-gray-400 font-medium">会話ログデータがありません</p>
                 </div>
-              ) : (
-                DUMMY.conversationLog.map((log, i) => (
-                  <div key={i} className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
-                    <div className="p-6 sm:p-7 border-b border-gray-700 bg-gray-900/50">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-bold text-gray-100">質問 {log.number}</span>
-                        <span className="text-xs text-gray-500">{log.answerDuration}</span>
-                      </div>
-                    </div>
-                    <div className="p-6 sm:p-7 space-y-4">
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">質問</p>
-                        <p className="text-sm text-gray-300 leading-relaxed">{log.question}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">回答</p>
-                        <p className="text-sm text-gray-200 leading-relaxed bg-gray-900/50 rounded-xl p-4 border border-gray-700">
-                          {log.answer}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ))
               )}
             </div>
           )}
