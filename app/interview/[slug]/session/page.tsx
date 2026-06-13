@@ -363,6 +363,8 @@ export default function SessionPage() {
               total_questions: totalQuestions,
               answered_questions: answeredQuestions,
               end_reason: '自主終了',
+              // 課金判定（INT-009）: 10分超の利用は途中離脱でも従量課金対象
+              is_billable: elapsedSeconds > 600,
             })
             .eq('id', interviewId)
           
@@ -416,6 +418,8 @@ export default function SessionPage() {
             total_questions: totalQuestions,
             answered_questions: answeredQuestions,
             end_reason: finalEndReason,
+            // 課金判定（INT-009）: 10分超の利用は途中離脱でも従量課金対象
+            is_billable: elapsedSeconds > 600,
           })
           .eq('id', interviewId)
 

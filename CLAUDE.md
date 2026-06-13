@@ -132,7 +132,8 @@ openai, twilio, @aws-sdk/client-s3, idb
 
 ### 残課題（料金まわり以降）
 - billing 整理状況:
-  - **当月見込みは実データ化済み**（admin `/api/admin/billing/summary`・client billing とも companies × interviews(billable) × price_per_interview のリアルタイム算出。Stripe非依存で動作）
+  - **当月見込みは実データ化済み**（admin `/api/admin/billing/summary`・client billing とも companies × interviews(`is_billable`) × price_per_interview のリアルタイム算出。Stripe非依存で動作）
+  - **課金フラグ列ドリフトを是正済み**: 実DB列は `interviews.is_billable`（旧 `billable` は不在）・`interviews.ended_at`（旧 `completed_at` は不在）。読み取りカウント側は `.eq('is_billable', true)` に統一。**is_billable の writer は実完了経路 `app/interview/[slug]/session/page.tsx` の完了update**（status='completed'/ended_at と同時に `is_billable: elapsedSeconds > 600`）で確定。**課金判定 = 10分超（INT-009）。途中離脱でも10分超なら請求対象**。`/api/interview/[slug]/complete`・`/status` route は実DB列へ是正済みだが**呼び出しゼロの死蔵 endpoint**（削除は今回せず温存）
   - **invoices 参照は billing_records に是正済み**（実DBに invoices テーブルは無い。admin/client billing は billing_records 読み。amount=amount_jpy / tax=tax_jpy / period=billing_month→YYYY-MM / status=payment_status）
   - **確定請求 writer / Stripe月末締めバッチ（BATCH-001 `/api/internal/batch/monthly-billing`）は未実装** → 確定請求履歴・未入金・年間累計・月次グラフは writer 実装まで空状態。Stripe導入（P-10）連動で将来対応
   - `payment_status` の値集合は未確認（billing_records 0件）。writer 実装時に summary の status 正規化を再確認

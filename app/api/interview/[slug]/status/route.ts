@@ -30,7 +30,7 @@ export async function GET(
 
     const { data: interview, error: intError } = await supabase
       .from('interviews')
-      .select('id, status, end_reason, duration_seconds, total_questions, answered_questions, billable, created_at, completed_at')
+      .select('id, status, end_reason, duration_seconds, total_questions, answered_questions, is_billable, created_at, ended_at')
       .eq('id', interviewId)
       .eq('company_id', company.id)
       .single()
@@ -46,9 +46,9 @@ export async function GET(
       duration_seconds: interview.duration_seconds,
       total_questions: interview.total_questions,
       answered_questions: interview.answered_questions,
-      billable: interview.billable,
+      is_billable: interview.is_billable,
       created_at: interview.created_at,
-      completed_at: interview.completed_at,
+      ended_at: interview.ended_at,
     })
   } catch {
     return apiError('INTERNAL_ERROR')

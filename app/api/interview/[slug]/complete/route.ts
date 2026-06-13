@@ -59,8 +59,8 @@ export async function POST(
       return apiError('VALIDATION_ERROR', 'この面接は既に終了しています')
     }
 
-    // 課金判定: 10分超かつ不適切行為でない
-    const billable = body.duration_seconds > 600 && body.end_reason !== 'inappropriate'
+    // 課金判定（INT-009）: 10分超かつ不適切行為でない
+    const isBillable = body.duration_seconds > 600 && body.end_reason !== 'inappropriate'
 
     const { error: updateError } = await supabase
       .from('interviews')
@@ -69,8 +69,8 @@ export async function POST(
         end_reason: body.end_reason,
         duration_seconds: body.duration_seconds,
         total_questions: body.question_count,
-        billable,
-        completed_at: new Date().toISOString(),
+        is_billable: isBillable,
+        ended_at: new Date().toISOString(),
       })
       .eq('id', body.interview_id)
 
@@ -80,7 +80,7 @@ export async function POST(
 
     return successJson({
       interview_id: body.interview_id,
-      billable,
+      is_billable: isBillable,
       report_status: 'generating',
       feedback_status: 'generating',
     })

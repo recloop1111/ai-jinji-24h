@@ -363,13 +363,15 @@ POST /api/interview/session/end
 ```json
 {
   "interview_id": "uuid",
-  "billable": true,
+  "is_billable": true,
   "report_status": "generating",
   "feedback_status": "generating"
 }
 ```
 
-**課金判定:** `duration_seconds > 600`（10分超）かつ `end_reason !== 'inappropriate'` で `billable: true`
+**課金判定:** `duration_seconds > 600`（10分超）で `is_billable: true`（途中離脱でも10分超なら請求対象）。`/api/interview/[slug]/complete` route 側は `end_reason !== 'inappropriate'` 条件も併用。
+
+> 実装メモ: 実DBの課金フラグ列は `interviews.is_billable`（旧表記 `billable` は不在列）、完了日時列は `interviews.ended_at`（旧表記 `completed_at` は不在列）。is_billable の確定 writer は実完了経路である `app/interview/[slug]/session/page.tsx` の完了update（status='completed' / ended_at と同時に `is_billable: elapsedSeconds > 600`）で行う。`/api/interview/[slug]/complete`・`/status` route は実DB列へ是正済みだが、現状どこからも呼ばれていない死蔵 endpoint。
 
 **非同期処理トリガー:**
 1. 企業向けレポート生成（5分以内目標）
