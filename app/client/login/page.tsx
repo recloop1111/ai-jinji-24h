@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import PasswordInput from '@/components/shared/PasswordInput'
 
@@ -92,22 +91,6 @@ export default function ClientLoginPage() {
               )}
             </button>
           </form>
-
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-200" />
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-slate-500">または</span>
-            </div>
-          </div>
-
-          <Link
-            href="/client/dashboard?demo=true"
-            className="block w-full py-3 px-4 rounded-xl font-medium text-center text-blue-600 border-2 border-blue-500 bg-white hover:bg-blue-50 transition-colors"
-          >
-            デモを体験する
-          </Link>
         </div>
       </div>
     </div>
