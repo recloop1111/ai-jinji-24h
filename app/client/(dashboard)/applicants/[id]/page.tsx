@@ -268,7 +268,15 @@ type InterviewRow = {
 
 type InterviewResultRow = {
   total_score?: number | null
-  detail_json?: { recommendation_rank?: string } | null
+  detail_json?: {
+    recommendation_rank?: string
+    // P-10 OpenAI writer が面接全体から生成（無ければ既存DB項目で代替表示）
+    profile_summary?: {
+      persona?: string | null
+      career?: string | null
+      interviewer_notes?: string | null
+    } | null
+  } | null
   summary_text?: string | null
   feedback_text?: string | null
   personality_type?: string | null
@@ -308,6 +316,13 @@ type EvalAxis = {
 }
 
 const CONFIDENCE_LABELS: Record<'high' | 'medium' | 'low', string> = { high: '高', medium: '中', low: '低' }
+
+// 経歴要約の表示用ラベル（不明な値は生値をそのまま表示）
+const EDUCATION_LABELS: Record<string, string> = {
+  junior_high: '中学校卒業', high_school: '高校卒業', vocational: '専門学校卒業',
+  junior_college: '短期大学卒業', university: '大学卒業', graduate: '大学院卒業', other: 'その他',
+}
+const INDUSTRY_EXP_LABELS: Record<string, string> = { experienced: '経験あり', inexperienced: '未経験' }
 
 // 6評価軸キー → 日本語ラベル（evaluation_axes が label を持たない場合のフォールバック）
 const AXIS_LABELS: Record<string, string> = {
@@ -849,15 +864,21 @@ export default function ApplicantDetailPage() {
             </div>
           ) : (
             <>
-              {/* AIサマリー */}
+              {/* 人物概要（profile_summary.persona 優先 / 無ければ既存DB項目で代替） */}
               <div className="rounded-2xl bg-blue-50/90 border-l-4 border-blue-500 p-6 sm:p-7 shadow-md shadow-slate-200/50 border border-blue-100/50">
-                <h2 className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-5">AI 面接分析</h2>
+                <h2 className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-5">人物概要</h2>
                 <div className="space-y-5 text-sm sm:text-base text-slate-700 leading-relaxed">
-                  {interviewResult.summary_text && (
+                  {interviewResult.detail_json?.profile_summary?.persona ? (
                     <section>
-                      <p className="font-semibold text-gray-700 mb-1">人物像・サマリー</p>
-                      <p className="font-bold text-slate-800">{interviewResult.summary_text}</p>
+                      <p className="font-bold text-slate-800 whitespace-pre-wrap">{interviewResult.detail_json.profile_summary.persona}</p>
                     </section>
+                  ) : (
+                    interviewResult.summary_text && (
+                      <section>
+                        <p className="font-semibold text-gray-700 mb-1">人物像・サマリー</p>
+                        <p className="font-bold text-slate-800">{interviewResult.summary_text}</p>
+                      </section>
+                    )
                   )}
                   {interviewResult.feedback_text && (
                     <section>
@@ -865,10 +886,41 @@ export default function ApplicantDetailPage() {
                       <p>{interviewResult.feedback_text}</p>
                     </section>
                   )}
-                  {!interviewResult.summary_text && !interviewResult.feedback_text && (
-                    <p className="text-sm text-slate-500">サマリーデータはまだありません。</p>
+                  {!interviewResult.detail_json?.profile_summary?.persona && !interviewResult.summary_text && !interviewResult.feedback_text && (
+                    <p className="text-sm text-slate-500">人物概要データはまだありません。</p>
                   )}
                 </div>
+              </div>
+
+              {/* 経歴要約（profile_summary.career 優先 / 無ければ応募者の職歴・業界経験・学歴で代替） */}
+              <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
+                <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">経歴要約</h2>
+                {interviewResult.detail_json?.profile_summary?.career ? (
+                  <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{interviewResult.detail_json.profile_summary.career}</p>
+                ) : (applicant?.work_history || applicant?.industry_experience || applicant?.education) ? (
+                  <dl className="space-y-3">
+                    {applicant?.work_history && (
+                      <div>
+                        <dt className="text-xs font-medium text-slate-500 mb-1">職務経歴</dt>
+                        <dd className="text-sm text-slate-800 whitespace-pre-wrap">{applicant.work_history}</dd>
+                      </div>
+                    )}
+                    {applicant?.industry_experience && (
+                      <div>
+                        <dt className="text-xs font-medium text-slate-500 mb-1">業界経験</dt>
+                        <dd className="text-sm text-slate-800">{INDUSTRY_EXP_LABELS[applicant.industry_experience] ?? applicant.industry_experience}</dd>
+                      </div>
+                    )}
+                    {applicant?.education && (
+                      <div>
+                        <dt className="text-xs font-medium text-slate-500 mb-1">最終学歴</dt>
+                        <dd className="text-sm text-slate-800">{EDUCATION_LABELS[applicant.education] ?? applicant.education}</dd>
+                      </div>
+                    )}
+                  </dl>
+                ) : (
+                  <p className="text-sm text-slate-500">経歴情報はまだありません。</p>
+                )}
               </div>
 
               {/* 推薦度バッジ */}
@@ -988,9 +1040,9 @@ export default function ApplicantDetailPage() {
                 </ul>
               </div>
 
-              {/* 弱み・改善点 */}
+              {/* 懸念点・追加確認ポイント（改善点 ＋ EBCAの判断材料不足軸を統合） */}
               <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
-                <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">弱み・改善点</h2>
+                <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">懸念点・追加確認ポイント</h2>
                 <p className="text-xs text-slate-500 mb-4">応募者には見せない企業専用の情報</p>
                 <ul className="space-y-5">
                   {(Array.isArray(interviewResult.improvement_points) ? interviewResult.improvement_points : []).map((w: string, i: number) => (
@@ -998,11 +1050,41 @@ export default function ApplicantDetailPage() {
                       <p className="text-sm text-slate-700 leading-relaxed">{w}</p>
                     </li>
                   ))}
-                  {(!Array.isArray(interviewResult.improvement_points) || interviewResult.improvement_points.length === 0) && (
-                    <li className="text-sm text-slate-500">改善点データはまだありません。</li>
-                  )}
                 </ul>
+                {(() => {
+                  // EBCA で判断材料不足（score=null）の軸を「次回面接で確認すべき点」として提示
+                  const insufficient = normalizeEvaluationAxes(interviewResult.evaluation_axes).filter((a) => a.score == null)
+                  if (insufficient.length === 0) return null
+                  return (
+                    <div className="mt-5 pt-4 border-t border-slate-100">
+                      <p className="text-xs font-semibold text-amber-700 mb-2">判断材料不足・次回確認ポイント</p>
+                      <ul className="space-y-2">
+                        {insufficient.map((a, i) => (
+                          <li key={i} className="pl-4 border-l-2 border-amber-300">
+                            <p className="text-sm text-slate-700 leading-relaxed">
+                              <span className="font-medium">{a.label}</span>
+                              {a.insufficientReason ? `：${a.insufficientReason}` : '：判断材料が不足しています'}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )
+                })()}
+                {(!Array.isArray(interviewResult.improvement_points) || interviewResult.improvement_points.length === 0) &&
+                  normalizeEvaluationAxes(interviewResult.evaluation_axes).filter((a) => a.score == null).length === 0 && (
+                    <p className="text-sm text-slate-500">懸念点・追加確認データはまだありません。</p>
+                  )}
               </div>
+
+              {/* 面接官向けメモ（profile_summary.interviewer_notes があれば表示） */}
+              {interviewResult.detail_json?.profile_summary?.interviewer_notes && (
+                <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
+                  <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">面接官向けメモ</h2>
+                  <p className="text-xs text-slate-500 mb-4">採用判断で特に見るべきポイント</p>
+                  <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{interviewResult.detail_json.profile_summary.interviewer_notes}</p>
+                </div>
+              )}
             </>
           )}
         </div>
