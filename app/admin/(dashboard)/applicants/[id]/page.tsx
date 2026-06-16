@@ -178,7 +178,7 @@ export default function AdminApplicantDetailPage() {
       try {
         const { data: applicantData, error: applicantError } = await supabase
           .from('applicants')
-          .select('*, job_listings(title)')
+          .select('*, jobs(title)')
           .eq('id', id)
           .single()
 
@@ -385,7 +385,7 @@ export default function AdminApplicantDetailPage() {
                   </div>
                   <div>
                     <dt className="text-xs font-medium text-gray-500 mb-1">応募職種</dt>
-                    <dd className="text-sm text-gray-100">{applicant?.job_listings?.title || '未入力'}</dd>
+                    <dd className="text-sm text-gray-100">{applicant?.jobs?.title || '未入力'}</dd>
                   </div>
                   <div>
                     <dt className="text-xs font-medium text-gray-500 mb-1">就業形態</dt>

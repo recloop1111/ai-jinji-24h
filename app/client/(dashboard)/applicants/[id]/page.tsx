@@ -255,7 +255,7 @@ type ApplicantRow = {
   work_history?: string | null
   company_id?: string | null
   result?: string | null
-  job_listings?: { title?: string } | null
+  jobs?: { title?: string } | null
 }
 
 type InterviewRow = {
@@ -417,7 +417,7 @@ export default function ApplicantDetailPage() {
         // 応募者データを取得
         const { data: applicantData, error: applicantError } = await supabase
           .from('applicants')
-          .select('*, job_listings(title)')
+          .select('*, jobs(title)')
           .eq('id', id)
           .single()
 
@@ -811,7 +811,7 @@ export default function ApplicantDetailPage() {
               </div>
               <div>
                 <dt className="text-xs font-medium text-slate-500 mb-1">応募職種</dt>
-                <dd className="text-sm text-slate-900">{applicant?.job_listings?.title || '未入力'}</dd>
+                <dd className="text-sm text-slate-900">{applicant?.jobs?.title || '未入力'}</dd>
               </div>
               <div>
                 <dt className="text-xs font-medium text-slate-500 mb-1">就業形態</dt>
