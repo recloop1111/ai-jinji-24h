@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import { LayoutGrid, Building2, Users, MessageSquare, CircleDollarSign, Settings, Shield, Menu, X, LogOut } from 'lucide-react'
 
 const navigation = [
@@ -36,11 +37,38 @@ function getPageName(pathname: string): string {
 export default function AdminDashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
+  const supabase = createClient()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // admin / super_admin 以外には管理画面の外枠・サイドバーを一切見せず /admin/login へ戻す共通ガード
+  const [authorized, setAuthorized] = useState(false)
 
-  const handleLogout = () => {
-    // TODO: Supabase Authセッション破棄を実装
-    router.push('/admin/login')
+  useEffect(() => {
+    let cancelled = false
+    async function verifyAdmin() {
+      try {
+        const res = await fetch('/api/admin/me')
+        if (cancelled) return
+        if (res.ok) {
+          setAuthorized(true)
+        } else {
+          await supabase.auth.signOut()
+          router.replace('/admin/login')
+        }
+      } catch {
+        if (cancelled) return
+        await supabase.auth.signOut()
+        router.replace('/admin/login')
+      }
+    }
+    verifyAdmin()
+    return () => {
+      cancelled = true
+    }
+  }, [router, supabase])
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.replace('/admin/login')
   }
 
   const isActive = (href: string) => {
@@ -49,6 +77,11 @@ export default function AdminDashboardLayout({ children }: { children: React.Rea
   }
 
   const pageName = getPageName(pathname)
+
+  // 認可確認が済むまで管理画面の外枠・サイドバー・children を描画しない（未認可のフラッシュ防止）
+  if (!authorized) {
+    return <div className="min-h-screen bg-gray-950" />
+  }
 
   return (
     <div className="min-h-screen bg-gray-950">
