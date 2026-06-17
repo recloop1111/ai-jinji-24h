@@ -307,51 +307,22 @@ export default function SessionPage() {
       }
     }
 
-    const handlePageHide = async () => {
+    const handlePageHide = () => {
       if (interviewId && applicantId && !isEnding) {
-        try {
-          // interviewsテーブルを更新
-          const endData = {
-            interviewId,
-            applicantId,
-            endReason: '自主終了',
-            elapsedSeconds,
-            totalQuestions,
-            answeredQuestions,
-          }
-          
-          // navigator.sendBeaconで非同期に終了処理を送信
-          // TODO: APIエンドポイント /api/interview/end を作成して、そこでSupabase更新を行う
-          const blob = new Blob([JSON.stringify(endData)], { type: 'application/json' })
-          navigator.sendBeacon(`/api/interview/end?interview_id=${interviewId}&applicant_id=${applicantId}`, blob)
-          
-          // 直接Supabase更新も試行（sendBeaconが失敗する可能性があるため）
-          // 注意: この方法は確実ではないため、APIエンドポイントの実装を推奨
-          await supabase
-            .from('interviews')
-            .update({
-              // タブ閉じ等の離脱は途中終了＝cancelled（正常完了ではない）
-              status: 'cancelled',
-              ended_at: new Date().toISOString(),
-              duration_seconds: elapsedSeconds,
-              total_questions: totalQuestions,
-              answered_questions: answeredQuestions,
-              end_reason: '自主終了',
-              // 課金判定（INT-009）: 10分超の利用は途中離脱でも従量課金対象
-              is_billable: elapsedSeconds > 600,
-            })
-            .eq('id', interviewId)
-          
-          await supabase
-            .from('applicants')
-            .update({
-              status: '途中離脱',
-              result: '不採用', // 途中離脱の場合は自動的に不採用に設定
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', applicantId)
-        } catch (error) {
-        }
+        const token = sessionStorage.getItem(`interview_${slug}_token`)
+        if (!token) return
+        // タブ閉じ等の離脱は途中終了＝cancelled。token付きで end API へ sendBeacon（service-roleで確定）。
+        const payload = JSON.stringify({
+          token,
+          applicant_id: applicantId,
+          interview_id: interviewId,
+          final_status: 'cancelled',
+          end_reason: '自主終了',
+          duration_seconds: elapsedSeconds,
+          total_questions: totalQuestions,
+          answered_questions: answeredQuestions,
+        })
+        navigator.sendBeacon(`/api/interview/${slug}/end`, new Blob([payload], { type: 'application/json' }))
       }
     }
 
@@ -361,7 +332,7 @@ export default function SessionPage() {
       window.removeEventListener('beforeunload', handleBeforeUnload)
       window.removeEventListener('pagehide', handlePageHide)
     }
-  }, [interviewId, applicantId, elapsedSeconds, totalQuestions, answeredQuestions, isEnding, supabase])
+  }, [interviewId, applicantId, elapsedSeconds, totalQuestions, answeredQuestions, isEnding, slug])
 
   async function handleEndInterview(endReason: '全質問完了' | '時間切れ' | '自主終了' = '自主終了') {
     if (isEnding) return // 重複実行を防止
@@ -384,47 +355,22 @@ export default function SessionPage() {
         // 正常完了（全質問完了）のみ completed。途中終了（自主終了・未完答の時間切れ）は cancelled。
         const interviewStatus = finalEndReason === '全質問完了' ? 'completed' : 'cancelled'
 
-        // interviewsテーブルを更新
-        const { error: interviewError } = await supabase
-          .from('interviews')
-          .update({
-            status: interviewStatus,
-            ended_at: new Date().toISOString(),
+        // 面接終了は service-role API（token検証）で interviews / applicants の status を確定する
+        const endToken = sessionStorage.getItem(`interview_${slug}_token`)
+        await fetch(`/api/interview/${slug}/end`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token: endToken,
+            applicant_id: applicantId,
+            interview_id: interviewId,
+            final_status: interviewStatus,
+            end_reason: finalEndReason,
             duration_seconds: elapsedSeconds,
             total_questions: totalQuestions,
             answered_questions: answeredQuestions,
-            end_reason: finalEndReason,
-            // 課金判定（INT-009）: 10分超の利用は途中離脱でも従量課金対象
-            is_billable: elapsedSeconds > 600,
-          })
-          .eq('id', interviewId)
-
-        if (interviewError) {
-        } else {
-        }
-
-        // applicantsテーブルのstatusを更新
-        const applicantStatus = finalEndReason === '全質問完了' || finalEndReason === '時間切れ'
-          ? '完了'
-          : '途中離脱'
-
-        // 途中離脱の場合は result も自動的に '不採用' に設定
-        const updateData: any = {
-          status: applicantStatus,
-          updated_at: new Date().toISOString(),
-        }
-        if (applicantStatus === '途中離脱') {
-          updateData.result = '不採用'
-        }
-
-        const { error: applicantError } = await supabase
-          .from('applicants')
-          .update(updateData)
-          .eq('id', applicantId)
-
-        if (applicantError) {
-        } else {
-        }
+          }),
+        }).catch(() => {})
 
         // 終了理由に応じて画面遷移を分岐
         // 全質問完了または時間切れ（全質問回答済み）→ 完了画面へ
