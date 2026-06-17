@@ -2,13 +2,11 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 
 export default function VerifyPage() {
   const params = useParams()
   const router = useRouter()
   const slug = params.slug as string
-  const supabase = createClient()
 
   const [company, setCompany] = useState<{
     id: string
@@ -33,14 +31,10 @@ export default function VerifyPage() {
     async function loadCompany() {
       setLoading(true)
       try {
-        const { data, error } = await supabase
-          .from('companies')
-          .select('id, name, logo_url, is_suspended, is_demo')
-          .eq('interview_slug', slug)
-          .single()
-
+        const res = await fetch(`/api/interview/${slug}/public-config`)
         if (cancelled) return
-        setCompany(error || !data ? null : data)
+        const json = await res.json().catch(() => null)
+        setCompany(!res.ok || !json?.company ? null : json.company)
       } catch {
         if (!cancelled) setCompany(null)
       } finally {
@@ -51,7 +45,7 @@ export default function VerifyPage() {
     return () => {
       cancelled = true
     }
-  }, [slug, supabase])
+  }, [slug])
 
   useEffect(() => {
     if (toast) {

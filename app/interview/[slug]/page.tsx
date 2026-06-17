@@ -6,7 +6,6 @@ import { User, MessageSquare, Camera, PlayCircle, Video } from 'lucide-react'
 
 const SUPPORT_EMAIL = 'support@ai-jinji24h.com'
 import { useParams, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 
 const LANGUAGES = [
   { code: 'ja', label: '日本語' },
@@ -21,7 +20,6 @@ export default function InterviewPage() {
   const params = useParams()
   const router = useRouter()
   const slug = params.slug as string
-  const supabase = createClient()
 
   const [company, setCompany] = useState<{
     id: string
@@ -44,18 +42,14 @@ export default function InterviewPage() {
   async function fetchCompany() {
     setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('companies')
-        .select('id, name, logo_url, interview_slug, is_suspended, is_demo')
-        .eq('interview_slug', slug)
-        .single()
-
-      if (error || !data) {
+      const res = await fetch(`/api/interview/${slug}/public-config`)
+      const json = await res.json().catch(() => null)
+      if (!res.ok || !json?.company) {
         setCompany(null)
       } else {
-        setCompany(data)
+        setCompany(json.company)
       }
-    } catch (error) {
+    } catch {
       setCompany(null)
     }
     setLoading(false)

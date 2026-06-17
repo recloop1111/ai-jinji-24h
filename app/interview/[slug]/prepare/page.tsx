@@ -2,10 +2,9 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import { Camera, Mic, Volume2, User, Video, AlertCircle, Check } from 'lucide-react'
 
-// Supabaseから取得できない場合のダミーデータ
+// 取得できない場合のダミーデータ
 const dummyCompany = {
   id: 'dummy-company-id',
   name: '株式会社サンプル',
@@ -17,7 +16,6 @@ export default function PreparePage() {
   const params = useParams()
   const router = useRouter()
   const slug = params.slug as string
-  const supabase = createClient()
 
   const [company, setCompany] = useState<{
     id: string
@@ -120,19 +118,14 @@ export default function PreparePage() {
   async function fetchCompany() {
     setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('companies')
-        .select('id, name, logo_url, is_suspended')
-        .eq('interview_slug', slug)
-        .single()
-
-      if (error || !data) {
+      const res = await fetch(`/api/interview/${slug}/public-config`)
+      const json = await res.json().catch(() => null)
+      if (!res.ok || !json?.company) {
         setCompany(dummyCompany)
       } else {
-        setCompany(data)
+        setCompany(json.company)
       }
-    } catch (error) {
-      // TODO: 段階4 - Supabase接続を本実装する
+    } catch {
       setCompany(dummyCompany)
     }
     setLoading(false)

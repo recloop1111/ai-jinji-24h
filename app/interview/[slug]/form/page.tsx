@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import InterviewLayout from '@/components/interview/InterviewLayout'
 import {
   StepIndicator,
@@ -42,7 +41,6 @@ export default function FormPage() {
   const params = useParams()
   const router = useRouter()
   const slug = params.slug as string
-  const supabase = createClient()
 
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [isDemo, setIsDemo] = useState(false)
@@ -80,15 +78,12 @@ export default function FormPage() {
       setPhone(storedPhone)
     }
 
-    // 企業情報取得
+    // 企業情報取得（公開設定API。companies は安全列のみ）
     try {
-      const { data: company, error: companyError } = await supabase
-        .from('companies')
-        .select('id, is_demo')
-        .eq('interview_slug', slug)
-        .single()
-
-      if (companyError || !company) {
+      const res = await fetch(`/api/interview/${slug}/public-config`)
+      const json = await res.json().catch(() => null)
+      const company = json?.company
+      if (!res.ok || !company) {
         setLoading(false)
         return
       }
@@ -108,16 +103,8 @@ export default function FormPage() {
         setEducation('university')
       }
 
-      // 求人一覧取得（jobsテーブル）
-      const { data: jobsData, error: jobsError } = await supabase
-        .from('jobs')
-        .select('id, title, employment_type')
-        .eq('company_id', company.id)
-        .eq('is_active', true)
-
-      if (jobsError) {
-        // 求人取得エラー時は空リストのまま
-      }
+      // 求人一覧（当該企業の active のみ・公開設定APIが返す）
+      const jobsData: { id: string; title: string; employment_type: string }[] = json.jobs ?? []
 
       if (jobsData && jobsData.length > 0) {
         setJobTypes(
