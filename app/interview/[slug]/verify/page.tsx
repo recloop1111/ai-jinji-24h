@@ -29,8 +29,29 @@ export default function VerifyPage() {
   ]
 
   useEffect(() => {
-    fetchCompany()
-  }, [slug])
+    let cancelled = false
+    async function loadCompany() {
+      setLoading(true)
+      try {
+        const { data, error } = await supabase
+          .from('companies')
+          .select('id, name, logo_url, is_suspended, is_demo')
+          .eq('interview_slug', slug)
+          .single()
+
+        if (cancelled) return
+        setCompany(error || !data ? null : data)
+      } catch {
+        if (!cancelled) setCompany(null)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    loadCompany()
+    return () => {
+      cancelled = true
+    }
+  }, [slug, supabase])
 
   useEffect(() => {
     if (toast) {
@@ -38,26 +59,6 @@ export default function VerifyPage() {
       return () => clearTimeout(timer)
     }
   }, [toast])
-
-  async function fetchCompany() {
-    setLoading(true)
-    try {
-      const { data, error } = await supabase
-        .from('companies')
-        .select('id, name, logo_url, is_suspended, is_demo')
-        .eq('interview_slug', slug)
-        .single()
-
-      if (error || !data) {
-        setCompany(null)
-      } else {
-        setCompany(data)
-      }
-    } catch (error) {
-      setCompany(null)
-    }
-    setLoading(false)
-  }
 
   function handleCodeChange(index: number, value: string) {
     // 数字のみ受け付ける
@@ -130,10 +131,10 @@ export default function VerifyPage() {
       // TODO: Phase 4 - Supabase経由でのSMS再送信
       // TODO: 段階4 - Supabase接続を本実装する
       // ここでSupabase/API呼び出しを行う予定
-    } catch (error) {
+    } catch {
       // TODO: 段階4 - Supabase接続を本実装する
     }
-    
+
     setToast('認証コードを再送信しました')
   }
 
