@@ -104,6 +104,16 @@ export async function GET(request: NextRequest) {
       resultsMap[r.applicant_id] = r
     })
 
+    // in_progress な interview を持つ applicant（「面接中」導出用。DBには保存しない）
+    const inProgressIds = new Set<string>()
+    const { data: ipData } = await supabase
+      .from('interviews')
+      .select('applicant_id, status')
+      .eq('status', 'in_progress')
+    ;((ipData ?? []) as { applicant_id: string }[]).forEach((iv) => {
+      if (iv.applicant_id) inProgressIds.add(iv.applicant_id)
+    })
+
     const items = applicants.map((a) => {
       const ir = resultsMap[a.id] ?? null
       return {
@@ -114,6 +124,7 @@ export async function GET(request: NextRequest) {
         company_id: a.company_id,
         company_name: companiesMap[a.company_id] || '不明',
         status: a.status || '準備中',
+        in_progress: inProgressIds.has(a.id),
         selection_status: a.selection_status || 'pending',
         created_at: a.created_at,
         interview_scheduled_at: null,

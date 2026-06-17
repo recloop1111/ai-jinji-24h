@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { deriveDisplayStatusJa } from '@/lib/applicants/displayStatus'
 import { ChevronLeft as ChevronLeftIcon, Play as PlayIcon } from 'lucide-react'
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, ResponsiveContainer } from 'recharts'
 
@@ -93,6 +94,7 @@ type TabKey = 'summary' | 'resume' | 'detail' | 'conversation' | 'recording' | '
 function CurrentStatusBadge({ status }: { status: string }) {
   const statusMap: Record<string, { label: string; className: string }> = {
     '準備中': { label: '準備中', className: 'bg-gray-600 text-gray-100' },
+    '面接中': { label: '面接中', className: 'bg-blue-600 text-white' },
     '完了': { label: '完了', className: 'bg-emerald-600 text-white' },
     '途中離脱': { label: '途中離脱', className: 'bg-amber-600 text-white' },
   }
@@ -154,6 +156,7 @@ export default function AdminApplicantDetailPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('summary')
   const [applicant, setApplicant] = useState<any>(null)
   const [interviewResult, setInterviewResult] = useState<any>(null)
+  const [hasInProgressInterview, setHasInProgressInterview] = useState(false)
   const [cultureProfile, setCultureProfile] = useState<any>(null)
   const [cultureAnalysisEnabled, setCultureAnalysisEnabled] = useState<boolean>(false)
   const [companyName, setCompanyName] = useState<string>('')
@@ -195,6 +198,15 @@ export default function AdminApplicantDetailPage() {
           setApplicant(applicantData)
           setSelectionStatus(applicantData.selection_status || 'pending')
           setSelectionMemo(applicantData.selection_memo || '')
+
+          // in_progress な interview の有無（「面接中」導出用・DBには保存しない）
+          const { data: ipRows } = await supabase
+            .from('interviews')
+            .select('id')
+            .eq('applicant_id', id)
+            .eq('status', 'in_progress')
+            .limit(1)
+          setHasInProgressInterview((ipRows ?? []).length > 0)
 
           const { data: irData } = await supabase
             .from('interview_results')
@@ -314,7 +326,7 @@ export default function AdminApplicantDetailPage() {
                   <h1 className="text-xl sm:text-2xl font-bold text-gray-100 truncate tracking-tight">
                     {`${applicant.last_name || ''} ${applicant.first_name || ''}`.trim() || '名前未設定'}
                   </h1>
-                  <CurrentStatusBadge status={applicant.status} />
+                  <CurrentStatusBadge status={deriveDisplayStatusJa(applicant.status, hasInProgressInterview)} />
                 </div>
                 <p className="text-sm text-gray-400 mt-1">{companyName}</p>
                 <dl className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-gray-300">

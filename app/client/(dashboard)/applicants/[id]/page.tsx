@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { deriveCurrentStatus, CURRENT_STATUS_LABEL } from '@/lib/applicants/displayStatus'
 import { ChevronLeft as ChevronLeftIcon, ChevronDown as ChevronDownIcon, Play as PlayIcon, Download, Mail, LinkIcon, Copy, Check } from 'lucide-react'
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, ResponsiveContainer } from 'recharts'
 
@@ -259,6 +260,7 @@ type ApplicantRow = {
 }
 
 type InterviewRow = {
+  status?: string | null
   started_at?: string | null
   ended_at?: string | null
   recording_url?: string | null
@@ -562,6 +564,14 @@ export default function ApplicantDetailPage() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
                   <h1 className="text-xl sm:text-2xl font-bold text-slate-900 truncate tracking-tight">{displayName}</h1>
+                  {(() => {
+                    const cs = deriveCurrentStatus(applicant?.status, interview?.status === 'in_progress')
+                    const cls = cs === 'preparing' ? 'bg-slate-100 text-slate-600'
+                      : cs === 'in_progress' ? 'bg-blue-100 text-blue-600'
+                      : cs === 'completed' ? 'bg-green-100 text-green-600'
+                      : 'bg-red-100 text-red-600'
+                    return <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${cls}`}>{CURRENT_STATUS_LABEL[cs]}</span>
+                  })()}
                   <div ref={statusDropdownRef} className="relative inline-block">
                     <button
                       type="button"

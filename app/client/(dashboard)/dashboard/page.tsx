@@ -4,6 +4,7 @@ import { useState, useMemo, useRef, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
+import { deriveCurrentStatus, CURRENT_STATUS_LABEL, type CurrentStatusKey } from '@/lib/applicants/displayStatus'
 import { useTemplates, type Template } from '../../contexts/TemplatesContext'
 import { ChevronRight as ChevronRightIcon, ChevronDown as ChevronDownIcon, Phone as PhoneIcon, Mail as MailIcon } from 'lucide-react'
 import { scoreToGrade, gradeColor } from '@/lib/utils/scoreToGrade'
@@ -17,7 +18,7 @@ type DashboardApplicant = {
   email: string
   phone: string
   date: string
-  currentStatus: 'preparing' | 'completed' | 'abandoned' // 準備中・完了・途中離脱
+  currentStatus: CurrentStatusKey // 準備中・面接中・完了・途中離脱（面接中はDB非保存・導出）
   status: ApplicantStatus
   score: number | null
   recommendationRank: 'A' | 'B' | 'C' | 'D' | null
@@ -107,6 +108,17 @@ function DashboardContent() {
             })
           }
 
+          // in_progress な interview を持つ applicant を取得（「面接中」導出用・DB非保存）
+          const inProgressApplicantIds = new Set<string>()
+          const { data: ipData } = await supabase
+            .from('interviews')
+            .select('applicant_id, status')
+            .eq('company_id', companyId)
+            .eq('status', 'in_progress')
+          ;(ipData ?? []).forEach((iv: { applicant_id: string }) => {
+            if (iv.applicant_id) inProgressApplicantIds.add(iv.applicant_id)
+          })
+
           // Step 3: マージしてマッピング
           const mappedApplicants = recent.map((a: any) => {
             const ir = resultsMap[a.id] || null
@@ -117,10 +129,7 @@ function DashboardContent() {
               email: a.email || '',
               phone: a.phone_number || '',
               date: a.created_at ? new Date(a.created_at).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '',
-              currentStatus: a.status === '準備中' ? 'preparing' as const
-                : a.status === '完了' ? 'completed' as const
-                : a.status === '途中離脱' ? 'abandoned' as const
-                : 'preparing' as const,
+              currentStatus: deriveCurrentStatus(a.status, inProgressApplicantIds.has(a.id)),
               status: a.result === '検討中' ? 'considering' as const
                 : a.result === '二次通過' ? 'second_pass' as const
                 : a.result === '不採用' ? 'rejected' as const
@@ -332,25 +341,24 @@ function DashboardContent() {
                       <td className="px-4 py-3">
                         <span
                           className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${
-                            a.currentStatus === 'preparing' ? 'bg-gray-100 text-gray-600' 
+                            a.currentStatus === 'preparing' ? 'bg-gray-100 text-gray-600'
+                            : a.currentStatus === 'in_progress' ? 'bg-blue-100 text-blue-600'
                             : a.currentStatus === 'completed' ? 'bg-green-100 text-green-600'
                             : 'bg-red-100 text-red-600' // 途中離脱
                           }`}
                         >
-                          {a.currentStatus === 'preparing' ? '準備中' 
-                            : a.currentStatus === 'completed' ? '完了'
-                            : '途中離脱'}
+                          {CURRENT_STATUS_LABEL[a.currentStatus]}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm">
-                        {a.currentStatus === 'preparing' || a.currentStatus === 'abandoned' ? (
+                        {a.currentStatus === 'preparing' || a.currentStatus === 'in_progress' || a.currentStatus === 'abandoned' ? (
                           <span className="text-slate-400">-</span>
                         ) : a.recommendationRank ? (
                           <span className="text-gray-700 font-semibold text-base">{a.recommendationRank}</span>
                         ) : <span className="text-slate-400">-</span>}
                       </td>
                       <td className="px-4 py-3">
-                        {a.currentStatus === 'preparing' ? (
+                        {a.currentStatus === 'preparing' || a.currentStatus === 'in_progress' ? (
                           <span className="text-slate-400">-</span>
                         ) : (
                           <div className="relative inline-block">

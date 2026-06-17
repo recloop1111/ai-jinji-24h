@@ -4,6 +4,7 @@ import { useState, useMemo, useRef, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
+import { deriveCurrentStatus, CURRENT_STATUS_LABEL, type CurrentStatusKey } from '@/lib/applicants/displayStatus'
 import { useTemplates, type Template } from '../../contexts/TemplatesContext'
 import { Download as DownloadIcon, Eye as EyeIcon, EyeOff as EyeOffIcon, Search as SearchEmptyIcon, Phone as PhoneIcon, Mail as MailIcon, Filter as FilterIcon, ChevronDown as ChevronDownIcon } from 'lucide-react'
 import { scoreToGrade, gradeColor } from '@/lib/utils/scoreToGrade'
@@ -12,7 +13,7 @@ import { scoreToGrade, gradeColor } from '@/lib/utils/scoreToGrade'
 // status: null=未対応(面接完了後・結果未設定時の初期値), considering=検討中, second_pass=二次通過, rejected=不採用(企業担当者が手動管理)
 
 type StatusFilterValue = 'all' | 'pending' | 'considering' | 'second_pass' | 'rejected'
-type CurrentStatusFilterValue = 'all' | 'preparing' | 'completed' | 'abandoned'
+type CurrentStatusFilterValue = 'all' | 'preparing' | 'in_progress' | 'completed' | 'abandoned'
 
 type Applicant = {
   id: string
@@ -20,7 +21,7 @@ type Applicant = {
   email: string
   phone: string
   interviewAt: string
-  currentStatus: 'preparing' | 'completed' | 'abandoned' // 準備中・完了・途中離脱
+  currentStatus: CurrentStatusKey // 準備中・面接中・完了・途中離脱（面接中はDB非保存・導出）
   status: 'considering' | 'second_pass' | 'rejected' | null
   score: number | null
   recommendationRank: 'A' | 'B' | 'C' | 'D' | null
@@ -37,6 +38,7 @@ const STATUS_FILTER_OPTIONS: { value: StatusFilterValue; label: string }[] = [
 const CURRENT_STATUS_FILTER_OPTIONS: { value: CurrentStatusFilterValue; label: string }[] = [
   { value: 'all', label: 'すべて' },
   { value: 'preparing', label: '準備中' },
+  { value: 'in_progress', label: '面接中' },
   { value: 'completed', label: '完了' },
   { value: 'abandoned', label: '途中離脱' },
 ]
@@ -186,6 +188,17 @@ function ApplicantsContent() {
           })
         }
 
+        // Step 2.5: in_progress な interview を持つ applicant を取得（「面接中」導出用。DBには保存しない）
+        const inProgressApplicantIds = new Set<string>()
+        const { data: interviewsData } = await supabase
+          .from('interviews')
+          .select('applicant_id, status')
+          .eq('company_id', companyId)
+          .eq('status', 'in_progress')
+        ;(interviewsData ?? []).forEach((iv: { applicant_id: string }) => {
+          if (iv.applicant_id) inProgressApplicantIds.add(iv.applicant_id)
+        })
+
         // Step 3: マージしてマッピング
         const mappedApplicants: Applicant[] = (applicantsData || []).map((a: any) => {
           const ir = resultsMap[a.id] || null
@@ -196,10 +209,7 @@ function ApplicantsContent() {
             email: a.email || '',
             phone: a.phone_number || '',
             interviewAt: a.created_at ? new Date(a.created_at).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '',
-            currentStatus: a.status === '準備中' ? 'preparing' as const
-              : a.status === '完了' ? 'completed' as const
-              : a.status === '途中離脱' ? 'abandoned' as const
-              : 'preparing' as const,
+            currentStatus: deriveCurrentStatus(a.status, inProgressApplicantIds.has(a.id)),
             status: a.result === '検討中' ? 'considering' as const
               : a.result === '二次通過' ? 'second_pass' as const
               : a.result === '不採用' ? 'rejected' as const
@@ -260,10 +270,7 @@ function ApplicantsContent() {
     }
 
     const currentStatusLabel = (s: string | null) => (
-      s === 'preparing' ? '準備中' 
-      : s === 'completed' ? '完了'
-      : s === 'abandoned' ? '途中離脱'
-      : ''
+      s && s in CURRENT_STATUS_LABEL ? CURRENT_STATUS_LABEL[s as CurrentStatusKey] : ''
     )
     const statusLabel = (s: string | null) =>
       s === 'considering' ? '検討中' : s === 'second_pass' ? '二次通過' : s === 'rejected' ? '不採用' : '未対応'
@@ -661,14 +668,13 @@ function ApplicantsContent() {
                     <td className="px-4 py-3">
                       <span
                         className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${
-                          a.currentStatus === 'preparing' ? 'bg-gray-100 text-gray-600' 
+                          a.currentStatus === 'preparing' ? 'bg-gray-100 text-gray-600'
+                          : a.currentStatus === 'in_progress' ? 'bg-blue-100 text-blue-600'
                           : a.currentStatus === 'completed' ? 'bg-green-100 text-green-600'
                           : 'bg-red-100 text-red-600' // 途中離脱
                         }`}
                       >
-                        {a.currentStatus === 'preparing' ? '準備中' 
-                          : a.currentStatus === 'completed' ? '完了'
-                          : '途中離脱'}
+                        {CURRENT_STATUS_LABEL[a.currentStatus]}
                       </span>
                     </td>
                     <td className="px-4 py-3">

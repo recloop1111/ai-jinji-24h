@@ -3,8 +3,9 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Search, Download, Users, CheckCircle, Clock, BarChart3, XCircle, Phone, Mail } from 'lucide-react'
 import Link from 'next/link'
+import { deriveDisplayStatusJa } from '@/lib/applicants/displayStatus'
 
-type StatusFilter = 'all' | '準備中' | '完了' | '途中離脱'
+type StatusFilter = 'all' | '準備中' | '面接中' | '完了' | '途中離脱'
 type ScoreFilter = 'all' | '80+' | '60-79' | '40-59' | '40-'
 type PeriodFilter = 'all' | 'this_month' | 'last_month' | '3months'
 type ResultFilter = 'all' | 'pending' | 'considering' | 'second_pass' | 'rejected' | 'hired'
@@ -17,6 +18,7 @@ type Applicant = {
   company_id: string
   company_name: string
   status: string
+  in_progress?: boolean
   selection_status: string | null
   created_at: string
   interview_scheduled_at: string | null
@@ -28,6 +30,7 @@ type Applicant = {
 function getStatusConfig(status: string): { dotClass: string; textClass: string; label: string } {
   const map: Record<string, { dotClass: string; textClass: string; label: string }> = {
     '完了': { dotClass: 'bg-emerald-400', textClass: 'text-emerald-400', label: '完了' },
+    '面接中': { dotClass: 'bg-blue-400', textClass: 'text-blue-400', label: '面接中' },
     '準備中': { dotClass: 'bg-amber-400', textClass: 'text-amber-400', label: '準備中' },
     '途中離脱': { dotClass: 'bg-red-400', textClass: 'text-red-400', label: '途中離脱' },
   }
@@ -104,7 +107,7 @@ export default function AdminApplicantsPage() {
       const q = searchQuery.trim().toLowerCase()
       const matchSearch = !q || a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q)
       const matchCompany = companyFilter === 'all' || a.company_id === companyFilter
-      const matchStatus = statusFilter === 'all' || a.status === statusFilter
+      const matchStatus = statusFilter === 'all' || deriveDisplayStatusJa(a.status, a.in_progress ?? false) === statusFilter
       const matchScore =
         scoreFilter === 'all' ||
         (a.total_score !== null &&
@@ -258,6 +261,7 @@ export default function AdminApplicantsPage() {
             >
               <option value="all">すべてのステータス</option>
               <option value="完了">完了</option>
+              <option value="面接中">面接中</option>
               <option value="準備中">準備中</option>
               <option value="途中離脱">途中離脱</option>
             </select>
@@ -322,7 +326,7 @@ export default function AdminApplicantsPage() {
                   </tr>
                 ) : (
                   paginatedApplicants.map((a) => {
-                    const statusConfig = getStatusConfig(a.status)
+                    const statusConfig = getStatusConfig(deriveDisplayStatusJa(a.status, a.in_progress ?? false))
                     const scoreBadgeClass = getScoreBadgeClass(a.total_score)
                     return (
                       <tr key={a.id} className="border-b border-white/[0.04] hover:bg-white/[0.03] transition-all duration-150">
