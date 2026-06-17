@@ -20,6 +20,7 @@ export default function VerifyPage() {
   const [loading, setLoading] = useState(true)
   const [code, setCode] = useState(['', '', '', ''])
   const [toast, setToast] = useState<string | null>(null)
+  const [codeError, setCodeError] = useState<string | null>(null)
   const inputRefs = [
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
@@ -64,6 +65,9 @@ export default function VerifyPage() {
       return
     }
 
+    // 入力を始めたらエラー表示を消す
+    if (codeError) setCodeError(null)
+
     const newCode = [...code]
     newCode[index] = value
     setCode(newCode)
@@ -104,27 +108,19 @@ export default function VerifyPage() {
   function handleVerify() {
     const codeString = code.join('')
     if (code.every((digit) => digit !== '')) {
-      if (company?.is_demo) {
-        // デモモード: 固定コード「1234」で認証通過
-        if (codeString === '1234') {
-          setToast('認証が完了しました')
-          setTimeout(() => {
-            router.push(`/interview/${slug}/prepare`)
-          }, 1000)
-        } else {
-          setToast('認証コードが正しくありません')
-        }
+      // デモ/本番とも現時点は固定コード「1234」で通過（本番は Twilio Verify API に差し替え予定）
+      if (codeString === '1234') {
+        setCodeError(null)
+        setToast('認証が完了しました')
+        setTimeout(() => {
+          router.push(`/interview/${slug}/prepare`)
+        }, 1000)
       } else {
-        // TODO: 本番モード - Twilio Verify API に差し替え
-        // 現時点ではデモと同じく「1234」で通過
-        if (codeString === '1234') {
-          setToast('認証が完了しました')
-          setTimeout(() => {
-            router.push(`/interview/${slug}/prepare`)
-          }, 1000)
-        } else {
-          setToast('認証コードが正しくありません')
-        }
+        // 誤コード: 入力をクリアして先頭にフォーカスし、すぐ再入力できるようにする
+        setCodeError('認証コードが正しくありません。もう一度入力してください。')
+        setToast('認証コードが正しくありません')
+        setCode(['', '', '', ''])
+        inputRefs[0].current?.focus()
       }
     }
   }
@@ -229,6 +225,10 @@ export default function VerifyPage() {
               />
             ))}
           </div>
+
+          {codeError && (
+            <p className="text-center text-sm text-red-600" role="alert">{codeError}</p>
+          )}
 
           {/* 認証するボタン */}
           <button
