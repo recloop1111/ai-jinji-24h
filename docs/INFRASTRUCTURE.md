@@ -108,30 +108,42 @@
 | リフレッシュトークン | 有効 |
 
 #### RLS（Row Level Security）
-全テーブルでRLS有効化。主要ポリシー:
+全テーブルでRLS有効化。**RLSハードニング Phase 1 / 2-pre / 2-c を適用済み**（手動実行用SQL: `supabase/rls/`・migration外）。運営API・公開面接フローの書き込みは **Service Role Key で RLS をバイパス**。
 
+主要ポリシー（現状）:
 | テーブル | ポリシー |
 |---------|---------|
-| companies | `auth.uid() = auth_user_id` で自社のみ |
-| applicants | `company_id` が自社のcompanies.idと一致 |
-| job_types | `company_id` が自社と一致 |
-| interviews | applicants経由で自社のみ |
-| reports | interviews経由で自社のみ |
-| internal_memos | `company_id` が自社と一致 |
-| email_templates | `company_id` が自社と一致 |
-| sent_emails | applicants経由で自社のみ |
+| applicants | client=自社のみ（`company_select_applicants` / `company_update_applicants`）／admin=全社SELECT（`admin_select_applicants`）。**anon は遮断（Phase 2-c）** |
+| interviews | client=自社のみ（`company_select_interviews`）／admin=全社SELECT（`admin_select_interviews`）。**anon は遮断（Phase 2-c）** |
+| interview_results | client=自社のみ（`company_select_interview_results`）／admin=全社（`admin_select_interview_results`）。**anon は遮断（Phase 1）** |
+| internal_memos / email_templates / sent_emails 等 | `company_id` 経由で自社のみ |
+| companies / jobs / job_questions / common_questions | 公開面接フロー用に **anon SELECT を当面許容**（応募フォーム・質問取得が browser 直読み。Phase 2-d で API化 or 据え置き判断） |
 
-運営APIはService Role Keyを使用しRLSをバイパス。
+ハードニング適用フェーズ:
+- **Phase 1（適用済）**: `interview_results` の anon SELECT/INSERT・authenticated true系を遮断、`company_select` 維持＋`admin_select_interview_results` 追加。
+- **Phase 2-pre（適用済）**: applicants/interviews の不要な authenticated true系（INSERT/UPDATE）を削除。
+- **Phase 2-c（適用済）**: applicants/interviews の anon insert/select/update を遮断、`company_*` 維持、`admin_select_applicants`/`admin_select_interviews` 追加。
+- 結果: **anon では applicants/interviews/interview_results を読めない**（service-role では読める）。admin判定は `profiles.role IN ('admin','super_admin')`。
 
-#### 接続文字列
+#### Phase 2-a: 公開面接フローの service-role API ＋ ケイパビリティ・トークン
+- 公開フロー（未ログイン）の主要書き込みは browser Supabase 直書きを廃し、**token付き service-role API** へ移行（applicants/interviews への browser 直書きは撤去済み）:
+  `POST /api/interview/[slug]/{applicant, start, end, satisfaction, snapshot}`
+- **HMAC-SHA256 ケイパビリティ・トークン**（`lib/interview/capability-token.ts`）。payload `{ slug, applicant_id, iat, exp }`、署名鍵 = **`INTERVIEW_TOKEN_SECRET`**。各APIで slug / applicant_id / company / interview の整合を再検証。
+- `applicants.status` の確定（完了/途中離脱）は **end API（service-role）** で実施（anon は applicants を更新できないため）。`interviews.status` は `in_progress` / `completed` / `cancelled` 運用。
+
+#### 接続文字列 / サーバ専用シークレット
 ```
 # クライアント（ブラウザ）
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 
-# サーバー（API Routes）
+# サーバー（API Routes 専用。NEXT_PUBLIC_ を付けない・値はコミット禁止）
 SUPABASE_SERVICE_ROLE_KEY=sb_secret_...
+# 公開面接フローの HMAC ケイパビリティ・トークン署名/検証に使用。.env.local と本番環境変数に設定。
+INTERVIEW_TOKEN_SECRET=（十分に長いランダム文字列）
 ```
+
+> 外部有料API（OpenAI Realtime / Twilio Verify / Cloudflare R2 / Stripe / Resend）は**未導入または最後にまとめてE2E確認**する方針。現時点は外部有料API導入なしで DB / API / RLS の土台を整備中（SMS認証は現状「1234」モック）。
 
 ---
 
@@ -354,6 +366,7 @@ SENTRY_PROJECT=ai-jinji-24h
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | 開発URL | ステージングURL | 本番URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | 開発Key | ステージングKey | 本番Key |
 | `SUPABASE_SERVICE_ROLE_KEY` | No | 開発Key | ステージングKey | 本番Key |
+| `INTERVIEW_TOKEN_SECRET` | No | 開発用ランダム値 | ステージング用 | 本番用ランダム値 |
 | `OPENAI_API_KEY` | No | テスト用 | テスト用 | 本番Key |
 | `STRIPE_SECRET_KEY` | No | sk_test_ | sk_test_ | sk_live_ |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Yes | pk_test_ | pk_test_ | pk_live_ |
