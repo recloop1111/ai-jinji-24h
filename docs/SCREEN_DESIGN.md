@@ -48,6 +48,8 @@ reCAPTCHA： Google reCAPTCHA v3はバッジを画面右下に小さく表示す
 
 ### 2-2. 画面B（SMS認証画面）
 
+> **実装注記（Phase 2-a 時点）**: 本節は最終形（Twilio Verify・6桁・残回数等）の仕様。**現状は SMS未導入のモックで、固定コード「1234」（4桁）で通過**する。誤コード時は**入力欄をクリア＋先頭欄にフォーカス＋インラインエラー（「認証コードが正しくありません。もう一度入力してください。」）**を表示し、すぐ再入力できる。Twilio Verify 導入時に本節の本番仕様へ置換する。
+
 URL構造： /interview/{企業別ランダム文字列}/verify
 
 画面レイアウト： シングルカラム、中央寄せ、最大幅480px。
@@ -573,6 +575,35 @@ URL構造： /admin/satisfaction
 運営管理画面はログイン（＋2FA）、ダッシュボード、企業一覧、企業詳細、運営視点の応募者詳細（5タブ）、質問バンク管理、応募者テキストデータ管理、請求管理、停止・再開管理、セキュリティ管理（4タブ）、応募者満足度データの合計11画面（タブを含めると20ビュー）。
 
 総合計は28画面（タブ込み42ビュー）。
+
+## 10. 実装挙動の整合（Phase 2-a 確定）
+
+### 10-1. verify画面（認証コード）
+- 現状は **固定コード「1234」（4桁）モック**（SMS未導入）。誤コード時は**入力欄クリア＋先頭フォーカス＋インラインエラー**で即再入力可。Twilio Verify 導入時に本番SMS認証へ置換予定。
+
+### 10-2. ended画面（途中終了）
+- **応募者向け終了画面として完結**。`/` や `/client/login` へ遷移しない（企業管理画面へ戻さない）。
+- `window.opener` がある場合は `window.close()`、単独タブの場合は「面接は終了しました。このタブを閉じてください。」の案内表示に留める。
+
+### 10-3. 応募者ステータス表示（一覧・詳細・dashboard 共通）
+- DBの **`applicants.status` は `準備中`/`完了`/`途中離脱` の3値のみ**。**「面接中」はDBに保存しない**。
+- **最新 `interviews.status` から表示導出**：`in_progress`→**面接中**／`completed`→**完了**／`cancelled`→**途中離脱**／interview無→**準備中**。`applicants.status='完了'/'途中離脱'` を最優先。複数interviewは最新（created_at 降順先頭）を優先。
+- 表示ラベルは **「準備中」「面接中」「完了」「途中離脱」**。client一覧／client dashboard／client詳細／admin一覧／admin詳細で同一の考え方（`lib/applicants/displayStatus.ts`）。
+
+### 10-4. 運営管理画面（admin guard）
+- `/admin/*` は **admin / super_admin のみ**アクセス可。`GET /api/admin/me` で role 確認。
+- admin (dashboard) layout は未認可なら **`signOut()`＋`/admin/login`** へ。認可確定まで**外枠・サイドバー・children を描画しない**（company アカウントでは管理画面が一切見えない）。
+- admin logout は Supabase セッションを破棄（`supabase.auth.signOut()`）。
+
+### 10-5. 公開応募フローと管理画面の分離
+- 応募者フローは **`/interview/[slug]` 配下で完結**し、`/client/login` や `/admin` へ誘導しない。応募者画面と企業管理画面は混ざらない。
+
+### 10-6. EBCA / 概要タブとの整合
+- 応募者詳細・概要タブの **EBCA評価軸・人物概要・経歴要約・懸念点/追加確認・面接官メモ**は反映済み（API設計書 INT-009/CLI-006・REQUIREMENTS F-R 参照）。本節はステータス表示の補足であり、それらと矛盾しない。
+
+### 10-7. 本番前注意（未実装・最後にまとめてE2E）
+- **デモ用のフォーム入力補助/初期値は本番前に削除・無効化**する。
+- 音声面接 / アバター発話 / OpenAI Realtime / **EBCA評価生成 writer** / 録画R2 / Twilio Verify / Stripe確定請求 / Resend通知 は**外部有料APIが絡むため最後にまとめてE2E確認**。
 
 ## 9. 変更履歴
 
