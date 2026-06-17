@@ -222,23 +222,24 @@ export default function FormPage() {
         qualifications: qualifications.trim() || null,
       }
 
-      const { data, error } = await supabase
-        .from('applicants')
-        .insert(insertData)
-        .select()
-        .single()
+      // applicants の直INSERT は廃止し、service-role API で作成＋ケイパビリティ・トークンを発行する
+      const res = await fetch(`/api/interview/${slug}/applicant`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(insertData),
+      })
+      const json = await res.json().catch(() => null)
 
-      if (error) {
+      if (!res.ok || !json?.applicant_id) {
         setErrors({ submit: '情報の保存に失敗しました。もう一度お試しください。' })
         setSubmitting(false)
         return
       }
 
-      if (data) {
-        sessionStorage.setItem(`interview_${slug}_applicant_id`, data.id)
-        sessionStorage.setItem(`interview_${slug}_company_id`, companyId)
-        router.push(`/interview/${slug}/verify?phone=${encodeURIComponent(phone)}`)
-      }
+      sessionStorage.setItem(`interview_${slug}_applicant_id`, json.applicant_id)
+      sessionStorage.setItem(`interview_${slug}_company_id`, json.company_id)
+      sessionStorage.setItem(`interview_${slug}_token`, json.token)
+      router.push(`/interview/${slug}/verify?phone=${encodeURIComponent(phone)}`)
     } catch {
       setErrors({ submit: '情報の保存に失敗しました。もう一度お試しください。' })
       setSubmitting(false)
