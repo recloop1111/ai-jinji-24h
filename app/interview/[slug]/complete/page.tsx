@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { useParams } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 
 // TODO: 実際のデータに差替え
 const SUMMARY = {
@@ -33,7 +32,6 @@ function StarIcon({ className, filled }: { className?: string; filled?: boolean 
 export default function CompletePage() {
   const params = useParams()
   const slug = params.slug as string
-  const supabase = createClient()
 
   const [rating, setRating] = useState(0)
   const [hoverRating, setHoverRating] = useState(0)
@@ -42,17 +40,18 @@ export default function CompletePage() {
   async function handleSubmitRating() {
     if (rating === 0) return
     const applicantId = sessionStorage.getItem(`interview_${slug}_applicant_id`)
-    if (!applicantId) return
+    const token = sessionStorage.getItem(`interview_${slug}_token`)
+    if (!applicantId || !token) return
     try {
-      const { error } = await supabase
-        .from('applicants')
-        .update({ satisfaction_rating: rating })
-        .eq('id', applicantId)
-
-      if (error) {
+      // browser 直UPDATEは廃止し、token付き service-role API で保存する
+      const res = await fetch(`/api/interview/${slug}/satisfaction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, applicant_id: applicantId, satisfaction_rating: rating }),
+      })
+      if (!res.ok) {
         return
       }
-
       setSubmitted(true)
     } catch {
       // ネットワークエラー等は無視（満足度は任意）
