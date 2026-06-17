@@ -18,7 +18,7 @@ type Applicant = {
   company_id: string
   company_name: string
   status: string
-  in_progress?: boolean
+  latest_interview_status?: string | null
   selection_status: string | null
   created_at: string
   interview_scheduled_at: string | null
@@ -107,7 +107,7 @@ export default function AdminApplicantsPage() {
       const q = searchQuery.trim().toLowerCase()
       const matchSearch = !q || a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q)
       const matchCompany = companyFilter === 'all' || a.company_id === companyFilter
-      const matchStatus = statusFilter === 'all' || deriveDisplayStatusJa(a.status, a.in_progress ?? false) === statusFilter
+      const matchStatus = statusFilter === 'all' || deriveDisplayStatusJa(a.status, a.latest_interview_status ?? null) === statusFilter
       const matchScore =
         scoreFilter === 'all' ||
         (a.total_score !== null &&
@@ -326,7 +326,7 @@ export default function AdminApplicantsPage() {
                   </tr>
                 ) : (
                   paginatedApplicants.map((a) => {
-                    const statusConfig = getStatusConfig(deriveDisplayStatusJa(a.status, a.in_progress ?? false))
+                    const statusConfig = getStatusConfig(deriveDisplayStatusJa(a.status, a.latest_interview_status ?? null))
                     const scoreBadgeClass = getScoreBadgeClass(a.total_score)
                     return (
                       <tr key={a.id} className="border-b border-white/[0.04] hover:bg-white/[0.03] transition-all duration-150">

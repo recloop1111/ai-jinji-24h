@@ -357,7 +357,8 @@ export default function SessionPage() {
           await supabase
             .from('interviews')
             .update({
-              status: 'completed',
+              // タブ閉じ等の離脱は途中終了＝cancelled（正常完了ではない）
+              status: 'cancelled',
               ended_at: new Date().toISOString(),
               duration_seconds: elapsedSeconds,
               total_questions: totalQuestions,
@@ -407,12 +408,14 @@ export default function SessionPage() {
           : endReason === '時間切れ'
           ? '時間切れ'
           : '自主終了'
+        // 正常完了（全質問完了）のみ completed。途中終了（自主終了・未完答の時間切れ）は cancelled。
+        const interviewStatus = finalEndReason === '全質問完了' ? 'completed' : 'cancelled'
 
         // interviewsテーブルを更新
         const { error: interviewError } = await supabase
           .from('interviews')
           .update({
-            status: 'completed',
+            status: interviewStatus,
             ended_at: new Date().toISOString(),
             duration_seconds: elapsedSeconds,
             total_questions: totalQuestions,

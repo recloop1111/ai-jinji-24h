@@ -108,15 +108,17 @@ function DashboardContent() {
             })
           }
 
-          // in_progress な interview を持つ applicant を取得（「面接中」導出用・DB非保存）
-          const inProgressApplicantIds = new Set<string>()
+          // 各 applicant の「最新 interview.status」を取得（面接中/途中離脱/完了 の導出用・DB非保存）
+          const latestInterviewStatus: Record<string, string> = {}
           const { data: ipData } = await supabase
             .from('interviews')
-            .select('applicant_id, status')
+            .select('applicant_id, status, created_at')
             .eq('company_id', companyId)
-            .eq('status', 'in_progress')
-          ;(ipData ?? []).forEach((iv: { applicant_id: string }) => {
-            if (iv.applicant_id) inProgressApplicantIds.add(iv.applicant_id)
+            .order('created_at', { ascending: false })
+          ;(ipData ?? []).forEach((iv: { applicant_id: string; status: string | null }) => {
+            if (iv.applicant_id && !(iv.applicant_id in latestInterviewStatus)) {
+              latestInterviewStatus[iv.applicant_id] = iv.status ?? ''
+            }
           })
 
           // Step 3: マージしてマッピング
@@ -129,7 +131,7 @@ function DashboardContent() {
               email: a.email || '',
               phone: a.phone_number || '',
               date: a.created_at ? new Date(a.created_at).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '',
-              currentStatus: deriveCurrentStatus(a.status, inProgressApplicantIds.has(a.id)),
+              currentStatus: deriveCurrentStatus(a.status, latestInterviewStatus[a.id] ?? null),
               status: a.result === '検討中' ? 'considering' as const
                 : a.result === '二次通過' ? 'second_pass' as const
                 : a.result === '不採用' ? 'rejected' as const

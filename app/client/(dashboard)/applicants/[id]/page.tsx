@@ -565,7 +565,7 @@ export default function ApplicantDetailPage() {
                 <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
                   <h1 className="text-xl sm:text-2xl font-bold text-slate-900 truncate tracking-tight">{displayName}</h1>
                   {(() => {
-                    const cs = deriveCurrentStatus(applicant?.status, interview?.status === 'in_progress')
+                    const cs = deriveCurrentStatus(applicant?.status, interview?.status ?? null)
                     const cls = cs === 'preparing' ? 'bg-slate-100 text-slate-600'
                       : cs === 'in_progress' ? 'bg-blue-100 text-blue-600'
                       : cs === 'completed' ? 'bg-green-100 text-green-600'

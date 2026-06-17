@@ -156,7 +156,7 @@ export default function AdminApplicantDetailPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('summary')
   const [applicant, setApplicant] = useState<any>(null)
   const [interviewResult, setInterviewResult] = useState<any>(null)
-  const [hasInProgressInterview, setHasInProgressInterview] = useState(false)
+  const [latestInterviewStatus, setLatestInterviewStatus] = useState<string | null>(null)
   const [cultureProfile, setCultureProfile] = useState<any>(null)
   const [cultureAnalysisEnabled, setCultureAnalysisEnabled] = useState<boolean>(false)
   const [companyName, setCompanyName] = useState<string>('')
@@ -199,14 +199,14 @@ export default function AdminApplicantDetailPage() {
           setSelectionStatus(applicantData.selection_status || 'pending')
           setSelectionMemo(applicantData.selection_memo || '')
 
-          // in_progress な interview の有無（「面接中」導出用・DBには保存しない）
-          const { data: ipRows } = await supabase
+          // 最新 interview.status（面接中/途中離脱/完了 の導出用・DBには保存しない）
+          const { data: ivRows } = await supabase
             .from('interviews')
-            .select('id')
+            .select('status, created_at')
             .eq('applicant_id', id)
-            .eq('status', 'in_progress')
+            .order('created_at', { ascending: false })
             .limit(1)
-          setHasInProgressInterview((ipRows ?? []).length > 0)
+          setLatestInterviewStatus((ivRows ?? [])[0]?.status ?? null)
 
           const { data: irData } = await supabase
             .from('interview_results')
@@ -326,7 +326,7 @@ export default function AdminApplicantDetailPage() {
                   <h1 className="text-xl sm:text-2xl font-bold text-gray-100 truncate tracking-tight">
                     {`${applicant.last_name || ''} ${applicant.first_name || ''}`.trim() || '名前未設定'}
                   </h1>
-                  <CurrentStatusBadge status={deriveDisplayStatusJa(applicant.status, hasInProgressInterview)} />
+                  <CurrentStatusBadge status={deriveDisplayStatusJa(applicant.status, latestInterviewStatus)} />
                 </div>
                 <p className="text-sm text-gray-400 mt-1">{companyName}</p>
                 <dl className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-gray-300">
