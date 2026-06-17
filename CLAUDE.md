@@ -50,6 +50,40 @@ communication / logical_thinking / initiative / desire / stress_tolerance / inte
   - 形式: `[{ axis, label, score(0-20 or null), rank(A-E or null), evidence:[], confidence: high|medium|low, insufficient_reason: string|null }]`
 - **P-10 実装課題**: 面接終了後、OpenAIが全Q&Aを横断入力として6軸評価を生成し `evaluation_axes` / `total_score` / `detail_json` へ書き込む writer（現状 writer 無し＝シードのみ）。表示側 `normalizeEvaluationAxes`（admin/client 応募者詳細）は将来 evidence/confidence/判断材料不足 の表示に拡張が必要
 
+## 現在の進捗 (2026-06-17)
+
+### Phase 2-a: 完了（公開面接フローの service-role API化＋ケイパビリティ・トークン）
+- **HMAC-SHA256 ケイパビリティ・トークン**導入（`lib/interview/capability-token.ts`。payload `{slug, applicant_id, iat, exp}`・exp 2h・`timingSafeEqual`）。秘密鍵 = **`INTERVIEW_TOKEN_SECRET`（サーバ専用 env・NEXT_PUBLIC不可・コミットしない）**。
+- 公開面接フローの **browser Supabase 直書きを全廃**し、token付き **service-role API** へ移行（service-role は RLS bypass）。各APIは slug/applicant_id/company/interview の整合を再検証：
+  - `POST /api/interview/[slug]/applicant` — 応募者作成＋token発行（company_id は slug 由来で確定）
+  - `POST /api/interview/[slug]/start` — 面接開始（既存 in_progress を cancelled 化→新規 in_progress 作成）
+  - `POST /api/interview/[slug]/end` — 終了確定（interviews=completed/cancelled・ended_at・is_billable＝10分超／**applicants.status を end API 側で確定**：completed→'完了'・cancelled→'途中離脱'＋result='不採用'／他 in_progress を cancelled 化）
+  - `POST /api/interview/[slug]/satisfaction` — 満足度（1〜5）保存
+  - `POST /api/interview/[slug]/snapshot` — 質問スナップショット保存（in_progress時のみ）
+- **interviews.status 運用 = `in_progress` / `completed` / `cancelled`**。applicants/interviews への公開フロー browser 直書きは無し（残る公開フロー直アクセスは companies/jobs/job_questions の SELECT のみ）。
+- ※ 既存 `/api/interview/[slug]/{verify-url,questions,answer,end-reason,extend,status}` は createClient(anon)・未使用の旧APIで温存（将来整理）。
+
+### RLS ハードニング進捗（手動実行用SQL: supabase/rls/・migration外）
+- **Phase 1（実行済）**: `interview_results` の anon SELECT/INSERT・authenticated true系を遮断、`company_select_interview_results` 維持＋`admin_select_interview_results` 追加。
+- **Phase 2-pre（実行済）**: applicants/interviews の不要 `authenticated_insert/update`（qual=true）を削除。
+- **Phase 2-c（実行済）**: applicants/interviews の **anon insert/select/update を遮断**、`company_select_*`・`company_update_applicants` 維持、**`admin_select_applicants`/`admin_select_interviews` 追加**（admin/super_admin が全社参照）。公開フロー書き込みは service-role API（RLS bypass）で継続。
+- **未対応（Phase 2-d で検討）**: `companies`（slug照合）/`jobs`/`job_questions`/`common_questions` の **anon SELECT はまだ可**（公開フォーム/質問取得が browser 直読み）。API化 or 据え置き判断は別途。
+- admin判定は `profiles.role IN ('admin','super_admin')`。service-role は全 RLS を bypass。
+
+### admin 画面ガード（実行済）
+- **`GET /api/admin/me`** 追加（`getAdminUser()` 流用・admin/super_admin のみ 200、他は 401/403）。
+- **admin (dashboard) layout で role 検証**→未認可は `signOut()`＋`/admin/login` へ。認可確定まで外枠・サイドバー・children を非描画。logout も `supabase.auth.signOut()` 実装。
+- → **company アカウントでは /admin/* に入れない**（API は getAdminUser、画面は layout guard の二重）。
+
+### 公開面接フロー修正（実行済）
+- verify：誤コード時に入力欄クリア＋先頭フォーカス＋インラインエラーで即再入力可（認証は現状「1234」モック）。
+- ended：`/` や `/client/login` へ遷移しない（応募者向け終了表示）。応募者フローは企業管理画面と分離。
+
+### 応募者ステータス表示仕様（確定）
+- DBの **`applicants.status` は CHECK制約で `準備中`/`完了`/`途中離脱` の3値のみ**。「面接中」は**DBに保存しない**。
+- 表示は **最新 `interviews.status` から導出**（`lib/applicants/displayStatus.ts`）：`in_progress`→面接中／`completed`→完了／`cancelled`→途中離脱／interview無→準備中。**applicants.status='完了'/'途中離脱' を最優先**。最新は created_at 降順先頭（古い in_progress 孤児に引っ張られない）。
+- client/admin の一覧・詳細・dashboard に反映。EBCA・人物概要表示や選考ステータス更新には非影響。
+
 ## 現在の進捗 (2026-06-12)
 
 ### Phase 4C: 完了（料金モデル・上限・パスワード）
@@ -138,10 +172,17 @@ communication / logical_thinking / initiative / desire / stress_tolerance / inte
 ### 未導入パッケージ
 openai, twilio, @aws-sdk/client-s3, idb
 
+### 残課題（Phase 2-c 以降・docs・有料API）
+- **Phase 2-d**: `companies`（slug照合）/`jobs`/`job_questions`/`common_questions` の **公開 SELECT を service-role API化するか据え置くか**の判断（現状 anon SELECT 可）。
+- **docs整合（順次）**: `INFRASTRUCTURE.md`（`INTERVIEW_TOKEN_SECRET`＋RLS現状）/ `API_DESIGN.md`（面接API刷新＋capability token）/ `REQUIREMENTS.md`（ステータス仕様・フロー分離）/ `SCREEN_DESIGN.md`（verify/ended/面接中/admin guard）。本コミットで CLAUDE.md は反映済み。
+- **有料API系は最後にまとめて導入・E2E確認**（費用・外部審査が絡むため）: OpenAI Realtime 音声面接／アバター音声／音声認識／**EBCA評価生成 writer（interview_results）**／録画（R2）／Twilio 実SMS（現状「1234」モック）／Stripe **確定請求 writer（BATCH-001）**／Resend 通知。
+- **本番前E2Eチェックリスト**整備（無料で確認できる範囲 ＋ 有料API E2E を分けて一覧化）。
+- **デモ用のフォーム入力補助/初期値は本番前に削除・無効化**する（`/interview/[slug]/form` 等）。
+
 ### 残課題（料金まわり以降）
 - billing 整理状況:
   - **当月見込みは実データ化済み**（admin `/api/admin/billing/summary`・client billing とも companies × interviews(`is_billable`) × price_per_interview のリアルタイム算出。Stripe非依存で動作）
-  - **課金フラグ列ドリフトを是正済み**: 実DB列は `interviews.is_billable`（旧 `billable` は不在）・`interviews.ended_at`（旧 `completed_at` は不在）。読み取りカウント側は `.eq('is_billable', true)` に統一。**is_billable の writer は実完了経路 `app/interview/[slug]/session/page.tsx` の完了update**（status='completed'/ended_at と同時に `is_billable: elapsedSeconds > 600`）で確定。**課金判定 = 10分超（INT-009）。途中離脱でも10分超なら請求対象**。`/api/interview/[slug]/complete`・`/status` route は実DB列へ是正済みだが**呼び出しゼロの死蔵 endpoint**（削除は今回せず温存）
+  - **課金フラグ列ドリフトを是正済み**: 実DB列は `interviews.is_billable`（旧 `billable` は不在）・`interviews.ended_at`（旧 `completed_at` は不在）。読み取りカウント側は `.eq('is_billable', true)` に統一。**is_billable の writer は Phase 2-a 以降 `POST /api/interview/[slug]/end`（service-role）で確定**（`is_billable = duration_seconds > 600`）。**課金判定 = 10分超（INT-009）。途中離脱でも10分超なら請求対象**。`/api/interview/[slug]/complete`・`/status` route は実DB列へ是正済みだが**呼び出しゼロの死蔵 endpoint**（削除は今回せず温存）
   - **invoices 参照は billing_records に是正済み**（実DBに invoices テーブルは無い。admin/client billing は billing_records 読み。amount=amount_jpy / tax=tax_jpy / period=billing_month→YYYY-MM / status=payment_status）
   - **確定請求 writer / Stripe月末締めバッチ（BATCH-001 `/api/internal/batch/monthly-billing`）は未実装** → 確定請求履歴・未入金・年間累計・月次グラフは writer 実装まで空状態。Stripe導入（P-10）連動で将来対応
   - `payment_status` の値集合は未確認（billing_records 0件）。writer 実装時に summary の status 正規化を再確認
@@ -151,7 +192,7 @@ openai, twilio, @aws-sdk/client-s3, idb
 - 応募者詳細系の DUMMY 実データ化（admin/client の applicants/[id]）は**別途方針決定が必要**（現状は触らない指定）
 - 満足度（satisfaction）周辺の整理:
   - `satisfaction_ratings` は**書き込み元のない死蔵テーブル**（実データ保存先は `applicants.satisfaction_rating`）。削除/型整理は別タスク（今回は放置）
-  - INT-014 `POST /api/interview/satisfaction` は**未実装**。現状は `/interview/[slug]/complete` がブラウザから `applicants.satisfaction_rating` を直接 update。専用API化は将来課題
+  - 満足度送信は **`POST /api/interview/[slug]/satisfaction`（service-role＋token）に移行済み**（Phase 2-a）。`/interview/[slug]/complete` のブラウザ直 update は廃止。保存先は `applicants.satisfaction_rating`
   - `Applicant` 型に `satisfactionRating: number | null` を追加済み（実DB列に整合）。`SatisfactionRating` テーブル型は死蔵テーブルへの誤誘導になるため追加しない
 
 ### 旧・未解決課題（一部継続）
