@@ -196,186 +196,146 @@ GET /api/interview/job-types?company_id=xxx
 
 ---
 
-### INT-006: 応募者情報保存
-```
-POST /api/interview/applicant
-```
-フォーム入力情報を保存し、応募者レコードを作成する。
+### 公開面接フロー共通: ケイパビリティ・トークン（HMAC）
 
-**認証:** セッショントークン
+> **Phase 2-a で実装済み。** 公開面接フロー（未ログイン）の主要書き込みを **token付き service-role API** に移行した（browser からの applicants/interviews 直書きは撤去）。以下 INT-006〜009 / INT-014 は現行実装。
 
-**リクエスト:**
-```json
-{
-  "company_id": "uuid",
-  "last_name": "山田",
-  "first_name": "太郎",
-  "last_name_kana": "ヤマダ",
-  "first_name_kana": "タロウ",
-  "birth_date": "1995-05-15",
-  "gender": "male",
-  "phone_number": "+819012345678",
-  "email": "taro@example.com",
-  "prefecture": "東京都",
-  "education": "university",
-  "employment_type": "mid_career",
-  "industry_experience": "experienced",
-  "job_type_id": "uuid",
-  "work_history": "...",
-  "qualifications": "..."
-}
-```
-
-**バリデーション:**
-| フィールド | ルール |
-|-----------|--------|
-| last_name, first_name | 必須、1〜50文字 |
-| last_name_kana, first_name_kana | 必須、カタカナのみ |
-| birth_date | 必須、過去の日付 |
-| gender | 必須、`male` / `female` / `other` / `no_answer` |
-| phone_number | 必須、SMS認証済み番号と一致 |
-| email | 必須、メール形式 |
-| prefecture | 必須、47都道府県のいずれか |
-| education | 必須、定義済み選択肢 |
-| employment_type | 必須、`new_graduate` / `mid_career` |
-| industry_experience | 必須、`experienced` / `inexperienced` |
-| job_type_id | 必須、企業に属するjob_type |
-| work_history | 任意、最大500文字 |
-| qualifications | 任意、最大300文字 |
-
-**レスポンス（201）:**
-```json
-{
-  "applicant_id": "uuid",
-  "duplicate_flag": false
-}
-```
-
-**重複検知:** 氏名＋生年月日一致 → `duplicate_flag: true`、企業・運営に通知
+- **方式**: HMAC-SHA256（`lib/interview/capability-token.ts`：`signInterviewToken` / `verifyInterviewToken`）。外部パッケージ不要（node:crypto）・DBカラム不要・Node runtime。
+- **署名鍵**: `INTERVIEW_TOKEN_SECRET`（**サーバ専用・`NEXT_PUBLIC_` 不可・値はコミット禁止**）。
+- **payload**: `{ slug, applicant_id, iat, exp }`（exp あり＝既定2時間）。`timingSafeEqual` で署名検証。
+- **発行**: 応募者作成（INT-006）成功時にサーバが発行 → クライアントは sessionStorage（`interview_${slug}_token`）に保持し、以降の API に添付。
+- **各APIの再検証**: ① token 署名・exp ② URL `slug` == token.slug ＆ slug→company 実在・有効（停止中は拒否）③ body.applicant_id == token.applicant_id ＆ applicant.company_id == company.id ④ interview 操作時は interview.applicant_id == applicant_id。
+- 実書き込みは **service-role（RLS bypass）**。**secret / service-role key はレスポンスに返さない**。
 
 ---
 
-### INT-007: 面接セッション開始
+### INT-006: 応募者作成（公開フロー・service-role＋token発行）
 ```
-POST /api/interview/session/start
+POST /api/interview/[slug]/applicant
 ```
-面接セッションを開始し、OpenAI Realtime APIの接続情報を返す。
+> 旧仕様 `POST /api/interview/applicant`（セッショントークン・`company_id` をクライアント送信・`job_type_id`）は**廃止**。`company_id` は slug からサーバ側で確定する。
 
-**認証:** セッショントークン
+フォーム入力を保存し applicants を作成、ケイパビリティ・トークンを発行する。
 
-**リクエスト:**
+**認証:** なし（未ログイン）。作成は **service-role**。
+
+**リクエスト（応募者入力。company_id/status 等のサーバ確定値は送っても無視）:**
 ```json
 {
-  "applicant_id": "uuid"
+  "last_name": "山田", "first_name": "太郎",
+  "last_name_kana": "ヤマダ", "first_name_kana": "タロウ",
+  "birth_date": "1995-05-15", "gender": "male",
+  "phone_number": "+819012345678", "email": "taro@example.com",
+  "age": 28, "prefecture": "東京都", "education": "university",
+  "employment_type": "mid_career", "industry_experience": "experienced",
+  "job_id": "uuid", "work_history": "...", "qualifications": "..."
 }
 ```
+
+**検証/処理:**
+- 必須最低限（姓・名・phone_number・email）。`job_id` がある場合は**当該 company の jobs に属するか検証**（不正は 400）。
+- **サーバ確定**: `company_id`（slug由来）／`status='準備中'`／`selection_status='pending'`／`result='未対応'`／`duplicate_flag=false`／`inappropriate_flag=false`。
+- 無効 slug = 404／停止中 company = 403。
 
 **レスポンス（200）:**
 ```json
-{
-  "interview_id": "uuid",
-  "realtime_config": {
-    "model": "gpt-4o-mini-realtime-preview",
-    "session_id": "xxx",
-    "ephemeral_key": "xxx"
-  },
-  "questions": [
-    {
-      "id": "uuid",
-      "text": "自己紹介をお願いします",
-      "axis": "communication",
-      "allow_followup": true
-    }
-  ],
-  "started_at": "2025-01-15T10:00:00Z"
-}
+{ "applicant_id": "uuid", "company_id": "uuid", "token": "<capability token>" }
 ```
+クライアントは `interview_${slug}_applicant_id` / `_company_id` / `_token` を sessionStorage に保存。
 
 ---
 
-### INT-008: 面接ログ送信
+### INT-007: 面接開始（公開フロー・service-role＋token）
 ```
-POST /api/interview/session/log
+POST /api/interview/[slug]/start
 ```
-面接中の発話ログをリアルタイムでサーバーに送信する。
+> 旧仕様 `POST /api/interview/session/start`（セッショントークン・realtime_config 返却）は**廃止**。OpenAI Realtime 接続情報（ephemeral key 等）は未導入（P-10）で、本APIは interview レコードの作成のみを行う。
 
-**認証:** セッショントークン
+**認証:** なし（未ログイン）。**service-role**。
+
+**リクエスト:**
+```json
+{ "token": "<capability token>", "applicant_id": "uuid" }
+```
+
+**検証/処理:**
+- token 検証（slug / applicant_id 一致）・company（停止中は 403）・applicant（company 一致）。`applicant.job_id` が当該 company の jobs か検証（不正なら job_id=null 扱い）。
+- **再入場/リロード対策**: 同一 applicant の既存 `in_progress` interview を **`cancelled`** にしてから新規作成（孤児を残さない）。
+- `interviews` を `status='in_progress'` で INSERT。
+
+**レスポンス（200）:**
+```json
+{ "interview_id": "uuid", "job_id": "uuid|null", "company_id": "uuid" }
+```
+クライアントは `interview_${slug}_interview_id` を sessionStorage に保存。
+
+---
+
+### INT-008: 面接終了（公開フロー・service-role＋token）
+```
+POST /api/interview/[slug]/end
+```
+> 旧仕様 `POST /api/interview/session/log`（発話ログ送信）は**廃止**（発話ログ＝interview_logs の保存は OpenAI Realtime 連携＝P-10 で別途）。本APIは面接の終了確定を行う。
+
+面接を終了し、interviews と **applicants.status をサーバ確定**する（anon は applicants を更新できないため end API で確定）。
+
+**認証:** なし（未ログイン）。**service-role**。明示終了は `fetch`、タブ閉じは token付き `sendBeacon` で呼ぶ。
 
 **リクエスト:**
 ```json
 {
-  "interview_id": "uuid",
-  "logs": [
-    {
-      "speaker": "ai",
-      "content": "自己紹介をお願いします",
-      "timestamp_ms": 1705312800000
-    },
-    {
-      "speaker": "applicant",
-      "content": "はい、私は...",
-      "timestamp_ms": 1705312805000
-    }
-  ]
+  "token": "<capability token>", "applicant_id": "uuid", "interview_id": "uuid",
+  "final_status": "completed",
+  "end_reason": "全質問完了", "duration_seconds": 1680,
+  "total_questions": 8, "answered_questions": 8
 }
 ```
+- `final_status` は **`completed` / `cancelled` のみ**許可。
+
+**検証/処理:**
+- token（slug/applicant_id）・company（停止中403）・applicant（company一致）・interview（applicant一致）。
+- 対象 interview を `status=final_status`・`ended_at`・`duration_seconds`・`total_questions`・`answered_questions`・`end_reason`・**`is_billable`（INT-009：`duration_seconds > 600`＝10分超）** で確定。
+- **applicants.status をサーバ確定**: `completed`→`'完了'`／`cancelled`→`'途中離脱'`（＋`result='不採用'`）。
+- 同一 applicant の他の `in_progress` interview を **`cancelled`** 化。
 
 **レスポンス（200）:**
 ```json
-{
-  "received": true,
-  "log_count": 2
-}
+{ "interview_id": "uuid", "final_status": "completed" }
 ```
 
 ---
 
-### INT-009: 面接セッション終了
+### INT-009: 質問スナップショット保存（公開フロー・service-role＋token）
 ```
-POST /api/interview/session/end
+POST /api/interview/[slug]/snapshot
 ```
-面接セッションを終了し、レポート生成・フィードバック生成を非同期開始する。
+> 旧仕様 `POST /api/interview/session/end`（セッショントークン・レポート/フィードバック非同期開始）は**廃止**。終了確定は INT-008（end）に統合。レポート/フィードバック生成（EBCA writer）は OpenAI 連携＝P-10 で別途。
 
-**認証:** セッショントークン
+面接で提示した質問リストを `interviews.questions_snapshot` に保存する。
+
+**認証:** なし（未ログイン）。**service-role**。
 
 **リクエスト:**
 ```json
 {
-  "interview_id": "uuid",
-  "end_reason": "completed",
-  "duration_seconds": 1680,
-  "question_count": 8
+  "token": "<capability token>", "applicant_id": "uuid", "interview_id": "uuid",
+  "questions_snapshot": [ { "sort_order": 1, "question_text": "自己紹介をお願いします" } ]
 }
 ```
 
-`end_reason` の値:
-| 値 | 説明 |
-|----|------|
-| `completed` | 全質問回答完了 |
-| `user_ended` | 応募者が終了ボタン押下 |
-| `timeout` | 40分タイムアウト |
-| `silence` | 無言1分 |
-| `inappropriate` | 不適切行為検知 |
-| `disconnected` | ネットワーク切断60秒超 |
-| `browser_closed` | ブラウザ閉鎖 |
+**検証/処理:**
+- token（slug/applicant_id）・company（停止中403）・applicant（company一致）・interview（applicant一致）。
+- `questions_snapshot` は**配列のみ**。**interview.status='in_progress' のときのみ更新**（それ以外は 400）。
+- 保存失敗は応募者の面接本体を止めない（クライアントは fire-and-forget）。
 
-**レスポンス（200）:**
-```json
-{
-  "interview_id": "uuid",
-  "is_billable": true,
-  "report_status": "generating",
-  "feedback_status": "generating"
-}
-```
+**レスポンス（200）:** `{ "interview_id": "uuid" }`
 
-**課金判定:** `duration_seconds > 600`（10分超）で `is_billable: true`（途中離脱でも10分超なら請求対象）。`/api/interview/[slug]/complete` route 側は `end_reason !== 'inappropriate'` 条件も併用。
+---
 
-> 実装メモ: 実DBの課金フラグ列は `interviews.is_billable`（旧表記 `billable` は不在列）、完了日時列は `interviews.ended_at`（旧表記 `completed_at` は不在列）。is_billable の確定 writer は実完了経路である `app/interview/[slug]/session/page.tsx` の完了update（status='completed' / ended_at と同時に `is_billable: elapsedSeconds > 600`）で行う。`/api/interview/[slug]/complete`・`/status` route は実DB列へ是正済みだが、現状どこからも呼ばれていない死蔵 endpoint。
-
-**非同期処理トリガー:**
-1. 企業向けレポート生成（5分以内目標）
-2. 応募者向けフィードバック生成（20秒以内目標）
+#### 応募者ステータス仕様（表示導出）
+- DBの **`applicants.status` は CHECK 制約で `準備中` / `完了` / `途中離脱` の3値のみ**。「面接中」は**DBに保存しない**。
+- 表示は **最新 `interviews.status` から導出**（`lib/applicants/displayStatus.ts`）: `in_progress`→面接中／`completed`→完了／`cancelled`→途中離脱／interview無→準備中。**`applicants.status='完了'/'途中離脱'` を最優先**。最新は `created_at` 降順先頭（古い in_progress 孤児に引っ張られない）。
+- `interviews.status` 運用 = `in_progress` / `completed` / `cancelled`。`completed`＝正常完了、`cancelled`＝途中離脱。is_billable は10分超（INT-008）。
 
 ---
 
@@ -509,32 +469,23 @@ GET /api/interview/feedback?interview_id=xxx
 
 ---
 
-### INT-014: 満足度評価送信
+### INT-014: 満足度評価送信（公開フロー・service-role＋token）
 ```
-POST /api/interview/satisfaction
+POST /api/interview/[slug]/satisfaction
 ```
-面接体験の満足度評価を送信する。
+> **実装済み（Phase 2-a）**。旧仕様 `POST /api/interview/satisfaction`（セッショントークン・interview_id ベース）／complete画面のブラウザ直 update は**廃止**。
 
-> **未実装（🔲）**。現状は専用APIを設けず、面接完了画面 `app/interview/[slug]/complete/page.tsx` が**ブラウザから `applicants.satisfaction_rating`（applicant_id ベース）を直接 update** している。専用API化（interview_id ベース等への統一）は将来課題。
-
-**認証:** セッショントークン
+面接体験の満足度評価を保存する。**認証:** なし（未ログイン）・**service-role**。
 
 **リクエスト:**
 ```json
-{
-  "interview_id": "uuid",
-  "rating": 4
-}
+{ "token": "<capability token>", "applicant_id": "uuid", "satisfaction_rating": 4 }
 ```
+- `satisfaction_rating`: **1〜5 の整数のみ**（範囲外/非整数は 400）。
 
-`rating`: 1〜5（整数）
+**検証/処理:** token（slug/applicant_id）・company（停止中403）・applicant（company一致）→ `applicants.satisfaction_rating` ＋ `updated_at` を service-role で更新。
 
-**レスポンス（200）:**
-```json
-{
-  "saved": true
-}
-```
+**レスポンス（200）:** `{ "applicant_id": "uuid", "satisfaction_rating": 4 }`
 
 ---
 
