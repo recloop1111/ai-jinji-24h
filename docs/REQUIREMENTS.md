@@ -51,6 +51,7 @@
 - 不適切行為による強制終了は面接時間に関わらず0件
 - 面接開始＝AIが最初の音声を出力した時点のサーバータイムスタンプ
 - 面接終了＝面接終了イベントのサーバータイムスタンプ
+- **実装（Phase 2-a）**: `interviews.is_billable` は **end API（service-role）側で確定**（`duration_seconds > 600` ＝10分超で `true`、10分以下は `false`）。当月見込みは `is_billable=true` の件数 × 単価でリアルタイム算出。**確定請求（Stripe・billing_records writer / BATCH-001）は未実装**で、外部課金は最後にまとめて確認する。
 
 ### 2-6. 課金サイクル
 - 月次・**月末締め**。日割りなし
@@ -165,6 +166,22 @@
 - 「面接お疲れ様でした。結果は企業の担当者よりご連絡いたします。」
 - 画面E2のフィードバック3ブロックをそのまま表示
 - 満足度評価（1〜5段階の星評価、任意）、運営側で保管
+
+### F-C-007：応募者ステータス仕様（表示導出・Phase 2-a 確定）
+- **`applicants.status` はDB上 `準備中` / `完了` / `途中離脱` の3値のみ**（CHECK制約）。「面接中」は**applicants.status に保存しない**。
+- **「面接中」は最新 `interviews.status='in_progress'` から画面表示上で導出**する（`applicants.status='完了'/'途中離脱'` は最優先表示）。
+- `interviews.status` 運用 = `in_progress` / `completed` / `cancelled`。**`cancelled`→「途中離脱」、`completed`→「完了」**として扱う。
+- 複数 interview がある場合は **最新 interview（created_at 降順先頭）の status を優先**（古い in_progress 孤児に引っ張られない）。
+
+### F-C-008：公開面接フローと管理画面の分離（Phase 2-a 確定）
+- 応募者向け公開フローは **`/interview/[slug]` 配下で完結**し、`/client/login` や `/admin` へ遷移しない。
+- 終了画面（ended）は `/` や `/client/login` に飛ばさず、**応募者向け終了表示に留める**。
+- 認証コード画面（verify）は誤コード時に**入力欄クリア＋先頭フォーカス＋インラインエラー**で再入力できる（認証は現状「1234」モック）。
+
+### F-C-009：公開フローの書き込み方針（Phase 2-a 確定）
+- **applicant作成 / interview開始 / 終了確定 / satisfaction / snapshot は service-role API 経由**（`POST /api/interview/[slug]/{applicant,start,end,satisfaction,snapshot}`）。applicants / interviews への **browser Supabase 直書きは撤去済み**。
+- **ケイパビリティ・トークン**（HMAC-SHA256・`INTERVIEW_TOKEN_SECRET`）で slug / applicant_id / company / interview の整合を検証（詳細は API設計書）。
+- **`applicants.status` の「完了」/「途中離脱」確定は end API（service-role）側で実施**（anon は RLS 上 applicants を更新できないため）。
 
 ## 5. 面接評価・レポート生成機能（F-R：Report Functions）
 
@@ -552,3 +569,19 @@
 
 - 送信元メールアドレス（noreply@ドメイン名）— ドメイン取得後確定
 - サポート用メールアドレス（support@ドメイン名）— ドメイン取得後確定
+
+## 19. 実装ステータス・本番前注意（Phase 2-a 時点）
+
+### 19-1. 未実装／最後にまとめてE2E確認（外部有料API）
+以下は費用・外部審査が絡むため、DB / API / RLS の土台整備を終えた後にまとめて導入・E2E確認する：
+- OpenAI Realtime（AI音声面接）／アバター音声発話／音声認識
+- **EBCA 評価生成 writer**（`interview_results` への書き込み。現状はデモ seed のみ）
+- 録画保存（Cloudflare R2）
+- Twilio Verify（実SMS）
+- Stripe（確定請求 writer / BATCH-001）
+- Resend（通知メール）
+
+### 19-2. 本番前注意
+- **デモ用のフォーム入力補助／初期値は本番前に削除・無効化する**（`/interview/[slug]/form` 等）。
+- **SMS認証は現状「1234」モック**（`/interview/[slug]/verify`）。Twilio Verify 導入時に置換する。
+- `companies` / `jobs` / `job_questions` / `common_questions` の **公開（anon）SELECT は当面許容**（応募フォーム・質問取得）。API化 or 据え置きは RLS Phase 2-d で判断。
