@@ -257,9 +257,13 @@ export default function SessionPage() {
     }
   }, [jobId, companyId, supabase, totalQuestions])
 
-  // interviewIdとquestionListが揃ったら questions_snapshot を1回だけ保存
+  // interviewIdとquestionListが揃ったら questions_snapshot を1回だけ保存（token付き service-role API）
   useEffect(() => {
     if (!interviewId || questionList.length === 0 || snapshotSaved.current) return
+
+    const token = sessionStorage.getItem(`interview_${slug}_token`)
+    const applicant_id = sessionStorage.getItem(`interview_${slug}_applicant_id`)
+    if (!token || !applicant_id) return
     snapshotSaved.current = true
 
     const snapshot = questionList.map((q, i) => ({
@@ -267,12 +271,13 @@ export default function SessionPage() {
       question_text: q,
     }))
 
-    supabase
-      .from('interviews')
-      .update({ questions_snapshot: snapshot })
-      .eq('id', interviewId)
-      .then(() => {})
-  }, [interviewId, questionList, supabase])
+    // 保存失敗で面接全体が止まらないよう fire-and-forget（後続の質問表示・終了処理に影響させない）
+    fetch(`/api/interview/${slug}/snapshot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, applicant_id, interview_id: interviewId, questions_snapshot: snapshot }),
+    }).catch(() => {})
+  }, [interviewId, questionList, slug])
 
   // 面接タイマー（60分で自動終了）
   useEffect(() => {
