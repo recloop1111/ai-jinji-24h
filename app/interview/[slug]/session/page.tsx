@@ -55,59 +55,32 @@ export default function SessionPage() {
     if (storedApplicantId) setApplicantId(storedApplicantId)
     if (storedCompanyId) setCompanyId(storedCompanyId)
 
-    // 応募者情報からjob_idを取得
-    if (storedApplicantId) {
-      supabase
-        .from('applicants')
-        .select('job_id')
-        .eq('id', storedApplicantId)
-        .single()
-        .then(({ data, error }) => {
-          if (!error && data) {
-            setJobId(data.job_id)
-          }
-        })
-    }
-
-    // 面接開始: interviewsテーブルにINSERT
+    // 面接開始: service-role API（token検証）経由で interviews を作成する（browser直INSERTは廃止）
+    const storedToken = sessionStorage.getItem(`interview_${slug}_token`)
     async function startInterview() {
-      if (!storedApplicantId || !storedCompanyId) {
+      if (!storedApplicantId || !storedToken) {
         return
       }
-
       try {
-        const { data: applicantData } = await supabase
-          .from('applicants')
-          .select('job_id')
-          .eq('id', storedApplicantId)
-          .single()
-
-        const resolvedJobId = applicantData?.job_id || null
-
-        const { data, error } = await supabase
-          .from('interviews')
-          .insert({
-            applicant_id: storedApplicantId,
-            company_id: storedCompanyId,
-            job_id: resolvedJobId,
-            started_at: new Date().toISOString(),
-            status: 'in_progress',
-          })
-          .select()
-          .single()
-
-        if (error) {
-        } else if (data) {
-          setInterviewId(data.id)
-          setJobId(resolvedJobId)
-          sessionStorage.setItem(`interview_${slug}_interview_id`, data.id)
+        const res = await fetch(`/api/interview/${slug}/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: storedToken, applicant_id: storedApplicantId }),
+        })
+        const json = await res.json().catch(() => null)
+        if (!res.ok || !json?.interview_id) {
+          return
         }
-      } catch (error) {
+        setInterviewId(json.interview_id)
+        setJobId(json.job_id ?? null)
+        if (json.company_id) setCompanyId(json.company_id)
+        sessionStorage.setItem(`interview_${slug}_interview_id`, json.interview_id)
+      } catch {
       }
     }
 
     startInterview()
-  }, [slug, supabase])
+  }, [slug])
 
   // カメラ取得
   useEffect(() => {
