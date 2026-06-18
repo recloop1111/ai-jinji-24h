@@ -6,7 +6,6 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { deriveCurrentStatus, CURRENT_STATUS_LABEL } from '@/lib/applicants/displayStatus'
 import { ChevronLeft as ChevronLeftIcon, ChevronDown as ChevronDownIcon, Play as PlayIcon, Download, Mail, LinkIcon, Copy, Check } from 'lucide-react'
-import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, ResponsiveContainer } from 'recharts'
 
 // TODO: Phase 4 実データに差替え
 // TODO: Phase 4 - 面接完了時にステータスを自動で「未対応」に設定
@@ -170,7 +169,7 @@ const DUMMY = {
       question: 'なぜ当社に応募されたのですか。',
       answer: '現職での店舗運営経験を活かし、より大きな組織でマネジメントに関わりたいと考えました。御社の急成長フェーズに惹かれ、自分の経験が貢献できると感じたためです。また、御社が掲げる「従業員の成長を第一に」という理念に共感し、ここでなら長期的に自分も成長できると確信しました。',
       answerDuration: '1分45秒',
-      axisLabels: ['カルチャーフィット', '仕事への意欲'],
+      axisLabels: ['主体性', '仕事への意欲'],
       aiMemo: '意欲は伝わるが当社固有の魅力への言及がやや薄い',
       followUp: {
         question: '当社の理念に共感されたとのことですが、具体的にどのような点に最も共感されましたか？',
@@ -285,27 +284,8 @@ type InterviewResultRow = {
   personality_description?: string | null
   strengths?: string[] | null
   improvement_points?: string[] | null
-  // 文化分析ブロックは optional chaining なしでアクセスするため非optional（実行時は既存ガードで存在前提）
-  big_five_scores: { openness: number; conscientiousness: number; extraversion: number; agreeableness: number; neuroticism: number; [key: string]: number }
-  culture_fit_score?: number | null
-  culture_fit_detail?: { summary?: string } | null
   evaluation_axes?: unknown
 }
-
-type CultureProfileRow = {
-  department?: string | null
-  employment_type?: string | null
-  // optional chaining なしでアクセスするため非optional
-  avg_openness: number
-  avg_conscientiousness: number
-  avg_extraversion: number
-  avg_agreeableness: number
-  avg_neuroticism: number
-}
-
-// カルチャーフィット詳細分析は v5 では MVP対象外（将来復活時に true に）。
-// boolean 型にすることで TS が後続のガード（interviewResult 等の非null絞り込み）を到達可能として扱う。
-const SHOW_CULTURE_ANALYSIS: boolean = false
 
 // EBCA（Evidence-based Competency Analysis）の1軸。score=null は「判断材料不足」。
 type EvalAxis = {
@@ -416,8 +396,6 @@ export default function ApplicantDetailPage() {
   const [applicant, setApplicant] = useState<ApplicantRow | null>(null)
   const [interview, setInterview] = useState<InterviewRow | null>(null)
   const [interviewResult, setInterviewResult] = useState<InterviewResultRow | null>(null)
-  const [cultureProfile, setCultureProfile] = useState<CultureProfileRow | null>(null)
-  const [cultureAnalysisEnabled, setCultureAnalysisEnabled] = useState<boolean>(false)
   const [loading, setLoading] = useState(true)
 
   // Supabaseから応募者データと面接データを取得
@@ -453,32 +431,6 @@ export default function ApplicantDetailPage() {
             .maybeSingle()
           if (irData) {
             setInterviewResult(irData)
-          }
-
-          // companiesからculture_analysis_enabledを取得
-          if (applicantData.company_id) {
-            const { data: companyData } = await supabase
-              .from('companies')
-              .select('culture_analysis_enabled')
-              .eq('id', applicantData.company_id)
-              .maybeSingle()
-            if (companyData) {
-              setCultureAnalysisEnabled(companyData.culture_analysis_enabled === true)
-            }
-          }
-
-          // culture_profilesを取得（企業の営業部・正社員のプロファイル）
-          // TODO: applicantのjob_type/departmentと連携して取得
-          if (applicantData.company_id) {
-            const { data: profileData } = await supabase
-              .from('culture_profiles')
-              .select('*')
-              .eq('company_id', applicantData.company_id)
-              .limit(1)
-              .maybeSingle()
-            if (profileData) {
-              setCultureProfile(profileData)
-            }
           }
 
           // 面接データを取得（最新の1件）
@@ -946,7 +898,7 @@ export default function ApplicantDetailPage() {
                     {interviewResult.feedback_text && (
                       <p className="text-sm text-slate-600 mt-1 max-w-xl leading-relaxed">{interviewResult.feedback_text}</p>
                     )}
-                    {/* AI面接スコアとカルチャーフィット */}
+                    {/* AI面接スコア */}
                     {interviewResult?.total_score != null && (
                       <div className="mt-4 pt-4 border-t border-slate-100">
                         <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
@@ -955,7 +907,6 @@ export default function ApplicantDetailPage() {
                             <span className="text-lg font-semibold text-gray-800">{interviewResult.total_score}</span>
                             <span className="text-sm text-gray-500"> / 100</span>
                           </div>
-                          {/* v5: カルチャーフィット表示はMVP対象外（将来復活時にコメントを外す） */}
                         </div>
                       </div>
                     )}
@@ -1203,141 +1154,6 @@ export default function ApplicantDetailPage() {
                 </div>
               </div>
 
-              {/* セクション区切り */}
-              <hr className="my-8 border-gray-200" />
-
-              {/* セクション2: カルチャーフィット詳細分析セクション（v5: MVP対象外。将来復活時に末尾の && false を削除する） */}
-              {cultureAnalysisEnabled && interviewResult != null && interviewResult.culture_fit_score != null && interviewResult.big_five_scores != null && cultureProfile != null && applicant?.status === '完了' && SHOW_CULTURE_ANALYSIS && (
-                <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 overflow-hidden">
-                  <div className="p-6 sm:p-7">
-                    {/* ① セクションタイトル */}
-                    <h3 className="text-base font-bold text-slate-900 mb-1">カルチャーフィット詳細分析</h3>
-                    <p className="text-xs text-slate-500 mb-6">
-                      BIG FIVE性格特性理論（Goldberg, 1990）およびPerson-Organization Fit理論（Chatman, 1989）に基づく分析
-                    </p>
-                    
-                    {/* ② マッチング度の大きな表示 */}
-                    <div className="mb-8">
-                      <p className="text-3xl font-bold text-slate-900 mb-2">
-                        {interviewResult.culture_fit_score}%
-                      </p>
-                      <div className="relative">
-                        <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all bg-gradient-to-r ${
-                              interviewResult.culture_fit_score >= 80 ? 'from-green-400 to-green-500' :
-                              interviewResult.culture_fit_score >= 70 ? 'from-blue-400 to-blue-500' :
-                              interviewResult.culture_fit_score >= 50 ? 'from-yellow-400 to-yellow-500' :
-                              'from-red-400 to-red-500'
-                            }`}
-                            style={{ width: `${interviewResult.culture_fit_score}%` }}
-                          />
-                        </div>
-                        {/* 閾値マーカー */}
-                        <div className="absolute top-0 left-[50%] h-3 w-px bg-gray-400" />
-                        <div className="absolute top-0 left-[70%] h-3 w-px bg-gray-400" />
-                        <div className="absolute top-0 left-[80%] h-3 w-px bg-gray-400" />
-                        <div className="flex justify-between text-[10px] text-gray-400 mt-1 px-0.5">
-                          <span>0%</span>
-                          <span style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>50%</span>
-                          <span style={{ position: 'absolute', left: '70%', transform: 'translateX(-50%)' }}>70%</span>
-                          <span style={{ position: 'absolute', left: '80%', transform: 'translateX(-50%)' }}>80%</span>
-                          <span>100%</span>
-                        </div>
-                      </div>
-                      <p className="text-sm text-slate-600 mt-3">
-                        {interviewResult.culture_fit_score >= 80 ? '非常に高いマッチング' :
-                         interviewResult.culture_fit_score >= 70 ? '良好なマッチング' :
-                         interviewResult.culture_fit_score >= 50 ? '中程度のマッチング' : 'マッチングに課題あり'}
-                      </p>
-                    </div>
-
-                    {/* ③ BIG FIVE 比較レーダーチャート */}
-                    <div className="mb-8">
-                      <div className="h-72">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <RadarChart data={[
-                            { subject: '開放性', applicant: interviewResult.big_five_scores.openness, company: cultureProfile.avg_openness },
-                            { subject: '誠実性', applicant: interviewResult.big_five_scores.conscientiousness, company: cultureProfile.avg_conscientiousness },
-                            { subject: '外向性', applicant: interviewResult.big_five_scores.extraversion, company: cultureProfile.avg_extraversion },
-                            { subject: '協調性', applicant: interviewResult.big_five_scores.agreeableness, company: cultureProfile.avg_agreeableness },
-                            { subject: '情緒安定性', applicant: 10 - interviewResult.big_five_scores.neuroticism, company: 10 - cultureProfile.avg_neuroticism },
-                          ]}>
-                            <PolarGrid stroke="#e2e8f0" />
-                            <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 12 }} />
-                            <PolarRadiusAxis angle={90} domain={[0, 10]} tick={{ fill: '#94a3b8', fontSize: 10 }} />
-                            <Radar name="応募者" dataKey="applicant" stroke="#2563eb" fill="#2563eb" fillOpacity={0.15} strokeWidth={2} />
-                            <Radar name={`企業平均（${cultureProfile.department || '全社'}/${cultureProfile.employment_type || '全職種'}）`} dataKey="company" stroke="#6B7280" fill="#6B7280" fillOpacity={0.05} strokeDasharray="5 5" strokeWidth={2} />
-                            <Legend wrapperStyle={{ fontSize: 11 }} />
-                          </RadarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-
-                    {/* ④ 因子別詳細テーブル */}
-                    <div className="mb-8">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
-                          <thead>
-                            <tr className="bg-slate-50 border-b border-slate-200">
-                              <th className="py-2.5 px-4 text-left font-medium text-slate-600">因子名</th>
-                              <th className="py-2.5 px-4 text-center font-medium text-slate-600">応募者</th>
-                              <th className="py-2.5 px-4 text-center font-medium text-slate-600">企業平均</th>
-                              <th className="py-2.5 px-4 text-center font-medium text-slate-600">差異</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {[
-                              { label: '開放性', key: 'openness', avgKey: 'avg_openness' },
-                              { label: '誠実性', key: 'conscientiousness', avgKey: 'avg_conscientiousness' },
-                              { label: '外向性', key: 'extraversion', avgKey: 'avg_extraversion' },
-                              { label: '協調性', key: 'agreeableness', avgKey: 'avg_agreeableness' },
-                              { label: '情緒安定性', key: 'neuroticism', avgKey: 'avg_neuroticism', invert: true },
-                            ].map((factor) => {
-                              const applicantValue = factor.invert 
-                                ? (10 - interviewResult.big_five_scores[factor.key]).toFixed(1)
-                                : interviewResult.big_five_scores[factor.key].toFixed(1)
-                              const avgValue = (cultureProfile as unknown as Record<string, number>)[factor.avgKey]
-                              const companyValue = factor.invert
-                                ? (10 - avgValue).toFixed(1)
-                                : avgValue.toFixed(1)
-                              const diff = (Number(applicantValue) - Number(companyValue)).toFixed(1)
-                              const diffNum = Number(diff)
-                              const absDiff = Math.abs(diffNum)
-                              const diffStyle = absDiff >= 1.0 ? 'text-red-600 font-bold' :
-                                                absDiff >= 0.5 ? 'text-yellow-600 font-medium' : 'text-gray-700'
-                              return (
-                                <tr key={factor.key}>
-                                  <td className="py-2.5 px-4 text-slate-700">{factor.label}</td>
-                                  <td className="py-2.5 px-4 text-center text-slate-900">{applicantValue}</td>
-                                  <td className="py-2.5 px-4 text-center text-slate-500">{companyValue}</td>
-                                  <td className={`py-2.5 px-4 text-center ${diffStyle}`}>
-                                    {diffNum > 0 ? '+' : ''}{diffNum === 0 ? '±0.0' : diff}
-                                  </td>
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    {/* ⑤ 総合所見 */}
-                    {interviewResult.culture_fit_detail?.summary && (
-                      <div className="mb-6">
-                        <p className="text-sm text-slate-700 leading-relaxed bg-slate-50 rounded-lg p-4 border border-slate-100">
-                          {interviewResult.culture_fit_detail.summary}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* ⑥ 注記 */}
-                    <p className="text-xs text-slate-400">
-                      ※ 本分析はBIG FIVE性格特性理論（Goldberg, 1990）およびPerson-Organization Fit理論（Chatman, 1989）に基づく参考指標です。最終的な採用判断は面接内容と合わせて総合的にご判断ください。
-                    </p>
-                  </div>
-                </div>
-              )}
             </>
           )}
         </div>
