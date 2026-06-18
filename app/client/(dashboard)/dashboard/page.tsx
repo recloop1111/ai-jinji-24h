@@ -29,7 +29,7 @@ function DashboardContent() {
   const supabase = createClient()
 
   const [kpis, setKpis] = useState({ interviews: 0, avgDuration: 0, applicants: 0, used: 0, limit: 0 })
-  const [recentApplicants, setRecentApplicants] = useState<DashboardApplicant[]>([])
+  const [, setRecentApplicants] = useState<DashboardApplicant[]>([])
   const [dataLoading, setDataLoading] = useState(true)
 
   useEffect(() => {

@@ -25,7 +25,7 @@ function SettingsContent() {
   const [toast, setToast] = useState<string | null>(null)
 
   // 企業情報（一般タブ）
-  const [company, setCompany] = useState<CompanyForm | null>(null)
+  const [, setCompany] = useState<CompanyForm | null>(null)
   const [companyLoading, setCompanyLoading] = useState(true)
   const [companySaving, setCompanySaving] = useState(false)
   const [companyForm, setCompanyForm] = useState<CompanyForm>({
