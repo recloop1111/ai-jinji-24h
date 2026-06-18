@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import { CULTURE_FIT_QUESTIONS, distributeQuestionsSimple } from '@/lib/constants/questions'
+// 公開フローの DB アクセスは token付き service-role API 経由（browser直アクセス廃止）
 
 const LANGUAGES = [
   { code: 'ja', label: '日本語' },
@@ -18,7 +18,6 @@ export default function SessionPage() {
   const params = useParams()
   const router = useRouter()
   const slug = params.slug as string
-  const supabase = createClient()
 
   const [interviewState, setInterviewState] = useState<'idle' | 'listen' | 'think' | 'speak' | 'react'>('idle')
   const [blinking, setBlinking] = useState(false)
@@ -205,14 +204,25 @@ export default function SessionPage() {
         const isCultureEnabled = false
         setCultureAnalysisEnabled(isCultureEnabled)
 
-        // カスタム質問を取得
-        const { data, error } = await supabase
-          .from('job_questions')
-          .select('question_text, sort_order')
-          .eq('job_id', jobId)
-          .order('sort_order', { ascending: true })
+        // カスタム質問を取得（token付き service-role API。browser直SELECTは廃止）
+        const token = sessionStorage.getItem(`interview_${slug}_token`)
+        const applicant_id = sessionStorage.getItem(`interview_${slug}_applicant_id`)
+        const interview_id = interviewId ?? sessionStorage.getItem(`interview_${slug}_interview_id`)
 
-        if (!error && data && data.length > 0) {
+        let data: { question_text: string; sort_order: number }[] | null = null
+        if (token && applicant_id && interview_id) {
+          const res = await fetch(`/api/interview/${slug}/questions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, applicant_id, interview_id }),
+          })
+          const json = await res.json().catch(() => null)
+          if (res.ok && Array.isArray(json?.questions)) {
+            data = json.questions
+          }
+        }
+
+        if (data && data.length > 0) {
           const customQuestions = data.map(q => q.question_text)
 
           // 社風分析ONの場合、社風分析質問を分散配置
@@ -255,7 +265,7 @@ export default function SessionPage() {
         clearTimeout(t2)
       }
     }
-  }, [jobId, companyId, supabase, totalQuestions])
+  }, [jobId, companyId, totalQuestions, interviewId, slug])
 
   // interviewIdとquestionListが揃ったら questions_snapshot を1回だけ保存（token付き service-role API）
   useEffect(() => {
