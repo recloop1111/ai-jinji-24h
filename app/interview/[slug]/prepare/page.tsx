@@ -26,7 +26,7 @@ export default function PreparePage() {
   const [loading, setLoading] = useState(true)
   const [cameraStatus, setCameraStatus] = useState<'loading' | 'ok' | 'error'>('loading')
   const [micStatus, setMicStatus] = useState<'loading' | 'ok' | 'error'>('loading')
-  const [stream, setStream] = useState<MediaStream | null>(null)
+  const [, setStream] = useState<MediaStream | null>(null)
   const [micTestPassed, setMicTestPassed] = useState(false)
   const [volume, setVolume] = useState(0)
   const videoRef = useRef<HTMLVideoElement>(null)
