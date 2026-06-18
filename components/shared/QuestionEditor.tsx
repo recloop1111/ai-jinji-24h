@@ -6,7 +6,6 @@ import { useSearchParams } from 'next/navigation'
 import { Plus, FileText, Check, ChevronUp, ChevronDown, Pencil, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
-import { CULTURE_FIT_QUESTIONS } from '@/lib/constants/questions'
 
 type Question = {
   id: string
@@ -109,8 +108,7 @@ const JOB_TYPE_TEMPLATES: Record<JobTypeKey, { name: string; questions: string[]
   'その他': { name: 'その他', questions: ['これまでのご経歴を簡単に教えてください。', '志望動機を教えてください。', 'あなたの強みと弱みを教えてください。', 'チームで働いた経験を教えてください。', '5年後のキャリアプランを教えてください。', '仕事で最もやりがいを感じた経験を教えてください。', '困難な状況をどのように乗り越えましたか？', '当社でどのように貢献したいですか？'] },
 }
 
-const DEFAULT_CUSTOM_QUESTIONS_WITH_CULTURE = 5
-const DEFAULT_CUSTOM_QUESTIONS_WITHOUT_CULTURE = 8
+const DEFAULT_CUSTOM_QUESTIONS = 8
 
 type QuestionEditorProps = {
   companyId: string
@@ -142,7 +140,6 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
   const [insertAt, setInsertAt] = useState(0)
   const [toast, setToast] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [cultureAnalysisEnabled, setCultureAnalysisEnabled] = useState(false)
 
   const isDark = theme === 'dark'
 
@@ -207,22 +204,6 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     }
     fetchJobs()
   }, [resolvedCompanyId, initialJobId, supabase])
-
-  useEffect(() => {
-    if (!resolvedCompanyId) {
-      setCultureAnalysisEnabled(false)
-      return
-    }
-    async function fetchCultureAnalysisFlag() {
-      const { data } = await supabase
-        .from('companies')
-        .select('culture_analysis_enabled')
-        .eq('id', resolvedCompanyId)
-        .single()
-      setCultureAnalysisEnabled(data?.culture_analysis_enabled ?? false)
-    }
-    fetchCultureAnalysisFlag()
-  }, [resolvedCompanyId, supabase])
 
   useEffect(() => {
     if (selectedJobId) {
@@ -347,11 +328,9 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
   }
 
   const MAX_TOTAL_QUESTIONS = 10
-  const cultureQuestionCount = cultureAnalysisEnabled ? CULTURE_FIT_QUESTIONS.length : 0
-  const maxCustomQuestions = MAX_TOTAL_QUESTIONS - cultureQuestionCount
-  const totalQuestionCount = cultureQuestionCount + patternQuestions.length
+  const totalQuestionCount = patternQuestions.length
 
-  // 統合質問リスト: カスタム質問と社風分析質問を分散配置した順序で表示
+  // 質問リスト（カスタム質問のみ。社風分析質問は廃止。type は後方互換のため union を維持）
   type IntegratedQuestion = {
     id: string
     question: string
@@ -362,76 +341,18 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
   }
 
   const integratedQuestions = useMemo<IntegratedQuestion[]>(() => {
-    if (!cultureAnalysisEnabled) {
-      return patternQuestions.map((q, i) => ({
-        id: q.id,
-        question: q.question,
-        type: 'custom' as const,
-        originalIndex: i,
-      }))
-    }
-
-    // 社風分析ON時: distributeQuestionsSimpleのロジックで配置位置を計算
-    const customCount = patternQuestions.length
-    const cultureCount = CULTURE_FIT_QUESTIONS.length
-    const totalSlots = customCount + cultureCount
-
-    if (totalSlots === 0) return []
-
-    // 社風分析質問を挿入する位置を計算
-    const culturePositions: number[] = []
-    for (let i = 0; i < cultureCount; i++) {
-      const pos = Math.round((i + 1) * totalSlots / (cultureCount + 1))
-      culturePositions.push(pos)
-    }
-
-    const result: IntegratedQuestion[] = []
-    let customIdx = 0
-    let cultureIdx = 0
-
-    for (let i = 0; i < totalSlots; i++) {
-      if (culturePositions.includes(i) && cultureIdx < cultureCount) {
-        const cfq = CULTURE_FIT_QUESTIONS[cultureIdx]
-        result.push({
-          id: cfq.id,
-          question: cfq.question,
-          type: 'culture',
-          originalIndex: cultureIdx,
-          label: cfq.label,
-          traits: cfq.traits,
-        })
-        cultureIdx++
-      } else if (customIdx < customCount) {
-        result.push({
-          id: patternQuestions[customIdx].id,
-          question: patternQuestions[customIdx].question,
-          type: 'custom',
-          originalIndex: customIdx,
-        })
-        customIdx++
-      } else if (cultureIdx < cultureCount) {
-        const cfq = CULTURE_FIT_QUESTIONS[cultureIdx]
-        result.push({
-          id: cfq.id,
-          question: cfq.question,
-          type: 'culture',
-          originalIndex: cultureIdx,
-          label: cfq.label,
-          traits: cfq.traits,
-        })
-        cultureIdx++
-      }
-    }
-
-    return result
-  }, [cultureAnalysisEnabled, patternQuestions])
+    return patternQuestions.map((q, i) => ({
+      id: q.id,
+      question: q.question,
+      type: 'custom' as const,
+      originalIndex: i,
+    }))
+  }, [patternQuestions])
 
   const handleAddQuestion = () => {
     if (!selectedJobId) return
     if (totalQuestionCount >= MAX_TOTAL_QUESTIONS) {
-      showToast(cultureAnalysisEnabled 
-        ? `質問は最大${MAX_TOTAL_QUESTIONS}問までです（社風分析${cultureQuestionCount}問を含む）` 
-        : `質問は最大${MAX_TOTAL_QUESTIONS}問までです`)
+      showToast(`質問は最大${MAX_TOTAL_QUESTIONS}問までです`)
       return
     }
     const newQuestion: Question = { id: `temp-${Date.now()}`, question: '' }
@@ -490,8 +411,7 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     if (!window.confirm('現在の質問を全てテンプレートに置き換えますか？')) return
     const templateKey = JOB_TYPES.includes(selectedJob.title as JobTypeKey) ? (selectedJob.title as JobTypeKey) : 'その他'
     const template = JOB_TYPE_TEMPLATES[templateKey]
-    // 社風分析ON: 先頭5問のみ使用（社風分析3問 + カスタム5問 = 8問）、OFF: 8問全て使用
-    const defaultCount = cultureAnalysisEnabled ? DEFAULT_CUSTOM_QUESTIONS_WITH_CULTURE : DEFAULT_CUSTOM_QUESTIONS_WITHOUT_CULTURE
+    const defaultCount = DEFAULT_CUSTOM_QUESTIONS
     const questionsToUse = template.questions.slice(0, defaultCount)
     const newQuestions: Question[] = questionsToUse.map((q, i) => ({ id: `temp-${Date.now()}-${i}`, question: q }))
     setPatternQuestions(newQuestions)
@@ -769,11 +689,10 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
               面接質問
             </h2>
             <p className={`text-sm mb-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-              アイスブレイク（{commonQuestionsIcebreak.length}問）の後に以下の質問が順番に出題されます。{cultureAnalysisEnabled && '社風分析質問は固定位置で表示されます。'}
+              アイスブレイク（{commonQuestionsIcebreak.length}問）の後に以下の質問が順番に出題されます。
             </p>
             <p className={`text-sm mb-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
               質問数: {totalQuestionCount} / {MAX_TOTAL_QUESTIONS}問（アイスブレイク除く）
-              {cultureAnalysisEnabled && ` ｜ 社風分析: ${cultureQuestionCount}問（固定）/ カスタム: ${patternQuestions.length}問`}
             </p>
             {totalQuestionCount > MAX_TOTAL_QUESTIONS && (
               <div className={`rounded-lg p-3 mb-4 ${isDark ? 'bg-red-900/30 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
@@ -943,7 +862,7 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
                   </button>
                   {totalQuestionCount >= MAX_TOTAL_QUESTIONS && (
                     <p className={`mt-2 text-center text-sm ${isDark ? 'text-gray-400' : 'text-gray-400'}`}>
-                      質問は最大{cultureAnalysisEnabled ? maxCustomQuestions : MAX_TOTAL_QUESTIONS}問までです{cultureAnalysisEnabled && `（社風分析含め合計${MAX_TOTAL_QUESTIONS}問）`}
+                      質問は最大{MAX_TOTAL_QUESTIONS}問までです
                     </p>
                   )}
                 </div>

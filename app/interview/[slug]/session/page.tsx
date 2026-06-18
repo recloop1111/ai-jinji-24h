@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { CULTURE_FIT_QUESTIONS, distributeQuestionsSimple } from '@/lib/constants/questions'
 // 公開フローの DB アクセスは token付き service-role API 経由（browser直アクセス廃止）
 
 const LANGUAGES = [
@@ -36,7 +35,6 @@ export default function SessionPage() {
   const [answeredQuestions, setAnsweredQuestions] = useState(0)
   const [isEnding, setIsEnding] = useState(false)
   const [questionList, setQuestionList] = useState<string[]>([])
-  const [cultureAnalysisEnabled, setCultureAnalysisEnabled] = useState(false)
   const snapshotSaved = useRef(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -187,23 +185,12 @@ export default function SessionPage() {
     }
   }, [showConnectionBanner])
 
-  // 質問をjob_questionsテーブルから取得し、社風分析質問を分散配置
+  // 質問を job_questions（questions API）から取得
   useEffect(() => {
     async function fetchQuestions() {
       if (!jobId || !companyId) return
 
       try {
-        // v5: 社風分析質問の差し込みはMVP対象外
-        // 将来復活時: 以下のコメントを外して isCultureEnabled に代入する
-        // const { data: companyData } = await supabase
-        //   .from('companies')
-        //   .select('culture_analysis_enabled')
-        //   .eq('id', companyId)
-        //   .single()
-        // const isCultureEnabled = companyData?.culture_analysis_enabled ?? false
-        const isCultureEnabled = false
-        setCultureAnalysisEnabled(isCultureEnabled)
-
         // カスタム質問を取得（token付き service-role API。browser直SELECTは廃止）
         const token = sessionStorage.getItem(`interview_${slug}_token`)
         const applicant_id = sessionStorage.getItem(`interview_${slug}_applicant_id`)
@@ -223,16 +210,7 @@ export default function SessionPage() {
         }
 
         if (data && data.length > 0) {
-          const customQuestions = data.map(q => q.question_text)
-
-          // 社風分析ONの場合、社風分析質問を分散配置
-          let finalQuestions: string[]
-          if (isCultureEnabled) {
-            const cultureQuestions = CULTURE_FIT_QUESTIONS.map(q => q.question)
-            finalQuestions = distributeQuestionsSimple(customQuestions, cultureQuestions)
-          } else {
-            finalQuestions = customQuestions
-          }
+          const finalQuestions = data.map(q => q.question_text)
 
           setQuestionList(finalQuestions)
           setTotalQuestions(finalQuestions.length)
