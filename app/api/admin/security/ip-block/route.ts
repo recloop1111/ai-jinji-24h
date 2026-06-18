@@ -7,7 +7,7 @@ const IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/
 
 export async function POST(request: NextRequest) {
   try {
-    const { data: _admin, error: authError } = await getAdminUser()
+    const { error: authError } = await getAdminUser()
     if (authError) return authError
 
     const body = await request.json().catch(() => null)

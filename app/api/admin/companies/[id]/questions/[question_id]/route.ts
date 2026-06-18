@@ -10,7 +10,7 @@ type RouteParams = { params: Promise<{ id: string; question_id: string }> }
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
-    const { data: _admin, error: authError } = await getAdminUser()
+    const { error: authError } = await getAdminUser()
     if (authError) return authError
 
     const { id, question_id } = await params
@@ -100,7 +100,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
 export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   try {
-    const { data: _admin, error: authError } = await getAdminUser()
+    const { error: authError } = await getAdminUser()
     if (authError) return authError
 
     const { id, question_id } = await params

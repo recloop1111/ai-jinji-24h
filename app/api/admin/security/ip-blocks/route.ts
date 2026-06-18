@@ -1,11 +1,10 @@
-import { type NextRequest } from 'next/server'
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createClient } from '@/lib/supabase/server'
 
-export async function GET(_request: NextRequest) {
+export async function GET() {
   try {
-    const { data: _admin, error: authError } = await getAdminUser()
+    const { error: authError } = await getAdminUser()
     if (authError) return authError
 
     const supabase = await createClient()

@@ -7,7 +7,7 @@ const MAX_PER_PAGE = 100
 
 export async function GET(request: NextRequest) {
   try {
-    const { data: _admin, error: authError } = await getAdminUser()
+    const { error: authError } = await getAdminUser()
     if (authError) return authError
 
     const { searchParams } = request.nextUrl
