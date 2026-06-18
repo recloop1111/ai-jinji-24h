@@ -543,7 +543,6 @@ const PERSONALITY_TYPES = {
   },
 }
 
-const EVALUATION_AXES = ['コミュニケーション', '論理的思考', '主体性', '仕事への意欲', '課題対応力', '成長可能性']
 const EVALUATION_AXES_SHORT = ['コミュ力', '論理思考', '主体性', '意欲', '課題力', '成長性']
 
 // 性格タグバッジのスタイルマッピング

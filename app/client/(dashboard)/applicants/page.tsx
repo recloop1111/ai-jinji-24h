@@ -222,7 +222,7 @@ function ApplicantsContent() {
           }
         })
         setApplicants(mappedApplicants)
-      } catch (err: any) {
+      } catch {
         setApplicants([])
       }
       setDataLoading(false)
@@ -430,7 +430,7 @@ function ApplicantsContent() {
         .from('applicants')
         .update({ result: dbResult, updated_at: new Date().toISOString() })
         .eq('id', applicantId)
-    } catch (err) {
+    } catch {
     }
     
     setApplicants((prev) => {

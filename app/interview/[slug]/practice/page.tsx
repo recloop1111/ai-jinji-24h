@@ -47,7 +47,7 @@ export default function PracticePage() {
         })
         streamRef.current = stream
         setHasStream(true)
-      } catch (error) {
+      } catch {
       }
     }
 

@@ -147,7 +147,7 @@ function DashboardContent() {
           setRecentApplicants([])
           setApplicants([])
         }
-      } catch (err: any) {
+      } catch {
       }
       setDataLoading(false)
     }
@@ -226,7 +226,7 @@ function DashboardContent() {
           .from('applicants')
           .update({ result: dbResult, updated_at: new Date().toISOString() })
           .eq('id', applicantId)
-      } catch (err) {
+      } catch {
       }
     }
     

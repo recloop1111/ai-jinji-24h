@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { Camera, Mic, Volume2, User, Video, AlertCircle, Check } from 'lucide-react'
+import { Volume2, User, Video, AlertCircle, Check } from 'lucide-react'
 
 // 取得できない場合のダミーデータ
 const dummyCompany = {
@@ -91,7 +91,7 @@ export default function PreparePage() {
           }
         }
         updateVolume()
-      } catch (err) {
+      } catch {
         setCameraStatus('error')
         setMicStatus('error')
       }

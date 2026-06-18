@@ -89,7 +89,7 @@ export default function SessionPage() {
         })
         streamRef.current = stream
         setHasStream(true)
-      } catch (error) {
+      } catch {
       }
     }
 
@@ -222,7 +222,7 @@ export default function SessionPage() {
           setTotalQuestions(1)
           setAiSpeechText('本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？')
         }
-      } catch (error) {
+      } catch {
         setQuestionList(['本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？'])
         setTotalQuestions(1)
         setAiSpeechText('本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？')
@@ -375,56 +375,13 @@ export default function SessionPage() {
           // 途中離脱の場合は途中終了画面へ
           router.push(`/interview/${slug}/ended`)
         }
-      } catch (error) {
+      } catch {
         // エラー時も途中終了画面へ遷移（安全側に倒す）
         router.push(`/interview/${slug}/ended`)
       }
     } else {
       // interviewIdがない場合も途中終了画面へ
       router.push(`/interview/${slug}/ended`)
-    }
-  }
-
-  // 状態に応じたbox-shadowの色とアニメーション設定
-  function getAvatarShadowStyle() {
-    const baseStyle: React.CSSProperties = {
-      willChange: 'transform',
-      animation: 'breathing 2s ease-in-out infinite',
-    }
-
-    switch (interviewState) {
-      case 'idle':
-        return {
-          ...baseStyle,
-          boxShadow: '0 0 20px rgba(255,255,255,0.1), 0 0 40px rgba(255,255,255,0.05)',
-          animation: 'breathing 4s ease-in-out infinite',
-        }
-      case 'listen':
-        return {
-          ...baseStyle,
-          boxShadow: '0 0 25px rgba(34, 197, 94, 0.2), 0 0 50px rgba(34, 197, 94, 0.3)',
-          animation: 'breathing 4s ease-in-out infinite',
-        }
-      case 'think':
-        return {
-          ...baseStyle,
-          boxShadow: '0 0 25px rgba(59, 130, 246, 0.3), 0 0 50px rgba(59, 130, 246, 0.5)',
-          animation: 'breathing 2s ease-in-out infinite',
-        }
-      case 'speak':
-        return {
-          ...baseStyle,
-          boxShadow: '0 0 25px rgba(147, 197, 253, 0.3), 0 0 50px rgba(147, 197, 253, 0.4)',
-          animation: 'breathing 6s ease-in-out infinite',
-        }
-      case 'react':
-        return {
-          ...baseStyle,
-          boxShadow: '0 0 25px rgba(251, 191, 36, 0.4), 0 0 50px rgba(251, 191, 36, 0.5)',
-          animation: 'reactPulse 1.1s ease-in-out',
-        }
-      default:
-        return baseStyle
     }
   }
 

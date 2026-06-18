@@ -225,7 +225,7 @@ export default function AdminApplicantDetailPage() {
             }
           }
         }
-      } catch (err: any) {
+      } catch {
       } finally {
         setLoading(false)
       }
@@ -249,7 +249,7 @@ export default function AdminApplicantDetailPage() {
       } else {
         setToast('保存しました')
       }
-    } catch (err: any) {
+    } catch {
       setToast('保存に失敗しました')
     } finally {
       setSaving(false)
