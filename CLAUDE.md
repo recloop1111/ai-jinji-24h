@@ -60,15 +60,37 @@ communication / logical_thinking / initiative / desire / stress_tolerance / inte
   - `POST /api/interview/[slug]/end` — 終了確定（interviews=completed/cancelled・ended_at・is_billable＝10分超／**applicants.status を end API 側で確定**：completed→'完了'・cancelled→'途中離脱'＋result='不採用'／他 in_progress を cancelled 化）
   - `POST /api/interview/[slug]/satisfaction` — 満足度（1〜5）保存
   - `POST /api/interview/[slug]/snapshot` — 質問スナップショット保存（in_progress時のみ）
-- **interviews.status 運用 = `in_progress` / `completed` / `cancelled`**。applicants/interviews への公開フロー browser 直書きは無し（残る公開フロー直アクセスは companies/jobs/job_questions の SELECT のみ）。
-- ※ 既存 `/api/interview/[slug]/{verify-url,questions,answer,end-reason,extend,status}` は createClient(anon)・未使用の旧APIで温存（将来整理）。
+- **interviews.status 運用 = `in_progress` / `completed` / `cancelled`**。applicants/interviews への公開フロー browser 直書きは無し。**公開フロー（/interview・/survey）の browser Supabase 直アクセスはすべて撤去済み**（読み取りも含め service-role API 経由。下記 Phase 2-d-1 / 2-e-1）。
+- ※ 既存 `/api/interview/[slug]/{verify-url,answer,end-reason,extend,status}` は createClient(anon)・未使用の旧APIで温存（将来整理）。`questions` は **POST が現行**（下記）・GET は旧スキーマ参照の温存。
 
 ### RLS ハードニング進捗（手動実行用SQL: supabase/rls/・migration外）
 - **Phase 1（実行済）**: `interview_results` の anon SELECT/INSERT・authenticated true系を遮断、`company_select_interview_results` 維持＋`admin_select_interview_results` 追加。
 - **Phase 2-pre（実行済）**: applicants/interviews の不要 `authenticated_insert/update`（qual=true）を削除。
 - **Phase 2-c（実行済）**: applicants/interviews の **anon insert/select/update を遮断**、`company_select_*`・`company_update_applicants` 維持、**`admin_select_applicants`/`admin_select_interviews` 追加**（admin/super_admin が全社参照）。公開フロー書き込みは service-role API（RLS bypass）で継続。
-- **未対応（Phase 2-d で検討）**: `companies`（slug照合）/`jobs`/`job_questions`/`common_questions` の **anon SELECT はまだ可**（公開フォーム/質問取得が browser 直読み）。API化 or 据え置き判断は別途。
+- **Phase 2-d（実行済）**: `companies` / `common_questions` の **anon SELECT を遮断**、`company_*` 維持、**`admin_select_companies` 追加**（admin の companies browser SELECT 担保）。`supabase/rls/phase2d_companies_common_questions_anon_lockdown.sql`。
+- **Phase 2-d-3（実行済）**: `jobs` / `job_questions` の **anon SELECT を遮断**、company系/authenticated系を温存。`supabase/rls/phase2d3_jobs_job_questions_anon_lockdown.sql`。
+- **Phase 2-f（実行済）**: 死蔵5テーブル（`applicant_feedback` / `cooldown_locks` / `interview_re_exam_records` / `otp_locks` / `satisfaction_ratings`）の **public(true) policy を遮断**（RLS有効・policy 0件 or 既存 company系のみ＝service-role のみ到達）。テーブル/データは不変。`supabase/rls/phase2f_dead_tables_anon_lockdown.sql`。
+- **anon 遮断済みテーブル**: interview_results / applicants / interviews / companies / common_questions / jobs / job_questions / applicant_feedback / cooldown_locks / interview_re_exam_records / otp_locks / satisfaction_ratings。
 - admin判定は `profiles.role IN ('admin','super_admin')`。service-role は全 RLS を bypass。
+
+### Phase 2-d-1: 完了（interview 公開設定 API・companies/jobs の公開読み取りを service-role 化）
+- **`GET /api/interview/[slug]/public-config`**（service-role）: companies の**安全列のみ**（id/name/logo_url/interview_slug/is_suspended/is_demo/brand_color/avatar_config）＋当該企業の active jobs（id/title/employment_type）を返す。機微列（email/phone/contact/price/plan/stripe/company_setting_password_hash/auth_user_id 等）は返さない。
+- `/interview/[slug]` の page/verify/prepare/form の companies/jobs **browser 直読みを撤去**し本APIへ移行 → Phase 2-d の companies anon 遮断が可能に。
+- **`POST /api/interview/[slug]/questions`**（service-role＋capability token）: applicant.job_id 由来で `job_questions` を取得（question_text / sort_order のみ・昇順）。`/interview/[slug]/session` の job_questions browser 直読みを撤去 → Phase 2-d-3 の job_questions anon 遮断が可能に。
+
+### Phase 2-e: 完了（社風アンケート公開フローの service-role API化／culture_* は対応不要）
+- **`GET /api/survey/[slug]/public-config`**（service-role）: culture_surveys の安全列（id/department/employment_type/is_active）＋company{id,name}のみ返す。回答/分析データ・会社機微列は返さない。
+- **`POST /api/survey/[slug]/response`**（service-role）: 匿名回答（**token不要・slug が回答権限**。回答者識別が無いため capability token は不適）。20問を検証し**サーバ側で5因子スコア計算**→`culture_survey_responses` INSERT→同 survey 全回答を集計し `culture_profiles` を upsert（count≥3 で平均、count<3 は response_count のみ）。
+- `/survey/[slug]` の culture_surveys/culture_survey_responses/culture_profiles の **browser 直アクセスを全撤去**（fetchSurvey→public-config、handleSubmit→response API）。
+- **Phase 2-e-2（RLS変更不要・完了扱い）**: `culture_surveys` / `culture_survey_responses` / `culture_profiles` の実DBポリシーは `roles={public}` だが**全て `auth.uid()` 経由の company スコープ条件付き**（`USING(true)`/`WITH CHECK(true)` の無条件開放は存在しない）。**anon は `auth.uid()` が null → 条件 false → 実効的に遮断済み**。当初「culture_* 全開放」は `docs/MIGRATION_SQL.md` の古い `USING(true)` 記述に基づく**誤前提**だった（実DBと乖離）。Phase 2-e-1 の service-role API化により匿名回答が正しく保存可能に。
+
+### RLS ハードニング クローズアウト（残課題＝低優先 cleanup / 別タスク）
+- **survey の重複回答/スパム対策**（localStorage / cookie / IP rate limit / reCAPTCHA）。匿名・slug ベースのため別タスク。
+- **admin/applicants[id] の culture_profiles browser 読み**は admin の `profiles.company_id` が null だと0件になり得る（RLS遮断とは別の既存機能課題。`admin_select_culture_profiles` or admin用 service-role 参照APIを別タスクで検討）。
+- **`roles={public}` の relabel cleanup**: culture_* / 多数の company_* policy は `{public}＋auth.uid()条件` で即時漏洩は無いが、`{authenticated}` への明示化は将来の低優先 cleanup 候補（書き間違いで自社アクセスを壊すリスクがあり緊急度は低い）。
+- **死蔵テーブル自体の DROP**（satisfaction_ratings 等）/ **死蔵API削除** / **既存lint整理** は別タスク。
+- **本番前E2Eチェックリスト**整備（無料確認範囲＋有料API E2E を分離）。
+- **有料API系（OpenAI Realtime / Twilio / Cloudflare R2 / Stripe / Resend）＋ EBCA評価 writer** は費用・外部審査が絡むため最後にまとめて導入・E2E確認。
 
 ### admin 画面ガード（実行済）
 - **`GET /api/admin/me`** 追加（`getAdminUser()` 流用・admin/super_admin のみ 200、他は 401/403）。
@@ -173,8 +195,9 @@ communication / logical_thinking / initiative / desire / stress_tolerance / inte
 openai, twilio, @aws-sdk/client-s3, idb
 
 ### 残課題（Phase 2-c 以降・docs・有料API）
-- **Phase 2-d**: `companies`（slug照合）/`jobs`/`job_questions`/`common_questions` の **公開 SELECT を service-role API化するか据え置くか**の判断（現状 anon SELECT 可）。
-- **docs整合（順次）**: `INFRASTRUCTURE.md`（`INTERVIEW_TOKEN_SECRET`＋RLS現状）/ `API_DESIGN.md`（面接API刷新＋capability token）/ `REQUIREMENTS.md`（ステータス仕様・フロー分離）/ `SCREEN_DESIGN.md`（verify/ended/面接中/admin guard）。本コミットで CLAUDE.md は反映済み。
+- **RLSハードニングは実質完了**（Phase 1/2-pre/2-a/2-c/2-d/2-d-1/2-d-3/2-f/2-e-1 完了、2-e-2 は対応不要）。公開フローの anon 由来の漏洩/改竄リスクはクローズ。詳細は上記「RLS ハードニング進捗」「Phase 2-d-1」「Phase 2-e」節。
+- **docs整合（順次・進行中）**: RLSハードニング完了状況を各設計書へ反映。`CLAUDE.md`（反映済）→ `INFRASTRUCTURE.md`（RLS表＋phase）→ `API_DESIGN.md`（public-config/questions/survey API）→ `REQUIREMENTS.md`（公開フロー書き込み方針・anon SELECT訂正）→ `MIGRATION_SQL.md`（culture_* は注記で訂正）→ `SCREEN_DESIGN.md`（survey 実装注記）。
+- **低優先 cleanup（別タスク）**: survey 重複回答/スパム対策（localStorage/cookie/IP rate limit/reCAPTCHA）／admin culture_profiles 参照の是正（admin_select_culture_profiles or service-role API）／`roles={public}`→`{authenticated}` relabel／死蔵テーブル DROP／死蔵API削除／既存lint整理。
 - **有料API系は最後にまとめて導入・E2E確認**（費用・外部審査が絡むため）: OpenAI Realtime 音声面接／アバター音声／音声認識／**EBCA評価生成 writer（interview_results）**／録画（R2）／Twilio 実SMS（現状「1234」モック）／Stripe **確定請求 writer（BATCH-001）**／Resend 通知。
 - **本番前E2Eチェックリスト**整備（無料で確認できる範囲 ＋ 有料API E2E を分けて一覧化）。
 - **デモ用のフォーム入力補助/初期値は本番前に削除・無効化**する（`/interview/[slug]/form` 等）。
