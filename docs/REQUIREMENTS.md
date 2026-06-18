@@ -178,10 +178,13 @@
 - 終了画面（ended）は `/` や `/client/login` に飛ばさず、**応募者向け終了表示に留める**。
 - 認証コード画面（verify）は誤コード時に**入力欄クリア＋先頭フォーカス＋インラインエラー**で再入力できる（認証は現状「1234」モック）。
 
-### F-C-009：公開フローの書き込み方針（Phase 2-a 確定）
+### F-C-009：公開フローの読み書き方針（Phase 2-a / 2-d-1 / 2-e 確定・RLSハードニング実質完了）
 - **applicant作成 / interview開始 / 終了確定 / satisfaction / snapshot は service-role API 経由**（`POST /api/interview/[slug]/{applicant,start,end,satisfaction,snapshot}`）。applicants / interviews への **browser Supabase 直書きは撤去済み**。
+- **読み取りも service-role API 化**：企業情報・求人は `GET /api/interview/[slug]/public-config`（companies 安全列＋active jobs）、面接質問は `POST /api/interview/[slug]/questions`（job_questions・token付き）。**`/interview/[slug]` 配下の browser Supabase 直アクセスは読み書きとも撤去済み**。
 - **ケイパビリティ・トークン**（HMAC-SHA256・`INTERVIEW_TOKEN_SECRET`）で slug / applicant_id / company / interview の整合を検証（詳細は API設計書）。
 - **`applicants.status` の「完了」/「途中離脱」確定は end API（service-role）側で実施**（anon は RLS 上 applicants を更新できないため）。
+- **社風アンケート（survey）も同方針（Phase 2-e）**：`GET /api/survey/[slug]/public-config`（culture_surveys 安全列＋company{id,name}）／`POST /api/survey/[slug]/response`（回答保存＋サーバ側5因子スコア計算＋culture_profiles 集計）。`/survey/[slug]` 配下の browser 直アクセスも撤去済み。**survey は完全匿名で applicant_id 相当の束縛対象が無いため capability token は使わず、slug を知っていることを公開回答権限とみなす**。
+- **anon 遮断状況**：interview_results / applicants / interviews / **companies / common_questions（Phase 2-d）/ jobs / job_questions（Phase 2-d-3）** は anon SELECT 遮断済み。`culture_*` 3テーブルは実DB上 `auth.uid()` 経由の company スコープ条件付きで **anon は実効的に遮断済み**（Phase 2-e-2 確認・RLS変更不要）。
 
 ## 5. 面接評価・レポート生成機能（F-R：Report Functions）
 
@@ -584,4 +587,6 @@
 ### 19-2. 本番前注意
 - **デモ用のフォーム入力補助／初期値は本番前に削除・無効化する**（`/interview/[slug]/form` 等）。
 - **SMS認証は現状「1234」モック**（`/interview/[slug]/verify`）。Twilio Verify 導入時に置換する。
-- `companies` / `jobs` / `job_questions` / `common_questions` の **公開（anon）SELECT は当面許容**（応募フォーム・質問取得）。API化 or 据え置きは RLS Phase 2-d で判断。
+- `companies` / `common_questions`（Phase 2-d）/ `jobs` / `job_questions`（Phase 2-d-3）の **公開（anon）SELECT は遮断済み**。公開フローの企業/求人/質問取得は **service-role API（public-config / questions）経由**に移行済み（旧「当面許容」は解消）。
+- **面接の質問ラリー（アバターが質問を読み上げ→応募者回答→次質問）・音声/アバター発話・回答タイミング（無音検知/「回答完了」ボタン）は未実装**。現状 session 画面は質問の先頭1問のみ表示するモック。これらは有料API（OpenAI Realtime / 音声認識 / アバター音声）E2E フェーズの残課題。
+- 本番前チェックは **`docs/PRE_RELEASE_CHECKLIST.md`** に集約（無料E2E／有料API E2E／本番前 disable／死蔵API棚卸し／lint棚卸し／残課題優先順位）。
