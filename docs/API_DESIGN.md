@@ -52,6 +52,8 @@ GET /api/interview/[slug]
 ```
 面接URLの有効性を検証し、企業情報を返す。
 
+> **整理注記（現行フロー）**: 公開面接フロー（page/verify/prepare/form）の企業情報取得は **INT-016 `GET /api/interview/[slug]/public-config`（service-role・安全列のみ）** に置換済み。本エントリは旧仕様で、現行フローでは未使用（削除はせず温存）。
+
 **認証:** 不要
 
 **レスポンス（200）:**
@@ -157,6 +159,8 @@ GET /api/interview/check-reexam?phone_number=xxx&company_id=xxx
 ```
 同一電話番号×同一企業の再受験可否を確認する。
 
+> **整理注記**: 再受験/冷やかしロック（`interview_re_exam_records` / `cooldown_locks`）は未実装で、本APIは現行公開フローでは未使用。SMS（Twilio）実装フェーズで再設計（削除はせず温存）。
+
 **認証:** セッショントークン
 
 **レスポンス（200）:**
@@ -180,6 +184,8 @@ GET /api/interview/check-reexam?phone_number=xxx&company_id=xxx
 GET /api/interview/job-types?company_id=xxx
 ```
 企業に設定された職種一覧を返す。
+
+> **整理注記（現行フロー）**: 公開フォームの職種（求人）一覧は **INT-016 `GET /api/interview/[slug]/public-config`** が返す active jobs（id/title/employment_type）に統合済み。本エントリは現行フローでは未使用（削除はせず温存）。
 
 **認証:** セッショントークン
 
@@ -486,6 +492,51 @@ POST /api/interview/[slug]/satisfaction
 **検証/処理:** token（slug/applicant_id）・company（停止中403）・applicant（company一致）→ `applicants.satisfaction_rating` ＋ `updated_at` を service-role で更新。
 
 **レスポンス（200）:** `{ "applicant_id": "uuid", "satisfaction_rating": 4 }`
+
+---
+
+### INT-016: 公開設定取得（公開フロー・service-role・読み取り）
+```
+GET /api/interview/[slug]/public-config
+```
+> **実装済み（Phase 2-d-1）**。`/interview/[slug]` の page/verify/prepare/form の **companies/jobs browser anon 直読みを置換**。これにより companies/jobs の anon SELECT を遮断（Phase 2-d / 2-d-3）。
+
+公開面接フォームの表示に必要な企業情報と求人一覧を返す。**認証:** なし（未ログイン）・**service-role**（token 不要）。
+
+**処理/検証:** slug → `companies` を特定（無効 → `NOT_FOUND`）→ companies の**安全列のみ**＋当該企業の active jobs を返す。
+
+**レスポンス（200）:**
+```json
+{
+  "id": "uuid", "name": "株式会社A", "logo_url": "https://...",
+  "interview_slug": "abc123", "is_suspended": false, "is_demo": false,
+  "brand_color": "#1234ab", "avatar_config": { },
+  "company": { "id": "uuid", "name": "株式会社A" },
+  "jobs": [ { "id": "uuid", "title": "営業職", "employment_type": "fulltime" } ]
+}
+```
+- **返さない（機微列）**: email / phone / contact / price_per_interview / plan / monthly_interview_* / stripe_customer_id / stripe_subscription_id / company_setting_password_hash / auth_user_id 等。service-role key / secret も返さない。
+
+---
+
+### INT-017: 面接質問取得（公開フロー・service-role＋token）
+```
+POST /api/interview/[slug]/questions
+```
+> **実装済み（Phase 2-d-1）**。`/interview/[slug]/session` の `job_questions` browser anon 直読みを置換 → job_questions の anon SELECT を遮断（Phase 2-d-3）。
+> **旧 `GET /api/interview/[slug]/questions`** は旧スキーマ（`question_banks` / `questions`）参照の未使用APIで温存。**現行は本 POST**。
+
+面接の質問一覧を返す。**認証:** なし（未ログイン）・**service-role＋capability token**。
+
+**リクエスト:**
+```json
+{ "token": "<capability token>", "applicant_id": "uuid", "interview_id": "uuid" }
+```
+
+**検証/処理:** token（slug/applicant_id 一致）→ company（停止中403）→ applicant（company一致）→ interview（applicant一致）→ applicant.job_id があれば job（company一致）→ `job_questions` を **question_text / sort_order のみ**・sort_order 昇順で返す。job_id 無し/質問無しは空配列（呼び出し側の既定質問フォールバックを維持）。
+
+**レスポンス（200）:** `{ "questions": [ { "question_text": "...", "sort_order": 1 } ] }`
+- job_questions の他列・secret・service-role key は返さない。
 
 ---
 
@@ -1999,3 +2050,64 @@ GET /api/health
 | 企業ログイン | 5回で15分ロック、10回で永久ロック | |
 | 冷やかし | 3回で永久ロック | 10分未満離脱 |
 | 一般API | 100リクエスト/分/IP | 将来実装 |
+
+---
+
+## 10. 社風アンケート公開API（survey・Phase 2-e）
+
+パスプレフィックス: `/api/survey`
+
+> **実装済み（Phase 2-e-1）**。`/survey/[slug]` の `culture_surveys` / `culture_survey_responses` / `culture_profiles` への **browser Supabase 直アクセスを全撤去**し、service-role API へ移行。社風アンケートは**完全匿名**（回答者識別なし）で applicant_id のような束縛対象が無いため **capability token は使わず、slug を知っていることを公開回答権限**とみなす。
+
+### SUR-001: アンケート公開設定取得
+```
+GET /api/survey/[slug]/public-config
+```
+アンケート表示に必要な最小情報を返す。**認証:** なし（未ログイン）・**service-role**（token 不要）。
+
+**処理/検証:** `culture_surveys.survey_url_slug = slug` で特定（無効 → `NOT_FOUND`）。会社は id/name のみ。
+
+**レスポンス（200）:**
+```json
+{
+  "id": "uuid", "department": "営業部", "employment_type": "正社員",
+  "is_active": true,
+  "company": { "id": "uuid", "name": "株式会社A" }
+}
+```
+- `is_active=false` は受付停止として画面側で表示。
+- **返さない**: 会社の機微列（email/phone/contact/price/plan/stripe/auth_user_id 等）、`culture_survey_responses`（回答データ）、`culture_profiles`（分析結果）。
+
+---
+
+### SUR-002: アンケート回答保存
+```
+POST /api/survey/[slug]/response
+```
+匿名回答を保存し、社風プロファイルを再集計する。**認証:** なし（未ログイン）・**service-role**（**token 不要・slug が回答権限**）。
+
+**リクエスト:**
+```json
+{ "answers": { "1": 5, "2": 4, "...": 0, "20": 6 }, "free_text": "活気がある" }
+```
+
+**検証/処理:**
+1. `answers` の 20問すべてが **1〜7 の整数**であることをサーバ側で検証（不足/不正 → `VALIDATION_ERROR`）。
+2. slug → **active な survey** を取得（無効 → `NOT_FOUND` / `is_active=false` → `FORBIDDEN`）。`company_id` / `department` / `employment_type` はサーバ由来で確定。
+3. **5因子スコア（openness / conscientiousness / extraversion / agreeableness / neuroticism）をサーバ側で計算**（クライアントのスコア偽装を排除）。
+4. `culture_survey_responses` に INSERT（survey_id ＋ 5スコア ＋ free_text）。
+5. 同 `survey_id` の全回答を service-role で集計し、`culture_profiles` を `company_id + department + employment_type` で upsert：
+   - **count < 3**: `response_count` のみ更新（平均は出さない。既存が無ければ作成しない）。
+   - **count ≥ 3**: 5因子平均を更新（既存があれば UPDATE、無ければ INSERT）。
+
+**レスポンス（200）:** `{ "success": true, "response_count": 3, "profile_enabled": true }`
+- secret / service-role key / 他社データは返さない。browser からは `culture_survey_responses` / `culture_profiles` に直接触らない。
+
+> **残課題（別タスク）**: 匿名・slug ベースのため重複回答/スパム対策は未実装（localStorage / cookie / IP rate limit / reCAPTCHA を別タスクで検討）。
+
+---
+
+## 公開フローの状態（まとめ）
+- **`/interview/[slug]` 配下**: browser Supabase 直アクセス（読み書きとも）撤去済み。書き込み＝`applicant`/`start`/`end`/`satisfaction`/`snapshot`、読み取り＝`public-config`/`questions`。すべて **service-role API＋capability token**。
+- **`/survey/[slug]` 配下**: browser Supabase 直アクセス撤去済み。読み＝`public-config`、書き＝`response`。**service-role API・token なし（slug が回答権限）**。
+- 公開フローは Service Role Key で RLS をバイパスして書き込み、各APIで slug/整合を再検証する。
