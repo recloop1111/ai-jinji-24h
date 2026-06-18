@@ -24,7 +24,6 @@ type Applicant = {
   interview_scheduled_at: string | null
   total_score: number | null
   recommendation_rank: string | null
-  culture_fit_score: number | null
 }
 
 function getStatusConfig(status: string): { dotClass: string; textClass: string; label: string } {

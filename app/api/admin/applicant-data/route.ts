@@ -22,7 +22,6 @@ type ResultRow = {
   applicant_id: string
   total_score: number | null
   detail_json: { recommendation_rank?: string | null } | null
-  culture_fit_score: number | null
 }
 
 export async function GET(request: NextRequest) {
@@ -95,10 +94,10 @@ export async function GET(request: NextRequest) {
 
     const applicants = (applicantsData ?? []) as ApplicantRow[]
 
-    // 評価結果（スコア・推薦度・カルチャーフィット）
+    // 評価結果（スコア・推薦度）
     const { data: resultsData } = await supabase
       .from('interview_results')
-      .select('applicant_id, total_score, detail_json, culture_fit_score')
+      .select('applicant_id, total_score, detail_json')
     const resultsMap: Record<string, ResultRow> = {}
     ;((resultsData ?? []) as ResultRow[]).forEach((r) => {
       resultsMap[r.applicant_id] = r
@@ -133,7 +132,6 @@ export async function GET(request: NextRequest) {
         interview_scheduled_at: null,
         total_score: ir?.total_score ?? null,
         recommendation_rank: ir?.detail_json?.recommendation_rank ?? null,
-        culture_fit_score: ir?.culture_fit_score ?? null,
       }
     })
 

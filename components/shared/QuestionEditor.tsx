@@ -330,14 +330,12 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
   const MAX_TOTAL_QUESTIONS = 10
   const totalQuestionCount = patternQuestions.length
 
-  // 質問リスト（カスタム質問のみ。社風分析質問は廃止。type は後方互換のため union を維持）
+  // 質問リスト（カスタム質問のみ。社風分析質問は廃止）
   type IntegratedQuestion = {
     id: string
     question: string
-    type: 'custom' | 'culture'
+    type: 'custom'
     originalIndex: number
-    label?: string
-    traits?: string
   }
 
   const integratedQuestions = useMemo<IntegratedQuestion[]>(() => {
@@ -742,62 +740,6 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
               <>
                 <div className="space-y-4">
                   {integratedQuestions.map((q, i) => {
-                    const isCultureQuestion = q.type === 'culture'
-                    
-                    if (isCultureQuestion) {
-                      return (
-                        <div 
-                          key={q.id} 
-                          className={`rounded-xl border-l-4 border p-5 transition-all ${
-                            isDark 
-                              ? 'bg-purple-500/5 border-purple-500/30 border-l-purple-400' 
-                              : 'bg-purple-50/50 border-purple-200 border-l-purple-400'
-                          }`}
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="flex flex-col gap-0.5 shrink-0 opacity-0 pointer-events-none">
-                              <div className="p-1"><ChevronUp className="w-5 h-5" /></div>
-                              <div className="p-1"><ChevronDown className="w-5 h-5" /></div>
-                            </div>
-                            <span className={`shrink-0 mt-1 inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
-                              isDark ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-700'
-                            }`}>
-                              {i + 1}
-                            </span>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-2">
-                                <span className={`text-xs font-semibold ${isDark ? 'text-purple-400' : 'text-purple-700'}`}>{q.label}</span>
-                                <span className={`text-xs px-2 py-0.5 rounded-full ${isDark ? 'bg-purple-500/10 text-purple-400' : 'bg-purple-100 text-purple-600'}`}>
-                                  {q.traits}
-                                </span>
-                              </div>
-                              {isDark ? (
-                                <textarea
-                                  defaultValue={q.question}
-                                  rows={2}
-                                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-lg text-gray-300 px-3 py-2 text-sm focus:border-purple-500/50 outline-none resize-none"
-                                />
-                              ) : (
-                                <p className="text-sm leading-relaxed text-slate-700">{q.question}</p>
-                              )}
-                              <p className={`text-xs mt-2 ${isDark ? 'text-purple-400/60' : 'text-purple-500'}`}>
-                                社風分析用質問（固定）
-                              </p>
-                            </div>
-                            {isDark ? (
-                              <button type="button" className="shrink-0 p-2 text-gray-700 cursor-not-allowed">
-                                <X className="w-5 h-5" />
-                              </button>
-                            ) : (
-                              <div className="shrink-0 p-2 opacity-0 pointer-events-none">
-                                <X className="w-5 h-5" />
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    }
-                    
                     return (
                       <div key={q.id} className={`rounded-xl border p-5 transition-all ${cn.innerCard} ${!isDark && 'shadow-sm hover:shadow-md'}`}>
                         <div className="flex items-start gap-3">
