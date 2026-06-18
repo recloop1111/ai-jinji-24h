@@ -112,19 +112,6 @@ const GRADE_STYLES: Record<string, string> = {
   D: 'bg-rose-500 text-white',
 }
 
-function GradeBadge({ grade, size = 'md' }: { grade: string; size?: 'sm' | 'md' }) {
-  const isSm = size === 'sm'
-  return (
-    <span
-      className={`inline-flex items-center justify-center rounded-full font-bold shrink-0 ${GRADE_STYLES[grade] || 'bg-gray-500 text-white'} ${
-        isSm ? 'w-7 h-7 text-xs' : 'w-16 h-16 text-2xl'
-      }`}
-    >
-      {grade}
-    </span>
-  )
-}
-
 function RecommendLegendDark() {
   return (
     <div className="mt-5 rounded-2xl bg-gray-800 border border-gray-700 px-5 py-4">

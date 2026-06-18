@@ -165,7 +165,6 @@ export default function PreparePage() {
   }
 
   const displayCompany = company || dummyCompany
-  const isReady = cameraStatus === 'ok' && micTestPassed
 
   return (
     <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen pb-8">
