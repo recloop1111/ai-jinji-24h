@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { useParams } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import { Loader2, CheckCircle, AlertCircle } from 'lucide-react'
+// 公開フローの DB アクセスは service-role API 経由（browser 直アクセス廃止）
 
 type SurveyData = {
   id: string
@@ -58,7 +58,6 @@ const SCALE_LABELS = [
 export default function SurveyPage() {
   const params = useParams()
   const slug = params.slug as string
-  const supabase = createClient()
 
   const [survey, setSurvey] = useState<SurveyData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -77,44 +76,35 @@ export default function SurveyPage() {
       setError(null)
       setInactive(false)
 
-      const { data, error: fetchError } = await supabase
-        .from('culture_surveys')
-        .select(`
-          id,
-          department,
-          employment_type,
-          is_active,
-          company:companies!culture_surveys_company_id_fkey (
-            id,
-            name
-          )
-        `)
-        .eq('survey_url_slug', slug)
-        .single()
+      try {
+        const res = await fetch(`/api/survey/${slug}/public-config`)
+        const data = await res.json().catch(() => null)
 
-      if (fetchError || !data) {
+        if (!res.ok || !data?.id) {
+          setError('アンケートが見つかりません')
+          setLoading(false)
+          return
+        }
+
+        if (!data.is_active) {
+          setInactive(true)
+          setLoading(false)
+          return
+        }
+
+        setSurvey({
+          id: data.id,
+          department: data.department,
+          employment_type: data.employment_type,
+          is_active: data.is_active,
+          company: {
+            id: data.company?.id || '',
+            name: data.company?.name || '',
+          },
+        })
+      } catch {
         setError('アンケートが見つかりません')
-        setLoading(false)
-        return
       }
-
-      if (!data.is_active) {
-        setInactive(true)
-        setLoading(false)
-        return
-      }
-
-      const companyData = Array.isArray(data.company) ? data.company[0] : data.company
-      setSurvey({
-        id: data.id,
-        department: data.department,
-        employment_type: data.employment_type,
-        is_active: data.is_active,
-        company: {
-          id: companyData?.id || '',
-          name: companyData?.name || '',
-        },
-      })
       setLoading(false)
     }
 
@@ -129,14 +119,6 @@ export default function SurveyPage() {
     setValidationError(null)
   }
 
-  const calculateFactorScore = (factor: Question['factor']): number => {
-    const factorQuestions = QUESTIONS.filter((q) => q.factor === factor)
-    const factorAnswers = factorQuestions.map((q) => answers[q.id]).filter((a) => a !== undefined)
-    if (factorAnswers.length === 0) return 0
-    const avg = factorAnswers.reduce((sum, a) => sum + a, 0) / factorAnswers.length
-    return Math.round((avg / 7) * 10 * 10) / 10
-  }
-
   const handleSubmit = async () => {
     if (answeredCount < QUESTIONS.length) {
       setValidationError('すべての質問にお答えください')
@@ -146,97 +128,25 @@ export default function SurveyPage() {
     setSubmitting(true)
     setValidationError(null)
 
-    const opennessScore = calculateFactorScore('openness')
-    const conscientiousnessScore = calculateFactorScore('conscientiousness')
-    const extraversionScore = calculateFactorScore('extraversion')
-    const agreeablenessScore = calculateFactorScore('agreeableness')
-    const neuroticismScore = calculateFactorScore('neuroticism')
+    // 回答の保存・スコア計算・社風プロファイル集計はすべて service-role API 側で実施
+    try {
+      const res = await fetch(`/api/survey/${slug}/response`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers, free_text: freeText.trim() || null }),
+      })
 
-    const { error: insertError } = await supabase.from('culture_survey_responses').insert({
-      survey_id: survey!.id,
-      openness_score: opennessScore,
-      conscientiousness_score: conscientiousnessScore,
-      extraversion_score: extraversionScore,
-      agreeableness_score: agreeablenessScore,
-      neuroticism_score: neuroticismScore,
-      free_text: freeText.trim() || null,
-    })
+      if (!res.ok) {
+        setValidationError('送信に失敗しました。もう一度お試しください。')
+        setSubmitting(false)
+        return
+      }
 
-    if (insertError) {
+      setSubmitting(false)
+      setSubmitted(true)
+    } catch {
       setValidationError('送信に失敗しました。もう一度お試しください。')
       setSubmitting(false)
-      return
-    }
-
-    await updateCultureProfile()
-    setSubmitting(false)
-    setSubmitted(true)
-  }
-
-  const updateCultureProfile = async () => {
-    if (!survey) return
-
-    const { data: responses } = await supabase
-      .from('culture_survey_responses')
-      .select('openness_score, conscientiousness_score, extraversion_score, agreeableness_score, neuroticism_score')
-      .eq('survey_id', survey.id)
-
-    if (!responses || responses.length === 0) return
-
-    const count = responses.length
-
-    const { data: existingProfile } = await supabase
-      .from('culture_profiles')
-      .select('id')
-      .eq('company_id', survey.company.id)
-      .eq('department', survey.department)
-      .eq('employment_type', survey.employment_type)
-      .single()
-
-    if (count < 3) {
-      if (existingProfile) {
-        await supabase
-          .from('culture_profiles')
-          .update({
-            response_count: count,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', existingProfile.id)
-      }
-      return
-    }
-
-    const avgOpenness = Math.round((responses.reduce((s, r) => s + Number(r.openness_score), 0) / count) * 10) / 10
-    const avgConscientiousness = Math.round((responses.reduce((s, r) => s + Number(r.conscientiousness_score), 0) / count) * 10) / 10
-    const avgExtraversion = Math.round((responses.reduce((s, r) => s + Number(r.extraversion_score), 0) / count) * 10) / 10
-    const avgAgreeableness = Math.round((responses.reduce((s, r) => s + Number(r.agreeableness_score), 0) / count) * 10) / 10
-    const avgNeuroticism = Math.round((responses.reduce((s, r) => s + Number(r.neuroticism_score), 0) / count) * 10) / 10
-
-    if (existingProfile) {
-      await supabase
-        .from('culture_profiles')
-        .update({
-          avg_openness: avgOpenness,
-          avg_conscientiousness: avgConscientiousness,
-          avg_extraversion: avgExtraversion,
-          avg_agreeableness: avgAgreeableness,
-          avg_neuroticism: avgNeuroticism,
-          response_count: count,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', existingProfile.id)
-    } else {
-      await supabase.from('culture_profiles').insert({
-        company_id: survey.company.id,
-        department: survey.department,
-        employment_type: survey.employment_type,
-        avg_openness: avgOpenness,
-        avg_conscientiousness: avgConscientiousness,
-        avg_extraversion: avgExtraversion,
-        avg_agreeableness: avgAgreeableness,
-        avg_neuroticism: avgNeuroticism,
-        response_count: count,
-      })
     }
   }
 
