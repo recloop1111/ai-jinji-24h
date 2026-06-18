@@ -196,7 +196,8 @@ openai, twilio, @aws-sdk/client-s3, idb
 
 ### 残課題（Phase 2-c 以降・docs・有料API）
 - **RLSハードニングは実質完了**（Phase 1/2-pre/2-a/2-c/2-d/2-d-1/2-d-3/2-f/2-e-1 完了、2-e-2 は対応不要）。公開フローの anon 由来の漏洩/改竄リスクはクローズ。詳細は上記「RLS ハードニング進捗」「Phase 2-d-1」「Phase 2-e」節。
-- **docs整合（順次・進行中）**: RLSハードニング完了状況を各設計書へ反映。`CLAUDE.md`（反映済）→ `INFRASTRUCTURE.md`（RLS表＋phase）→ `API_DESIGN.md`（public-config/questions/survey API）→ `REQUIREMENTS.md`（公開フロー書き込み方針・anon SELECT訂正）→ `MIGRATION_SQL.md`（culture_* は注記で訂正）→ `SCREEN_DESIGN.md`（survey 実装注記）。
+- **docs整合（完了）**: RLSハードニング完了状況を各設計書へ反映済み（`CLAUDE.md` / `INFRASTRUCTURE.md` / `API_DESIGN.md` / `REQUIREMENTS.md` / `MIGRATION_SQL.md`〔culture_* は注記訂正〕/ `SCREEN_DESIGN.md`）。
+- **本番前チェックリスト**: 無料E2E・有料API E2E・本番前 disable（デモ補助/1234モック/テストデータ/本番env）・**死蔵API棚卸し**（verify-url/answer/end-reason/extend/status/complete/GET questions＝実fetchなし・削除はまだしない）・**lint棚卸し**（約110件超・全て非機能・修正は別タスク）・残課題優先順位を **`docs/PRE_RELEASE_CHECKLIST.md`** に集約。
 - **低優先 cleanup（別タスク）**: survey 重複回答/スパム対策（localStorage/cookie/IP rate limit/reCAPTCHA）／admin culture_profiles 参照の是正（admin_select_culture_profiles or service-role API）／`roles={public}`→`{authenticated}` relabel／死蔵テーブル DROP／死蔵API削除／既存lint整理。
 - **有料API系は最後にまとめて導入・E2E確認**（費用・外部審査が絡むため）: OpenAI Realtime 音声面接／アバター音声／音声認識／**EBCA評価生成 writer（interview_results）**／録画（R2）／Twilio 実SMS（現状「1234」モック）／Stripe **確定請求 writer（BATCH-001）**／Resend 通知。
 - **本番前E2Eチェックリスト**整備（無料で確認できる範囲 ＋ 有料API E2E を分けて一覧化）。
