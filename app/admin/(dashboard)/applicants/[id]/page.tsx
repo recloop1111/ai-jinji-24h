@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { deriveDisplayStatusJa } from '@/lib/applicants/displayStatus'
@@ -148,7 +148,6 @@ function RecommendLegendDark() {
 
 export default function AdminApplicantDetailPage() {
   const params = useParams()
-  const router = useRouter()
   const id = params.id as string
   const supabase = createClient()
 

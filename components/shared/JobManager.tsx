@@ -223,7 +223,7 @@ export default function JobManager({ companyId: companyIdProp, theme }: JobManag
     }
 
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('jobs')
         .insert(payload)
         .select()

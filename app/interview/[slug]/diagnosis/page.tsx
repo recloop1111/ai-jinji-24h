@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { ChevronLeft } from 'lucide-react'
 
 // 動物キャラクターSVGアイコンコンポーネント（ゆるキャラ・LINEスタンプ風）
@@ -578,9 +578,7 @@ const TAG_STYLES: Record<string, string> = {
 
 // TODO: Phase 4 - OGP画像生成・シェアURL生成
 export default function DiagnosisPage() {
-  const params = useParams()
   const router = useRouter()
-  const slug = params.slug as string
   const [toast, setToast] = useState('')
 
   // ダミーで「ライオン型リーダー」タイプを表示

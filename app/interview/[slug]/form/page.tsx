@@ -173,7 +173,6 @@ export default function FormPage() {
     if (!companyId) return
 
     setSubmitting(true)
-    const selectedJob = jobTypes.find((j) => j.value === jobId)
 
     try {
       // employment_type: フォームで選択された「就業形態（新卒/中途）」の値を常に設定
