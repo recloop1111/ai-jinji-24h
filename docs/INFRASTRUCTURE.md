@@ -108,7 +108,7 @@
 | リフレッシュトークン | 有効 |
 
 #### RLS（Row Level Security）
-全テーブルでRLS有効化。**RLSハードニング Phase 1 / 2-pre / 2-c を適用済み**（手動実行用SQL: `supabase/rls/`・migration外）。運営API・公開面接フローの書き込みは **Service Role Key で RLS をバイパス**。
+全テーブルでRLS有効化。**RLSハードニング Phase 1 / 2-pre / 2-c / 2-d / 2-d-3 / 2-f を適用済み**（手動実行用SQL: `supabase/rls/`・migration外）。運営API・公開フロー（面接/社風アンケート）の書き込みは **Service Role Key で RLS をバイパス**。**公開フローの anon 由来の漏洩/改竄リスクはクローズ済み**。
 
 主要ポリシー（現状）:
 | テーブル | ポリシー |
@@ -117,19 +117,44 @@
 | interviews | client=自社のみ（`company_select_interviews`）／admin=全社SELECT（`admin_select_interviews`）。**anon は遮断（Phase 2-c）** |
 | interview_results | client=自社のみ（`company_select_interview_results`）／admin=全社（`admin_select_interview_results`）。**anon は遮断（Phase 1）** |
 | internal_memos / email_templates / sent_emails 等 | `company_id` 経由で自社のみ |
-| companies / jobs / job_questions / common_questions | 公開面接フロー用に **anon SELECT を当面許容**（応募フォーム・質問取得が browser 直読み。Phase 2-d で API化 or 据え置き判断） |
+| companies / common_questions | client=自社（`company_*`）／admin=全社SELECT（`admin_select_companies`）。**anon SELECT は遮断（Phase 2-d）**。公開フローの企業情報取得は **interview public-config API（service-role）** 経由 |
+| jobs / job_questions | client/admin=既存 company系/authenticated系。**anon SELECT は遮断（Phase 2-d-3）**。公開フローの求人取得は **interview public-config API**、面接質問取得は **questions API（service-role＋token）** 経由 |
+| culture_surveys / culture_survey_responses / culture_profiles | client=自社のみ（`company_*`：`auth.uid()` 経由 company スコープ）。**`roles={public}` だが anon は `auth.uid()` が null で条件 false ＝実効的に anon 遮断**（Phase 2-e-2 で確認・RLS変更不要）。公開フローの回答は **survey response API（service-role）** 経由 |
+| applicant_feedback / cooldown_locks / interview_re_exam_records / otp_locks / satisfaction_ratings | 死蔵テーブル（コード未使用）。**public(true) policy を遮断済み（Phase 2-f）**＝RLS有効・service-role のみ到達。テーブル/データは不変 |
 
 ハードニング適用フェーズ:
 - **Phase 1（適用済）**: `interview_results` の anon SELECT/INSERT・authenticated true系を遮断、`company_select` 維持＋`admin_select_interview_results` 追加。
 - **Phase 2-pre（適用済）**: applicants/interviews の不要な authenticated true系（INSERT/UPDATE）を削除。
 - **Phase 2-c（適用済）**: applicants/interviews の anon insert/select/update を遮断、`company_*` 維持、`admin_select_applicants`/`admin_select_interviews` 追加。
-- 結果: **anon では applicants/interviews/interview_results を読めない**（service-role では読める）。admin判定は `profiles.role IN ('admin','super_admin')`。
+- **Phase 2-d（適用済）**: `companies` / `common_questions` の anon SELECT を遮断、`company_*` 維持、`admin_select_companies` 追加。
+- **Phase 2-d-3（適用済）**: `jobs` / `job_questions` の anon SELECT を遮断、company系/authenticated系を温存。
+- **Phase 2-f（適用済）**: 死蔵5テーブルの public(true) policy を遮断（service-role のみ到達）。
+- **Phase 2-e-2（対応不要・完了扱い）**: `culture_*` 3テーブルは実DB上 `auth.uid()` 経由 company スコープ条件付き（無条件 `USING(true)` は不在）で**実効的に anon 遮断済み**。RLS変更は行わない（docs/MIGRATION_SQL.md の古い `USING(true)` 記述は実DBと乖離）。
+- 結果: **anon では interview_results / applicants / interviews / companies / common_questions / jobs / job_questions / culture_* / 死蔵5テーブル を読めない**（service-role では読める）。admin判定は `profiles.role IN ('admin','super_admin')`。
 
-#### Phase 2-a: 公開面接フローの service-role API ＋ ケイパビリティ・トークン
-- 公開フロー（未ログイン）の主要書き込みは browser Supabase 直書きを廃し、**token付き service-role API** へ移行（applicants/interviews への browser 直書きは撤去済み）:
+#### Phase 2-a / 2-d-1: 公開面接フローの service-role API ＋ ケイパビリティ・トークン
+- 公開フロー（未ログイン）の主要**書き込み**は browser Supabase 直書きを廃し、**token付き service-role API** へ移行（applicants/interviews への browser 直書きは撤去済み）:
   `POST /api/interview/[slug]/{applicant, start, end, satisfaction, snapshot}`
+- 公開フローの**読み取り**も service-role API 化（Phase 2-d-1）:
+  - `GET /api/interview/[slug]/public-config` — companies の**安全列のみ**（id/name/logo_url/interview_slug/is_suspended/is_demo/brand_color/avatar_config）＋当該企業の active jobs（id/title/employment_type）。機微列（email/phone/contact/price/plan/stripe/company_setting_password_hash/auth_user_id 等）は返さない。
+  - `POST /api/interview/[slug]/questions` — applicant.job_id 由来で `job_questions`（question_text / sort_order のみ・昇順）を取得（service-role＋token）。
 - **HMAC-SHA256 ケイパビリティ・トークン**（`lib/interview/capability-token.ts`）。payload `{ slug, applicant_id, iat, exp }`、署名鍵 = **`INTERVIEW_TOKEN_SECRET`**。各APIで slug / applicant_id / company / interview の整合を再検証。
 - `applicants.status` の確定（完了/途中離脱）は **end API（service-role）** で実施（anon は applicants を更新できないため）。`interviews.status` は `in_progress` / `completed` / `cancelled` 運用。
+- **`/interview/[slug]` 配下の browser Supabase 直アクセスは読み書きとも全撤去済み**。
+
+#### Phase 2-e: 社風アンケート（survey）公開フローの service-role API
+- `/survey/[slug]` の culture_surveys / culture_survey_responses / culture_profiles への **browser Supabase 直アクセスを全撤去**し、service-role API へ移行:
+  - `GET /api/survey/[slug]/public-config` — culture_surveys の安全列（id/department/employment_type/is_active）＋company{id,name}のみ。回答/分析データ・会社機微列は返さない。
+  - `POST /api/survey/[slug]/response` — 匿名回答（**capability token 不要・slug が回答権限**。回答者識別が無く束縛対象が無いため token は不適）。20問を検証し**サーバ側で5因子スコアを計算**→`culture_survey_responses` INSERT→同 survey の全回答を集計し `culture_profiles` を upsert（count≥3 で平均5因子、count<3 は response_count のみ）。
+- スコア計算・プロファイル集計をサーバ側に集約したことで、anon によるスコア/分析結果の偽装・改竄を排除。
+- culture_* の RLS は既に company スコープで anon 実効遮断のため、Phase 2-e は RLS 変更なし（コード側 API 化のみ）。
+
+#### RLSハードニング残課題（低優先 cleanup / 別タスク）
+- **survey の重複回答/スパム対策**（localStorage / cookie / IP rate limit / reCAPTCHA）。匿名・slug ベースのため別タスク。
+- **admin/applicants[id] の culture_profiles browser 読み**は admin の `profiles.company_id` が null だと 0件になり得る（RLS遮断とは別の既存機能課題。`admin_select_culture_profiles` or admin用 service-role 参照API を別タスクで検討）。
+- **`roles={public}` → `{authenticated}` の relabel cleanup**（culture_* / 多数の company_* policy。`auth.uid()` 条件付きで即時漏洩は無いが、ラベルの明示化は低優先 cleanup 候補）。
+- **死蔵テーブル自体の DROP** / **死蔵API削除** / **既存lint整理** は別タスク。
+- **有料API系（OpenAI Realtime / Twilio / Cloudflare R2 / Stripe / Resend）＋ EBCA評価 writer** ＋ **本番前E2Eチェックリスト** は最後にまとめて。
 
 #### 接続文字列 / サーバ専用シークレット
 ```
