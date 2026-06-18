@@ -183,8 +183,8 @@
 - **読み取りも service-role API 化**：企業情報・求人は `GET /api/interview/[slug]/public-config`（companies 安全列＋active jobs）、面接質問は `POST /api/interview/[slug]/questions`（job_questions・token付き）。**`/interview/[slug]` 配下の browser Supabase 直アクセスは読み書きとも撤去済み**。
 - **ケイパビリティ・トークン**（HMAC-SHA256・`INTERVIEW_TOKEN_SECRET`）で slug / applicant_id / company / interview の整合を検証（詳細は API設計書）。
 - **`applicants.status` の「完了」/「途中離脱」確定は end API（service-role）側で実施**（anon は RLS 上 applicants を更新できないため）。
-- **社風アンケート（survey）も同方針（Phase 2-e）**：`GET /api/survey/[slug]/public-config`（culture_surveys 安全列＋company{id,name}）／`POST /api/survey/[slug]/response`（回答保存＋サーバ側5因子スコア計算＋culture_profiles 集計）。`/survey/[slug]` 配下の browser 直アクセスも撤去済み。**survey は完全匿名で applicant_id 相当の束縛対象が無いため capability token は使わず、slug を知っていることを公開回答権限とみなす**。
-- **anon 遮断状況**：interview_results / applicants / interviews / **companies / common_questions（Phase 2-d）/ jobs / job_questions（Phase 2-d-3）** は anon SELECT 遮断済み。`culture_*` 3テーブルは実DB上 `auth.uid()` 経由の company スコープ条件付きで **anon は実効的に遮断済み**（Phase 2-e-2 確認・RLS変更不要）。
+- **社風アンケート（survey）/ culture fit は不採用・削除済み**（Phase C）。`app/survey/*`・`app/api/survey/*`・`/client/culture-analysis`・culture 質問/表示コードは撤去済み。評価の中心は **EBCA**（質問非依存）。culture_* テーブル/列はコード参照ゼロの死蔵で、別タスク（C-4）で DROP 予定。
+- **anon 遮断状況**：interview_results / applicants / interviews / **companies / common_questions（Phase 2-d）/ jobs / job_questions（Phase 2-d-3）** は anon SELECT 遮断済み。死蔵の `culture_*` 3テーブルも `auth.uid()` 経由 company スコープで **anon は実効的に遮断**（DROP までは存置）。
 
 ## 5. 面接評価・レポート生成機能（F-R：Report Functions）
 

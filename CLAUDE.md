@@ -78,17 +78,17 @@ communication / logical_thinking / initiative / desire / stress_tolerance / inte
 - `/interview/[slug]` の page/verify/prepare/form の companies/jobs **browser 直読みを撤去**し本APIへ移行 → Phase 2-d の companies anon 遮断が可能に。
 - **`POST /api/interview/[slug]/questions`**（service-role＋capability token）: applicant.job_id 由来で `job_questions` を取得（question_text / sort_order のみ・昇順）。`/interview/[slug]/session` の job_questions browser 直読みを撤去 → Phase 2-d-3 の job_questions anon 遮断が可能に。
 
-### Phase 2-e: 完了（社風アンケート公開フローの service-role API化／culture_* は対応不要）
-- **`GET /api/survey/[slug]/public-config`**（service-role）: culture_surveys の安全列（id/department/employment_type/is_active）＋company{id,name}のみ返す。回答/分析データ・会社機微列は返さない。
-- **`POST /api/survey/[slug]/response`**（service-role）: 匿名回答（**token不要・slug が回答権限**。回答者識別が無いため capability token は不適）。20問を検証し**サーバ側で5因子スコア計算**→`culture_survey_responses` INSERT→同 survey 全回答を集計し `culture_profiles` を upsert（count≥3 で平均、count<3 は response_count のみ）。
-- `/survey/[slug]` の culture_surveys/culture_survey_responses/culture_profiles の **browser 直アクセスを全撤去**（fetchSurvey→public-config、handleSubmit→response API）。
-- **Phase 2-e-2（RLS変更不要・完了扱い）**: `culture_surveys` / `culture_survey_responses` / `culture_profiles` の実DBポリシーは `roles={public}` だが**全て `auth.uid()` 経由の company スコープ条件付き**（`USING(true)`/`WITH CHECK(true)` の無条件開放は存在しない）。**anon は `auth.uid()` が null → 条件 false → 実効的に遮断済み**。当初「culture_* 全開放」は `docs/MIGRATION_SQL.md` の古い `USING(true)` 記述に基づく**誤前提**だった（実DBと乖離）。Phase 2-e-1 の service-role API化により匿名回答が正しく保存可能に。
+### 社風分析 / survey / culture fit：不採用・削除（確定）
+- **方針**: AI人事24h は企業ごとのカスタム質問・カスタム面接が前提で、固定の社風フィット質問・社員アンケートは質問設計と評価軸の整合が取りにくく根拠が弱い。よって **社風分析 / 社員アンケート / culture profile / カルチャーフィット質問 / 応募者との社風マッチ度 / 採用評価への社風反映は不採用**。評価の中心は **EBCA（Evidence-based Competency Analysis）**＝質問非依存・回答の根拠/具体性/論理性/一貫性ベース。
+- **コード撤去済み（Phase C-1〜C-2c）**:
+  - 削除: `app/survey/[slug]`（社風アンケート画面）/ `app/api/survey/[slug]/{public-config,response}`（survey API）/ `app/client/(dashboard)/culture-analysis`（社風分析画面）/ `lib/constants/questions.ts`（CULTURE_FIT_QUESTIONS・distributeQuestionsSimple）。
+  - 除去: session / QuestionEditor の culture 質問ロジック、admin/client 応募者詳細の culture 表示・state・fetch・型、`applicant-data` の `culture_fit_score`、diagnosis 軸ラベル（'カルチャーフィット'→'主体性'）、admin/questions 文言。
+  - browser からの culture_* 直アクセス・参照はゼロ。
+- **DB（C-4 で最後に DROP・未実施）**: `culture_surveys` / `culture_survey_responses` / `culture_profiles`（テーブル）、`companies.culture_analysis_enabled`、`interview_results.culture_fit_score` / `culture_fit_detail` / `big_five_scores`（列）はコード参照ゼロの**死蔵**。anon は実効遮断済み（`auth.uid()` company スコープ）で漏洩リスクなし。要バックアップの上、別タスクで DROP。
 
 ### RLS ハードニング クローズアウト（残課題＝低優先 cleanup / 別タスク）
-- **survey の重複回答/スパム対策**（localStorage / cookie / IP rate limit / reCAPTCHA）。匿名・slug ベースのため別タスク。
-- **admin/applicants[id] の culture_profiles browser 読み**は admin の `profiles.company_id` が null だと0件になり得る（RLS遮断とは別の既存機能課題。`admin_select_culture_profiles` or admin用 service-role 参照APIを別タスクで検討）。
-- **`roles={public}` の relabel cleanup**: culture_* / 多数の company_* policy は `{public}＋auth.uid()条件` で即時漏洩は無いが、`{authenticated}` への明示化は将来の低優先 cleanup 候補（書き間違いで自社アクセスを壊すリスクがあり緊急度は低い）。
-- **死蔵テーブル自体の DROP**（satisfaction_ratings 等）/ **死蔵API削除** / **既存lint整理** は別タスク。
+- **`roles={public}` の relabel cleanup**: 多数の company_* policy は `{public}＋auth.uid()条件` で即時漏洩は無いが、`{authenticated}` への明示化は将来の低優先 cleanup 候補（書き間違いで自社アクセスを壊すリスクがあり緊急度は低い）。
+- **死蔵テーブル/列の DROP**（culture_* 一式 ＋ satisfaction_ratings 等）/ **死蔵API削除** / **既存lint整理** は別タスク。
 - **本番前E2Eチェックリスト**整備（無料確認範囲＋有料API E2E を分離）。
 - **有料API系（OpenAI Realtime / Twilio / Cloudflare R2 / Stripe / Resend）＋ EBCA評価 writer** は費用・外部審査が絡むため最後にまとめて導入・E2E確認。
 
@@ -136,8 +136,8 @@ communication / logical_thinking / initiative / desire / stress_tolerance / inte
 - /client/plan (571行)
 - /client/billing (127行)
 - /client/suspension (425行)
-- /client/culture-analysis (501行)
 - /client/settings (680行)
+  ※ /client/culture-analysis（社風分析）は**不採用・削除済み**（Phase C-1）
 
 実装済みの運営管理画面:
 - /admin/login (129行)
@@ -177,7 +177,7 @@ communication / logical_thinking / initiative / desire / stress_tolerance / inte
 - /interview/[slug]/terms 利用規約 (141行)
 - /interview/[slug]/cancelled キャンセル (40行)
 - /interview/[slug]/ended 途中終了 (45行)
-- /survey/[slug] 社風アンケート (415行)
+  ※ /survey/[slug]（社風アンケート）は**不採用・削除済み**（Phase C-1）
 
 コード修正完了:
 - types/database.ts: PLAN_CONFIG(light/standard/pro), 料金, グレード, 評価軸キー, dataRetentionDays:180, isDemo
@@ -195,10 +195,11 @@ communication / logical_thinking / initiative / desire / stress_tolerance / inte
 openai, twilio, @aws-sdk/client-s3, idb
 
 ### 残課題（Phase 2-c 以降・docs・有料API）
-- **RLSハードニングは実質完了**（Phase 1/2-pre/2-a/2-c/2-d/2-d-1/2-d-3/2-f/2-e-1 完了、2-e-2 は対応不要）。公開フローの anon 由来の漏洩/改竄リスクはクローズ。詳細は上記「RLS ハードニング進捗」「Phase 2-d-1」「Phase 2-e」節。
-- **docs整合（完了）**: RLSハードニング完了状況を各設計書へ反映済み（`CLAUDE.md` / `INFRASTRUCTURE.md` / `API_DESIGN.md` / `REQUIREMENTS.md` / `MIGRATION_SQL.md`〔culture_* は注記訂正〕/ `SCREEN_DESIGN.md`）。
+- **RLSハードニングは実質完了**（Phase 1/2-pre/2-a/2-c/2-d/2-d-1/2-d-3/2-f 完了、2-e-2＝culture_* は対応不要）。公開フローの anon 由来の漏洩/改竄リスクはクローズ。
+- **社風分析/survey/culture は不採用・コード削除済み**（Phase C-1〜C-2c）。docs も削除方向に整合済み。DB の culture_* テーブル/列は死蔵で C-4 にて DROP 予定（上記「社風分析 / survey / culture fit：不採用・削除」節参照）。
+- **docs整合（完了）**: RLSハードニング＋culture削除を各設計書へ反映済み（`CLAUDE.md` / `INFRASTRUCTURE.md` / `API_DESIGN.md` / `REQUIREMENTS.md` / `MIGRATION_SQL.md`〔culture_* は注記〕/ `SCREEN_DESIGN.md` / `PRE_RELEASE_CHECKLIST.md`）。
 - **本番前チェックリスト**: 無料E2E・有料API E2E・本番前 disable（デモ補助/1234モック/テストデータ/本番env）・**死蔵API棚卸し**（verify-url/answer/end-reason/extend/status/complete/GET questions＝実fetchなし・削除はまだしない）・**lint棚卸し**（約110件超・全て非機能・修正は別タスク）・残課題優先順位を **`docs/PRE_RELEASE_CHECKLIST.md`** に集約。
-- **低優先 cleanup（別タスク）**: survey 重複回答/スパム対策（localStorage/cookie/IP rate limit/reCAPTCHA）／admin culture_profiles 参照の是正（admin_select_culture_profiles or service-role API）／`roles={public}`→`{authenticated}` relabel／死蔵テーブル DROP／死蔵API削除／既存lint整理。
+- **低優先 cleanup（別タスク）**: `roles={public}`→`{authenticated}` relabel／**culture_* 一式＋死蔵テーブル/列の DROP（C-4）**／死蔵API削除／既存lint整理。
 - **有料API系は最後にまとめて導入・E2E確認**（費用・外部審査が絡むため）: OpenAI Realtime 音声面接／アバター音声／音声認識／**EBCA評価生成 writer（interview_results）**／録画（R2）／Twilio 実SMS（現状「1234」モック）／Stripe **確定請求 writer（BATCH-001）**／Resend 通知。
 - **本番前E2Eチェックリスト**整備（無料で確認できる範囲 ＋ 有料API E2E を分けて一覧化）。
 - **デモ用のフォーム入力補助/初期値は本番前に削除・無効化**する（`/interview/[slug]/form` 等）。

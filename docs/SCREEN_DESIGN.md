@@ -606,9 +606,9 @@ URL構造： /admin/satisfaction
 - 音声面接 / アバター発話 / OpenAI Realtime / **EBCA評価生成 writer** / 録画R2 / Twilio Verify / Stripe確定請求 / Resend通知 は**外部有料APIが絡むため最後にまとめてE2E確認**。
 
 ### 10-8. 公開フローの通信方式（RLSハードニング・画面挙動は不変）
-- **画面（UI/レイアウト/操作）は変わらないが、裏側の通信が service-role API 経由に変わった**（Phase 2-d-1 / 2-e）。
+- **画面（UI/レイアウト/操作）は変わらないが、裏側の通信が service-role API 経由に変わった**（Phase 2-d-1）。
   - `/interview/[slug]`（page/verify/prepare/form/session）の企業情報・求人・面接質問の取得、応募者作成・面接開始/終了/満足度/スナップショットは **browser の Supabase 直アクセスを撤去**し、`/api/interview/[slug]/{public-config, questions, applicant, start, end, satisfaction, snapshot}` 経由（capability token）。
-  - `/survey/[slug]`（社風アンケート）も同様に **browser 直アクセスを撤去**し、`/api/survey/[slug]/{public-config, response}` 経由。**survey は完全匿名のため token なし・slug が回答権限**。回答スコア計算・culture_profiles 集計はサーバ側で実施。
+- **社風アンケート（/survey）/ culture fit は不採用・削除済み**（Phase C）。`/survey/[slug]` 画面・`/api/survey/*`・`/client/culture-analysis`・応募者詳細の culture 表示は撤去済み。評価の中心は EBCA。
 - **面接の質問ラリーは未実装**：session 画面は現状 **質問の先頭1問のみ表示するモック**。アバターが質問を読み上げ→「回答してください」表示→応募者回答→**回答終了（無音検知/「回答完了」ボタン）**→次質問、という自然なラリーと、`questionList` のインデックス送り／`answeredQuestions` 更新／完了判定は、**有料API（OpenAI Realtime / 音声認識 / アバター音声）E2E フェーズの残課題**。
 - 詳細な本番前チェックは **`docs/PRE_RELEASE_CHECKLIST.md`** に集約。
 

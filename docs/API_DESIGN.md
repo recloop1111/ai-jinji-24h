@@ -2053,61 +2053,14 @@ GET /api/health
 
 ---
 
-## 10. 社風アンケート公開API（survey・Phase 2-e）
+## 10. 社風アンケート公開API（survey）— 不採用・削除済み
 
-パスプレフィックス: `/api/survey`
-
-> **実装済み（Phase 2-e-1）**。`/survey/[slug]` の `culture_surveys` / `culture_survey_responses` / `culture_profiles` への **browser Supabase 直アクセスを全撤去**し、service-role API へ移行。社風アンケートは**完全匿名**（回答者識別なし）で applicant_id のような束縛対象が無いため **capability token は使わず、slug を知っていることを公開回答権限**とみなす。
-
-### SUR-001: アンケート公開設定取得
-```
-GET /api/survey/[slug]/public-config
-```
-アンケート表示に必要な最小情報を返す。**認証:** なし（未ログイン）・**service-role**（token 不要）。
-
-**処理/検証:** `culture_surveys.survey_url_slug = slug` で特定（無効 → `NOT_FOUND`）。会社は id/name のみ。
-
-**レスポンス（200）:**
-```json
-{
-  "id": "uuid", "department": "営業部", "employment_type": "正社員",
-  "is_active": true,
-  "company": { "id": "uuid", "name": "株式会社A" }
-}
-```
-- `is_active=false` は受付停止として画面側で表示。
-- **返さない**: 会社の機微列（email/phone/contact/price/plan/stripe/auth_user_id 等）、`culture_survey_responses`（回答データ）、`culture_profiles`（分析結果）。
-
----
-
-### SUR-002: アンケート回答保存
-```
-POST /api/survey/[slug]/response
-```
-匿名回答を保存し、社風プロファイルを再集計する。**認証:** なし（未ログイン）・**service-role**（**token 不要・slug が回答権限**）。
-
-**リクエスト:**
-```json
-{ "answers": { "1": 5, "2": 4, "...": 0, "20": 6 }, "free_text": "活気がある" }
-```
-
-**検証/処理:**
-1. `answers` の 20問すべてが **1〜7 の整数**であることをサーバ側で検証（不足/不正 → `VALIDATION_ERROR`）。
-2. slug → **active な survey** を取得（無効 → `NOT_FOUND` / `is_active=false` → `FORBIDDEN`）。`company_id` / `department` / `employment_type` はサーバ由来で確定。
-3. **5因子スコア（openness / conscientiousness / extraversion / agreeableness / neuroticism）をサーバ側で計算**（クライアントのスコア偽装を排除）。
-4. `culture_survey_responses` に INSERT（survey_id ＋ 5スコア ＋ free_text）。
-5. 同 `survey_id` の全回答を service-role で集計し、`culture_profiles` を `company_id + department + employment_type` で upsert：
-   - **count < 3**: `response_count` のみ更新（平均は出さない。既存が無ければ作成しない）。
-   - **count ≥ 3**: 5因子平均を更新（既存があれば UPDATE、無ければ INSERT）。
-
-**レスポンス（200）:** `{ "success": true, "response_count": 3, "profile_enabled": true }`
-- secret / service-role key / 他社データは返さない。browser からは `culture_survey_responses` / `culture_profiles` に直接触らない。
-
-> **残課題（別タスク）**: 匿名・slug ベースのため重複回答/スパム対策は未実装（localStorage / cookie / IP rate limit / reCAPTCHA を別タスクで検討）。
+> **不採用・削除済み（Phase C）**。社風分析 / 社員アンケート / culture fit は質問設計と評価軸の整合が取りにくく根拠が弱いため**不採用**。`/api/survey/[slug]/public-config`・`/api/survey/[slug]/response`（旧 SUR-001 / SUR-002）と `app/survey/*`・`/client/culture-analysis` は**削除済み**。評価の中心は **EBCA**（質問非依存）。
+> DB の `culture_surveys` / `culture_survey_responses` / `culture_profiles`（テーブル）・`companies.culture_analysis_enabled`・`interview_results.culture_fit_score` / `culture_fit_detail` / `big_five_scores`（列）はコード参照ゼロの死蔵で、別タスク（C-4）で DROP 予定。
 
 ---
 
 ## 公開フローの状態（まとめ）
 - **`/interview/[slug]` 配下**: browser Supabase 直アクセス（読み書きとも）撤去済み。書き込み＝`applicant`/`start`/`end`/`satisfaction`/`snapshot`、読み取り＝`public-config`/`questions`。すべて **service-role API＋capability token**。
-- **`/survey/[slug]` 配下**: browser Supabase 直アクセス撤去済み。読み＝`public-config`、書き＝`response`。**service-role API・token なし（slug が回答権限）**。
+- **`/survey/[slug]` 配下**: 社風アンケートは不採用・**画面/APIとも削除済み**（残る公開フローは `/interview/[slug]` のみ）。
 - 公開フローは Service Role Key で RLS をバイパスして書き込み、各APIで slug/整合を再検証する。
