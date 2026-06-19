@@ -51,6 +51,15 @@ const EMPLOYMENT_TYPE_FROM_DB: Record<string, string> = {
   other: 'その他',
 }
 
+// 雇用形態ごとの質問パターン説明（QuestionEditor の getPatternTabs と整合）。
+// fulltime / contract / temporary は 新卒・中途経験者・中途未経験者 の3区分、それ以外は 経験者・未経験者 の2区分。
+function getPatternDescription(employmentType: string): string {
+  const threeTab = ['fulltime', 'contract', 'temporary']
+  return threeTab.includes(employmentType)
+    ? '新卒・中途経験者・中途未経験者の3パターンで質問を設定できます'
+    : '経験者・未経験者の2パターンで質問を設定できます'
+}
+
 function getStatusBadge(status: JobStatus, theme: 'light' | 'dark'): { label: string; className: string } {
   if (theme === 'dark') {
     const map: Record<JobStatus, { label: string; className: string }> = {
@@ -411,9 +420,7 @@ export default function JobManager({ companyId: companyIdProp, theme }: JobManag
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="flex-1 min-w-0">
                     <h3 className={`text-lg font-semibold mb-1 truncate ${cn.title}`}>{job.jobType} × {job.employmentTypeLabel}</h3>
-                    {job.employmentType === 'fulltime' && (
-                      <p className={`text-xs mt-1 ${cn.subtext}`}>新卒・中途の2パターンの質問が設定されます</p>
-                    )}
+                    <p className={`text-xs mt-1 ${cn.subtext}`}>{getPatternDescription(job.employmentType)}</p>
                   </div>
                   <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium shrink-0 ${statusBadge.className}`}>
                     {statusBadge.label}
