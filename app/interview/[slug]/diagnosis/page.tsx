@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft } from 'lucide-react'
 
@@ -579,17 +578,11 @@ const TAG_STYLES: Record<string, string> = {
 // TODO: Phase 4 - OGP画像生成・シェアURL生成
 export default function DiagnosisPage() {
   const router = useRouter()
-  const [toast, setToast] = useState('')
 
   // ダミーで「ライオン型リーダー」タイプを表示
   const currentType = PERSONALITY_TYPES.lion
   const currentTypeKey = 'lion'
   const IconComponent = currentType.icon
-
-  const showToast = (message: string) => {
-    setToast(message)
-    setTimeout(() => setToast(''), 3000)
-  }
 
   // レーダーチャート用の計算
   const cx = 80
@@ -839,12 +832,6 @@ export default function DiagnosisPage() {
         </div>
       </div>
 
-      {/* トースト */}
-      {toast && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium z-50 border-2 border-white">
-          {toast}
-        </div>
-      )}
     </>
   )
 }
