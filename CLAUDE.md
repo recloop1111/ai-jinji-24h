@@ -61,7 +61,7 @@ communication / logical_thinking / initiative / desire / stress_tolerance / inte
   - `POST /api/interview/[slug]/satisfaction` — 満足度（1〜5）保存
   - `POST /api/interview/[slug]/snapshot` — 質問スナップショット保存（in_progress時のみ）
 - **interviews.status 運用 = `in_progress` / `completed` / `cancelled`**。applicants/interviews への公開フロー browser 直書きは無し。**公開フロー（/interview・/survey）の browser Supabase 直アクセスはすべて撤去済み**（読み取りも含め service-role API 経由。下記 Phase 2-d-1 / 2-e-1）。
-- ※ 既存 `/api/interview/[slug]/{verify-url,answer,end-reason,extend,status}` は createClient(anon)・未使用の旧APIで温存（将来整理）。`questions` は **POST が現行**（下記）・GET は旧スキーマ参照の温存。
+- ※ 旧 `/api/interview/[slug]/{verify-url,answer,end-reason,extend,status,complete}` ＋ `questions` の **GET（旧スキーマ参照）は削除済み**（死蔵API削除 第1弾・`afde6b3`）。`questions` は **POST が現行**（下記・job_questions）。旧 admin 質問CRUD API（question_banks/questions）も削除済み（第3弾・`333fedc`）。
 
 ### RLS ハードニング進捗（手動実行用SQL: supabase/rls/・migration外）
 - **Phase 1（実行済）**: `interview_results` の anon SELECT/INSERT・authenticated true系を遮断、`company_select_interview_results` 維持＋`admin_select_interview_results` 追加。

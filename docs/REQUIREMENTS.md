@@ -337,8 +337,9 @@
 - 希望職種プルダウン選択肢を企業ごとに設定（職種CRUD）
 - 企業ON/OFF管理
 
-### F-A-005：質問バンク管理
-- 企業ごとに質問バンクCRUD（カスタム質問を自由に作成可能）
+### F-A-005：質問バンク管理（＝面接質問設定）
+> **実装注記**：本機能は現行 **QuestionEditor**（admin `/admin/companies/[id]` ／ client `/client/questions`）で実装し、**新スキーマ `common_questions` / `job_questions`** を使用する。旧スキーマ `question_banks` / `questions`（旧 admin 質問CRUD API・主軸/副軸/重み）は**コード撤去済み**（Phase D-1/D-2）で、`supabase/rls/phase_d3_drop_legacy_question_schema.sql` で DROP 予定（未実行）。
+- 企業ごとに質問CRUD（カスタム質問を自由に作成可能）
 - 主軸（1〜2つ）／副軸／重み（1.0〜2.0）は任意の軸ヒント（Evidence-based Competency Analysis では評価に必須ではなく、未設定でも面接全体横断評価で6軸を算出する。F-R-002参照）
 - 質問並び順、深掘り条件有無設定
 - 1企業1パターン基本、職種別は追加費用後に追加

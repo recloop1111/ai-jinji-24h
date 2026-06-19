@@ -420,8 +420,8 @@ SENTRY_PROJECT=ai-jinji-24h
 |---|-----------|------|-----|
 | 1 | `companies` | 契約企業 | ✅ |
 | 2 | `job_types` | 企業別職種 | ✅ |
-| 3 | `question_banks` | 質問バンク（パターン） | ✅ |
-| 4 | `questions` | 質問マスタ | ✅ |
+| 3 | `question_banks` | **旧質問スキーマ・コード撤去済み（D-1/D-2）→ 死蔵**。現行は `common_questions` / `job_questions`。`supabase/rls/phase_d3_drop_legacy_question_schema.sql` で DROP 予定（未実行） | - |
+| 4 | `questions` | **旧質問スキーマ・コード撤去済み（D-1/D-2）→ 死蔵**。D-3 で DROP 予定（未実行） | - |
 | 5 | `applicants` | 応募者 | ✅ |
 | 6 | `interviews` | 面接セッション | ✅ |
 | 7 | `interview_logs` | 面接発話ログ | ✅ |

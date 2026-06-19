@@ -524,7 +524,7 @@ GET /api/interview/[slug]/public-config
 POST /api/interview/[slug]/questions
 ```
 > **実装済み（Phase 2-d-1）**。`/interview/[slug]/session` の `job_questions` browser anon 直読みを置換 → job_questions の anon SELECT を遮断（Phase 2-d-3）。
-> **旧 `GET /api/interview/[slug]/questions`** は旧スキーマ（`question_banks` / `questions`）参照の未使用APIで温存。**現行は本 POST**。
+> **旧 `GET /api/interview/[slug]/questions`**（旧スキーマ `question_banks`/`questions` 参照）は**削除済み**。**現行は本 POST**（`job_questions`）。
 
 面接の質問一覧を返す。**認証:** なし（未ログイン）・**service-role＋capability token**。
 
@@ -1303,12 +1303,10 @@ GET /api/admin/companies/[id]
   "job_types": [
     { "id": "uuid", "name": "営業職" },
     { "id": "uuid", "name": "事務職" }
-  ],
-  "question_banks": [
-    { "id": "uuid", "name": "全職種共通", "question_count": 10 }
   ]
 }
 ```
+> **更新（D-2）**: 旧スキーマの `question_banks`（質問バンク一覧）はレスポンスから**削除済み**。質問は新スキーマ（`common_questions` / `job_questions`）＝QuestionEditor で管理する。
 
 ---
 
@@ -1417,62 +1415,12 @@ DELETE /api/admin/companies/[id]/job-types/[job_type_id]
 
 ---
 
-### ADM-008: 質問バンク取得
-```
-GET /api/admin/companies/[id]/questions
-```
+### ADM-008 / ADM-009: 質問バンク取得・質問CRUD（旧スキーマ）— 削除済み
 
-**レスポンス（200）:**
-```json
-{
-  "questions": [
-    {
-      "id": "uuid",
-      "sort_order": 1,
-      "text": "自己紹介をお願いします",
-      "primary_axis": "communication",
-      "secondary_axis": null,
-      "weight": 1.5,
-      "allow_followup": true,
-      "job_type_id": null
-    }
-  ]
-}
-```
-
-`job_type_id: null` は全職種共通。
-
-> **EBCA 移行に伴う注記:** `primary_axis` / `secondary_axis` / `weight` は旧「質問ごと採点（加重平均）」方式の名残であり、Evidence-based Competency Analysis では**評価に必須ではない**（任意の軸ヒントとして保持可。値が無くても面接全体横断評価で6軸を算出する）。質問の自由作成（カスタム質問）を妨げない。
-
----
-
-### ADM-009: 質問CRUD
-```
-POST   /api/admin/companies/[id]/questions
-PATCH  /api/admin/companies/[id]/questions/[question_id]
-DELETE /api/admin/companies/[id]/questions/[question_id]
-PUT    /api/admin/companies/[id]/questions/reorder
-```
-
-**POST リクエスト:**
-```json
-{
-  "text": "困難を乗り越えた経験を教えてください",
-  "primary_axis": "initiative",
-  "secondary_axis": "stress_tolerance",
-  "weight": 1.5,
-  "allow_followup": true,
-  "sort_order": 3,
-  "job_type_id": null
-}
-```
-
-**PUT reorder リクエスト:**
-```json
-{
-  "question_ids": ["uuid1", "uuid2", "uuid3"]
-}
-```
+> **削除済み（Phase D-1）**。`GET/POST /api/admin/companies/[id]/questions`・`PATCH/DELETE /api/admin/companies/[id]/questions/[question_id]`・`PUT /api/admin/companies/[id]/questions/reorder`（旧スキーマ `question_banks` / `questions`・`primary_axis`/`secondary_axis`/`weight`）は**UIから未fetchの死蔵APIのため削除**。
+> **現行の質問編集**は、admin `/admin/companies/[id]` と client `/client/questions` の **QuestionEditor**（新スキーマ `common_questions` / `job_questions` を browser から直接 CRUD）で行う。公開面接の質問取得は INT-017（`POST /api/interview/[slug]/questions`・`job_questions`）。
+> 旧スキーマ（`question_banks` / `questions`）はコード参照ゼロ。DB DROP 草案 = `supabase/rls/phase_d3_drop_legacy_question_schema.sql`（未実行）。
+> EBCA では `primary_axis` / `secondary_axis` / `weight`（旧「質問ごと採点・加重平均」方式の名残）は**評価に不要**（面接全体横断で6軸算出）。
 
 ---
 
