@@ -48,18 +48,6 @@ export async function GET(
       .eq('company_id', id)
       .order('name', { ascending: true })
 
-    // 質問バンク一覧（質問数付き）
-    const { data: questionBanks } = await supabase
-      .from('question_banks')
-      .select('id, name, questions ( id )')
-      .eq('company_id', id)
-
-    const banks = (questionBanks ?? []).map((qb: { id: string; name: string; questions: { id: string }[] | null }) => ({
-      id: qb.id,
-      name: qb.name,
-      question_count: qb.questions?.length ?? 0,
-    }))
-
     // 翌月上限予約の月初昇格
     const applied = await applyNextMonthLimit({
       id: company.id,
@@ -77,7 +65,6 @@ export async function GET(
         monthly_interview_count_actual: monthlyCount ?? 0,
       },
       job_types: jobTypes ?? [],
-      question_banks: banks,
     })
   } catch {
     return apiError('INTERNAL_ERROR')
