@@ -54,14 +54,19 @@ export async function POST(
     if (appError || !applicant) return apiError('NOT_FOUND', '応募者が見つかりません')
     if (applicant.company_id !== company.id) return apiError('FORBIDDEN', '不正なリクエストです')
 
-    // interview 実在＆applicant 一致
+    // interview 実在＆applicant 一致（snapshot も取得）
     const { data: interview, error: ivError } = await supabase
       .from('interviews')
-      .select('id, applicant_id')
+      .select('id, applicant_id, questions_snapshot')
       .eq('id', interviewId)
       .single()
     if (ivError || !interview) return apiError('NOT_FOUND', '面接が見つかりません')
     if (interview.applicant_id !== applicantId) return apiError('FORBIDDEN', '不正なリクエストです')
+
+    // 開始時点の質問を固定：snapshot があればそれを優先（再開時に企業の質問変更の影響を受けない）。
+    if (Array.isArray(interview.questions_snapshot) && interview.questions_snapshot.length > 0) {
+      return successJson({ questions: interview.questions_snapshot })
+    }
 
     // job_id 無しは質問無し扱い（呼び出し側の既定質問フォールバックを維持）
     if (!applicant.job_id) {
