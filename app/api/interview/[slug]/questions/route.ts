@@ -86,14 +86,34 @@ export async function POST(
 
     // job_questions を取得（当該 pattern_key のみ・question_text / sort_order のみ・昇順）。
     // 他区分の質問は混ぜない。該当0件は空配列（既定質問フォールバックへ・job_id 全体へは fallback しない）。
-    const { data: questions } = await supabase
+    const { data: jobQuestions } = await supabase
       .from('job_questions')
       .select('question_text, sort_order')
       .eq('job_id', applicant.job_id)
       .eq('pattern_key', patternKey)
       .order('sort_order', { ascending: true })
 
-    return successJson({ questions: questions ?? [] })
+    // 該当 pattern_key の job_questions が0件なら、common だけ返さず空配列（既定質問フォールバックへ）。
+    if (!jobQuestions || jobQuestions.length === 0) {
+      return successJson({ questions: [] })
+    }
+
+    // common_questions（企業共通）を合流。結合順 = icebreakers → job_questions → closing。
+    // 各カテゴリ内は sort_order 昇順。common が0件なら job_questions のみ。
+    const { data: commonRows } = await supabase
+      .from('common_questions')
+      .select('category, question_text, sort_order')
+      .eq('company_id', company.id)
+      .order('sort_order', { ascending: true })
+
+    const pick = (cat: string) =>
+      (commonRows ?? [])
+        .filter((r) => r.category === cat)
+        .map((r) => ({ question_text: r.question_text, sort_order: r.sort_order }))
+
+    const questions = [...pick('icebreakers'), ...jobQuestions, ...pick('closing')]
+
+    return successJson({ questions })
   } catch {
     return apiError('INTERNAL_ERROR')
   }
