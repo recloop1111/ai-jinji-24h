@@ -89,34 +89,40 @@ export async function POST(
       industryExperience: applicant.industry_experience,
     })
 
-    // job_questions を取得（当該 pattern_key のみ・question_text / sort_order のみ・昇順）。
-    // 他区分の質問は混ぜない。該当0件は空配列（既定質問フォールバックへ・job_id 全体へは fallback しない）。
-    const { data: jobQuestions } = await supabase
+    // job_questions を取得（当該 job_id + pattern_key のみ・昇順）。category で評価質問とアイスブレイクに振り分ける。
+    // 他求人・他 pattern は混ぜない。
+    const { data: jqRows } = await supabase
       .from('job_questions')
-      .select('question_text, sort_order')
+      .select('question_text, sort_order, category')
       .eq('job_id', applicant.job_id)
       .eq('pattern_key', patternKey)
       .order('sort_order', { ascending: true })
 
-    // 該当 pattern_key の job_questions が0件なら、common だけ返さず空配列（既定質問フォールバックへ）。
-    if (!jobQuestions || jobQuestions.length === 0) {
+    const rows = jqRows ?? []
+    const evaluation = rows
+      .filter((r) => r.category === 'evaluation')
+      .map((r) => ({ question_text: r.question_text, sort_order: r.sort_order }))
+    const icebreakers = rows
+      .filter((r) => r.category === 'icebreaker')
+      .map((r) => ({ question_text: r.question_text, sort_order: r.sort_order }))
+
+    // 評価質問が0件＝当該 pattern 未設定 → 空配列（既定質問フォールバックへ）。アイスブレイク単独配信はしない。
+    if (evaluation.length === 0) {
       return successJson({ questions: [] })
     }
 
-    // common_questions（企業共通）を合流。結合順 = icebreakers → job_questions → closing。
-    // 各カテゴリ内は sort_order 昇順。common が0件なら job_questions のみ。
+    // クロージングは企業共通（common_questions.category='closing'）。旧 common icebreakers は配信しない。
     const { data: commonRows } = await supabase
       .from('common_questions')
       .select('category, question_text, sort_order')
       .eq('company_id', company.id)
+      .eq('category', 'closing')
       .order('sort_order', { ascending: true })
 
-    const pick = (cat: string) =>
-      (commonRows ?? [])
-        .filter((r) => r.category === cat)
-        .map((r) => ({ question_text: r.question_text, sort_order: r.sort_order }))
+    const closing = (commonRows ?? []).map((r) => ({ question_text: r.question_text, sort_order: r.sort_order }))
 
-    const questions = [...pick('icebreakers'), ...jobQuestions, ...pick('closing')]
+    // 配信順 = icebreaker(job×pattern) → evaluation(job×pattern) → closing(企業共通)。各 category 内は sort_order 昇順。
+    const questions = [...icebreakers, ...evaluation, ...closing]
 
     return successJson({ questions })
   } catch {

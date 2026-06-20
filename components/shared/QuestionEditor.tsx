@@ -141,7 +141,8 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
   const [activePattern, setActivePattern] = useState<string>('')
   const [patternQuestions, setPatternQuestions] = useState<Question[]>([])
   const [questionsLoading, setQuestionsLoading] = useState(false)
-  const [commonQuestionsIcebreak, setCommonQuestionsIcebreak] = useState<CommonQuestionItem[]>(DEFAULT_COMMON_QUESTIONS.icebreakers.map((x) => ({ ...x })))
+  // アイスブレイクは求人×pattern_key 単位で DB から読み込む（fetchJobQuestions）。初期は空配列（0件許容）。
+  const [commonQuestionsIcebreak, setCommonQuestionsIcebreak] = useState<CommonQuestionItem[]>([])
   const [commonQuestionsClosing, setCommonQuestionsClosing] = useState<CommonQuestionItem[]>(DEFAULT_COMMON_QUESTIONS.closing.map((x) => ({ ...x })))
   const [editingCommonId, setEditingCommonId] = useState<string | null>(null)
   const [templateModalOpen, setTemplateModalOpen] = useState(false)
@@ -234,6 +235,8 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     }
   }, [selectedJobId, jobs])
 
+  // クロージングは企業共通（common_questions.category='closing'）のまま。
+  // アイスブレイクは求人×pattern_key 単位へ移行したため、ここでは読み込まない（fetchJobQuestions で取得）。
   const fetchCommonQuestions = useCallback(async (companyId: string | null) => {
     if (!companyId) {
       return
@@ -243,37 +246,26 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
         .from('common_questions')
         .select('*')
         .eq('company_id', companyId)
-        .order('category')
+        .eq('category', 'closing')
         .order('sort_order')
 
       if (error) {
-        console.error('[QuestionEditor 共通質問読み込み] エラー:', error)
+        console.error('[QuestionEditor クロージング読み込み] エラー:', error)
         return
       }
-
       if (!data || data.length === 0) {
         return
       }
 
-      const ice = data.filter((r: { category: string }) => r.category === 'icebreakers').map((r: { id: string; label?: string; question?: string; question_text?: string }) => ({
-        id: r.id,
-        label: r.label || 'アイスブレイク',
-        category: 'アイスブレイク',
-        question: r.question ?? r.question_text ?? '',
-      }))
-      const close = data.filter((r: { category: string }) => r.category === 'closing').map((r: { id: string; label?: string; question?: string; question_text?: string }) => ({
+      const close = data.map((r: { id: string; label?: string; question?: string; question_text?: string }) => ({
         id: r.id,
         label: r.label || 'クロージング',
         category: 'クロージング',
         question: r.question ?? r.question_text ?? '',
       }))
-
-      // 設定済み企業は DB の実値を反映する（0件カテゴリは空配列にする＝「アイスブレイク0件」を許容）。
-      // data.length === 0（＝未設定の企業）は早期 return 済みでデフォルト雛形のまま表示する。
-      setCommonQuestionsIcebreak(ice)
       setCommonQuestionsClosing(close)
     } catch (err) {
-      console.error('[QuestionEditor 共通質問読み込み] 例外:', err)
+      console.error('[QuestionEditor クロージング読み込み] 例外:', err)
     }
   }, [supabase])
 
@@ -281,29 +273,35 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     fetchCommonQuestions(resolvedCompanyId)
   }, [resolvedCompanyId, fetchCommonQuestions])
 
+  // 求人×pattern_key 単位で evaluation（評価質問）と icebreaker（アイスブレイク）を取得し、category で振り分ける。
+  // アイスブレイクは job_id + pattern_key + category='icebreaker' に分離されているため、
+  // 求人や区分(pattern)を切り替えると該当する icebreaker だけが表示される。
   const fetchJobQuestions = useCallback(async (jobId: string, patternKey: string) => {
     setQuestionsLoading(true)
     try {
       const { data, error } = await supabase
         .from('job_questions')
-        .select('*')
+        .select('id, question_text, sort_order, category')
         .eq('job_id', jobId)
         .eq('pattern_key', patternKey)
         .order('sort_order', { ascending: true })
 
       if (error) throw error
-      if (data && data.length > 0) {
-        const mapped = data.map((r: { id: string; question?: string; question_text?: string }) => ({
-          id: r.id,
-          question: r.question ?? r.question_text ?? '',
-        }))
-        setPatternQuestions(mapped)
-      } else {
-        setPatternQuestions([])
-      }
+      const rows = (data ?? []) as { id: string; question_text?: string; sort_order: number; category: string }[]
+
+      const evaluation = rows
+        .filter((r) => r.category === 'evaluation')
+        .map((r) => ({ id: r.id, question: r.question_text ?? '' }))
+      const icebreakers = rows
+        .filter((r) => r.category === 'icebreaker')
+        .map((r) => ({ id: r.id, label: 'アイスブレイク', category: 'アイスブレイク', question: r.question_text ?? '' }))
+
+      setPatternQuestions(evaluation)
+      setCommonQuestionsIcebreak(icebreakers)
     } catch (err) {
       console.error('質問取得エラー:', err)
       setPatternQuestions([])
+      setCommonQuestionsIcebreak([])
     } finally {
       setQuestionsLoading(false)
     }
@@ -312,6 +310,7 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
   useEffect(() => {
     if (!selectedJobId || !activePattern) {
       setPatternQuestions([])
+      setCommonQuestionsIcebreak([])
       return
     }
     fetchJobQuestions(selectedJobId, activePattern)
@@ -457,86 +456,76 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     showToast(`${template.name}テンプレートで全て置き換えました（${defaultCount}問）`)
   }
 
-  const handleSaveCommonQuestions = async () => {
+  // クロージング（企業共通・common_questions.category='closing'）のみを置換する。
+  // アイスブレイクは求人×pattern へ移行したため common_questions では一切触らない
+  // （旧 common icebreakers は検証完了まで残す＝ここで削除しない）。
+  const handleSaveClosingQuestions = async () => {
     if (!resolvedCompanyId) {
-      console.error('[QuestionEditor 共通質問保存] company_idなし - スキップ')
+      console.error('[QuestionEditor クロージング保存] company_idなし - スキップ')
       return
     }
-
     try {
-      // アイスブレイクとクロージングを統合
-      const allCommonQuestions = [
-        ...commonQuestionsIcebreak.map((q, index) => ({
-          id: q.id,
-          company_id: resolvedCompanyId,
-          category: 'icebreakers',
-          label: `アイスブレイク${index + 1}`, // 並べ替え後も表示順と一致するよう連番で保存
-          question_text: q.question,
-          is_scorable: false,
-          sort_order: index + 1,
-        })),
-        ...commonQuestionsClosing.map((q, index) => ({
-          id: q.id,
+      // closing カテゴリだけ削除（icebreakers/その他は触らない）
+      const { error: deleteError } = await supabase
+        .from('common_questions')
+        .delete()
+        .eq('company_id', resolvedCompanyId)
+        .eq('category', 'closing')
+
+      if (deleteError) {
+        console.error('[QuestionEditor クロージング保存] 削除エラー:', deleteError)
+        throw deleteError
+      }
+
+      if (commonQuestionsClosing.length > 0) {
+        const rows = commonQuestionsClosing.map((q, index) => ({
           company_id: resolvedCompanyId,
           category: 'closing',
           label: q.label,
           question_text: q.question,
           is_scorable: false,
           sort_order: index + 1,
-        })),
-      ]
-
-      // ステップ1: 既存の共通質問を全削除
-      const { error: deleteError } = await supabase
-        .from('common_questions')
-        .delete()
-        .eq('company_id', resolvedCompanyId)
-        .select()
-
-      if (deleteError) {
-        console.error('[QuestionEditor 共通質問保存] 削除エラー:', deleteError)
-        throw deleteError
-      }
-
-      // ステップ2: 新しい共通質問を一括挿入
-      if (allCommonQuestions.length > 0) {
-        const rows = allCommonQuestions.map((q) => ({
-          company_id: q.company_id,
-          category: q.category,
-          label: q.label,
-          question_text: q.question_text,
-          is_scorable: q.is_scorable,
-          sort_order: q.sort_order,
         }))
-
-        const { error: insertError } = await supabase
-          .from('common_questions')
-          .insert(rows)
-          .select()
-
+        const { error: insertError } = await supabase.from('common_questions').insert(rows)
         if (insertError) {
-          console.error('[QuestionEditor 共通質問保存] 挿入エラー:', insertError)
+          console.error('[QuestionEditor クロージング保存] 挿入エラー:', insertError)
           throw insertError
         }
       }
 
-      // ステップ3: 保存直後の検証
-      const { error: verifyError } = await supabase
-        .from('common_questions')
-        .select('*')
-        .eq('company_id', resolvedCompanyId)
-        .order('category')
-        .order('sort_order')
-
-      if (verifyError) {
-        console.error('[QuestionEditor 共通質問保存後の検証] 検証エラー:', verifyError)
-      }
-
-      // ステップ4: 保存後に最新データを再取得して画面に反映
       await fetchCommonQuestions(resolvedCompanyId)
     } catch (err) {
-      console.error('[QuestionEditor 共通質問保存] エラー発生:', err)
+      console.error('[QuestionEditor クロージング保存] エラー発生:', err)
       throw err
+    }
+  }
+
+  // 現在の job_id + pattern_key + 指定 category だけを置換する（他 category を消さない）。
+  // evaluation 保存で icebreaker を、icebreaker 保存で evaluation を削除しないための分離。
+  const replaceJobQuestionsByCategory = async (
+    jobId: string,
+    patternKey: string,
+    category: 'evaluation' | 'icebreaker',
+    items: { question: string }[],
+  ) => {
+    const { error: deleteError } = await supabase
+      .from('job_questions')
+      .delete()
+      .eq('job_id', jobId)
+      .eq('pattern_key', patternKey)
+      .eq('category', category)
+    if (deleteError) throw deleteError
+
+    if (items.length > 0) {
+      const rows = items.map((q, index) => ({
+        job_id: jobId,
+        pattern_key: patternKey,
+        category,
+        question_text: q.question,
+        sort_order: index + 1,
+      }))
+      const { error: insertError } = await supabase.from('job_questions').insert(rows)
+      if (insertError) throw insertError
     }
   }
 
@@ -544,63 +533,20 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     if (!selectedJobId || !activePattern) return
     setIsLoading(true)
     try {
-      // 共通質問も保存
-      await handleSaveCommonQuestions()
+      // クロージング（企業共通）を保存
+      await handleSaveClosingQuestions()
 
-      // ステップ1: 既存の質問を全削除
-      const { error: deleteError } = await supabase
-        .from('job_questions')
-        .delete()
-        .eq('job_id', selectedJobId)
-        .eq('pattern_key', activePattern)
-        .select()
+      // 評価質問（evaluation）とアイスブレイク（icebreaker）を、それぞれ category 単位で置換。
+      // category を絞っているため、evaluation 保存で icebreaker を、その逆も消さない。0件保存も維持。
+      await replaceJobQuestionsByCategory(selectedJobId, activePattern, 'evaluation', patternQuestions)
+      await replaceJobQuestionsByCategory(
+        selectedJobId,
+        activePattern,
+        'icebreaker',
+        commonQuestionsIcebreak.map((q) => ({ question: q.question })),
+      )
 
-      if (deleteError) {
-        console.error('[QuestionEditor 保存] 削除エラー:', deleteError)
-        showToast('質問の保存に失敗しました。')
-        return
-      }
-
-      // ステップ2: 新しい質問を一括挿入
-      if (patternQuestions.length > 0) {
-        const rows = patternQuestions.map((q, index) => ({
-          job_id: selectedJobId,
-          pattern_key: activePattern,
-          question_text: q.question,
-          sort_order: index + 1,
-        }))
-
-        const { error: insertError } = await supabase
-          .from('job_questions')
-          .insert(rows)
-          .select()
-
-        if (insertError) {
-          console.error('[QuestionEditor 保存] 挿入エラー:', insertError)
-          showToast('質問の保存に失敗しました。')
-          return
-        }
-      }
-
-      // ステップ3: 保存直後の検証 - 保存したはずのデータを再取得
-      const { data: verifyData, error: verifyError } = await supabase
-        .from('job_questions')
-        .select('*')
-        .eq('job_id', selectedJobId)
-        .eq('pattern_key', activePattern)
-        .order('sort_order', { ascending: true })
-
-      if (verifyError) {
-        console.error('[QuestionEditor 保存後の検証] 検証エラー:', verifyError)
-      } else {
-        const expectedCount = patternQuestions.length
-        const actualCount = verifyData?.length || 0
-        if (actualCount !== expectedCount) {
-          console.warn('[QuestionEditor 保存後の検証] 件数不一致 期待=', expectedCount, '実際=', actualCount)
-        }
-      }
-
-      // ステップ4: 保存後に最新データを再取得して画面に反映
+      // 保存後に最新データを再取得して画面に反映（evaluation/icebreaker 両方）
       await fetchJobQuestions(selectedJobId, activePattern)
 
       showToast('質問を保存しました')
@@ -696,8 +642,8 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
       {selectedJobId && selectedJob ? (
         <>
           <div className={`mb-8 rounded-xl border p-6 ${cn.card}`}>
-            <h2 className={`text-base font-semibold mb-2 ${cn.title}`}>共通質問（アイスブレイク）</h2>
-            <p className={`text-sm mb-4 ${cn.subtext}`}>すべての面接で冒頭に自動挿入されます。0件・1件・複数件を設定でき、評価対象の質問とは別に扱われます。</p>
+            <h2 className={`text-base font-semibold mb-2 ${cn.title}`}>アイスブレイク質問（この求人・区分）</h2>
+            <p className={`text-sm mb-4 ${cn.subtext}`}>選択中の求人・区分の面接でのみ冒頭に自動挿入されます（求人×区分ごとに独立）。0件・1件・複数件を設定でき、評価対象の質問とは別に扱われます。</p>
             <div className="space-y-4">
               {commonQuestionsIcebreak.length === 0 && (
                 <p className={`text-sm ${cn.subtext}`}>アイスブレイク質問は設定されていません（0件のまま保存すると、面接は冒頭の挿入なしで開始します）。</p>
