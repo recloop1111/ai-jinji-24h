@@ -209,11 +209,77 @@ CREATE TEMP TABLE cleanup_target_interviews ON COMMIT DROP AS
     FROM public.interviews iv
    WHERE iv.applicant_id IN (SELECT id FROM cleanup_target_applicants);
 
--- ── 削除前の固定件数確認（ここで想定と一致しなければ ROLLBACK）──────────────────
+-- ── 削除前の固定件数確認（参考表示）──────────────────────────────────────────
 -- 期待: target_applicants = 24 / target_interviews = 36
 SELECT
   (SELECT COUNT(*) FROM cleanup_target_applicants) AS target_applicants,   -- 期待: 24
   (SELECT COUNT(*) FROM cleanup_target_interviews) AS target_interviews;   -- 期待: 36
+
+-- ── 自動安全装置（DELETE前アサーション）─────────────────────────────────────
+-- 想定と一致しない場合は RAISE EXCEPTION でトランザクションを強制中断（＝以降の DELETE は実行されず、
+-- 続けて COMMIT を打っても「abort 済みトランザクション」となり何も確定しない＝実質ロールバック）。
+DO $$
+DECLARE
+  v_company_id        uuid;
+  v_target_applicants integer;
+  v_target_interviews integer;
+  v_billable          integer;
+  v_protected_example integer;
+  v_jobs              integer;
+  v_common_questions  integer;
+  v_job_questions     integer;
+BEGIN
+  SELECT id INTO v_company_id FROM public.companies WHERE interview_slug = 'test';
+
+  SELECT COUNT(*) INTO v_target_applicants FROM cleanup_target_applicants;
+  SELECT COUNT(*) INTO v_target_interviews FROM cleanup_target_interviews;
+  SELECT COUNT(*) INTO v_billable
+    FROM public.interviews
+   WHERE id IN (SELECT id FROM cleanup_target_interviews)
+     AND is_billable = true;
+  SELECT COUNT(*) INTO v_protected_example
+    FROM public.applicants a
+    JOIN public.companies c ON c.id = a.company_id
+   WHERE c.interview_slug = 'test'
+     AND a.email ILIKE '%@example.com';
+  SELECT COUNT(*) INTO v_jobs
+    FROM public.jobs WHERE company_id = v_company_id;
+  SELECT COUNT(*) INTO v_common_questions
+    FROM public.common_questions WHERE company_id = v_company_id;
+  SELECT COUNT(*) INTO v_job_questions
+    FROM public.job_questions jq
+    JOIN public.jobs j ON j.id = jq.job_id
+   WHERE j.company_id = v_company_id;
+
+  -- (1) 削除対象 applicants が想定 24 件でなければ中断
+  IF v_target_applicants <> 24 THEN
+    RAISE EXCEPTION 'ABORT: target applicants = % (expected 24)', v_target_applicants;
+  END IF;
+  -- (2) 削除対象 interviews が想定 36 件でなければ中断
+  IF v_target_interviews <> 36 THEN
+    RAISE EXCEPTION 'ABORT: target interviews = % (expected 36)', v_target_interviews;
+  END IF;
+  -- (3) 課金対象（is_billable=true）が 0 件でなければ中断（請求済みデータを巻き込まない）
+  IF v_billable <> 0 THEN
+    RAISE EXCEPTION 'ABORT: billable interviews in target = % (expected 0)', v_billable;
+  END IF;
+  -- (4) 保護対象 @example.com デモ応募者が想定 8 件でなければ中断（保護対象の消失・混入を検知）
+  IF v_protected_example <> 8 THEN
+    RAISE EXCEPTION 'ABORT: protected @example.com applicants = % (expected 8)', v_protected_example;
+  END IF;
+  -- (4-a) テスト会社 jobs が想定 5 件でなければ中断（削除対象外リソースの想定外変化を検知）
+  IF v_jobs <> 5 THEN
+    RAISE EXCEPTION 'ABORT: test company jobs = % (expected 5)', v_jobs;
+  END IF;
+  -- (4-b) テスト会社 common_questions が想定 3 件でなければ中断
+  IF v_common_questions <> 3 THEN
+    RAISE EXCEPTION 'ABORT: test company common_questions = % (expected 3)', v_common_questions;
+  END IF;
+  -- (4-c) テスト会社 job_questions が想定 107 件でなければ中断
+  IF v_job_questions <> 107 THEN
+    RAISE EXCEPTION 'ABORT: test company job_questions = % (expected 107)', v_job_questions;
+  END IF;
+END $$;
 
 -- (5-1) interview_re_exam_records（NO ACTION・子）: 固定 interview_id 分を削除
 DELETE FROM public.interview_re_exam_records
@@ -261,7 +327,7 @@ SELECT COUNT(*) AS remaining_example_applicants
  WHERE c.interview_slug = 'test'
    AND a.email ILIKE '%@example.com';
 
--- jobs / job_questions / common_questions が元の件数を維持していること（削除対象外）
+-- jobs / job_questions / common_questions が元の件数を維持していること（削除対象外・参考表示）
 SELECT
   (SELECT COUNT(*) FROM public.jobs             WHERE company_id = (SELECT id FROM public.companies WHERE interview_slug='test')) AS jobs_rows,        -- 期待: 5
   (SELECT COUNT(*) FROM public.common_questions WHERE company_id = (SELECT id FROM public.companies WHERE interview_slug='test')) AS common_q_rows,    -- 期待: 3
@@ -269,9 +335,91 @@ SELECT
      JOIN public.jobs j ON j.id = jq.job_id
     WHERE j.company_id = (SELECT id FROM public.companies WHERE interview_slug='test'))                                          AS job_q_rows;        -- 期待: 107
 
+-- ── 自動安全装置（DELETE後アサーション・COMMIT 前に全検証）──────────────────────
+-- 対象 11 テーブルの残存が 1 件でもあれば、または保護対象 @example.com が 8 件でなければ
+-- RAISE EXCEPTION で中断（トランザクション abort → COMMIT は確定しない＝実質ロールバック）。
+DO $$
+DECLARE
+  v_company_id        uuid;
+  v_protected_example integer;
+  v_jobs              integer;
+  v_common_questions  integer;
+  v_job_questions     integer;
+BEGIN
+  SELECT id INTO v_company_id FROM public.companies WHERE interview_slug = 'test';
+
+  -- (5) 削除対象 11 テーブルが固定 ID 集合に対し 0 件であること（どれか残れば中断）
+  IF (SELECT COUNT(*) FROM public.interview_re_exam_records  WHERE interview_id IN (SELECT id FROM cleanup_target_interviews)) <> 0 THEN
+    RAISE EXCEPTION 'ABORT: interview_re_exam_records residual > 0';
+  END IF;
+  IF (SELECT COUNT(*) FROM public.interview_results WHERE applicant_id IN (SELECT id FROM cleanup_target_applicants)
+                                                       OR interview_id IN (SELECT id FROM cleanup_target_interviews)) <> 0 THEN
+    RAISE EXCEPTION 'ABORT: interview_results residual > 0';
+  END IF;
+  IF (SELECT COUNT(*) FROM public.interview_logs             WHERE interview_id IN (SELECT id FROM cleanup_target_interviews)) <> 0 THEN
+    RAISE EXCEPTION 'ABORT: interview_logs residual > 0';
+  END IF;
+  IF (SELECT COUNT(*) FROM public.applicant_feedback         WHERE interview_id IN (SELECT id FROM cleanup_target_interviews)) <> 0 THEN
+    RAISE EXCEPTION 'ABORT: applicant_feedback residual > 0';
+  END IF;
+  IF (SELECT COUNT(*) FROM public.reports                    WHERE interview_id IN (SELECT id FROM cleanup_target_interviews)) <> 0 THEN
+    RAISE EXCEPTION 'ABORT: reports residual > 0';
+  END IF;
+  IF (SELECT COUNT(*) FROM public.satisfaction_ratings       WHERE interview_id IN (SELECT id FROM cleanup_target_interviews)) <> 0 THEN
+    RAISE EXCEPTION 'ABORT: satisfaction_ratings residual > 0';
+  END IF;
+  IF (SELECT COUNT(*) FROM public.internal_memos             WHERE applicant_id IN (SELECT id FROM cleanup_target_applicants)) <> 0 THEN
+    RAISE EXCEPTION 'ABORT: internal_memos residual > 0';
+  END IF;
+  IF (SELECT COUNT(*) FROM public.selection_status_histories WHERE applicant_id IN (SELECT id FROM cleanup_target_applicants)) <> 0 THEN
+    RAISE EXCEPTION 'ABORT: selection_status_histories residual > 0';
+  END IF;
+  IF (SELECT COUNT(*) FROM public.sent_emails                WHERE applicant_id IN (SELECT id FROM cleanup_target_applicants)) <> 0 THEN
+    RAISE EXCEPTION 'ABORT: sent_emails residual > 0';
+  END IF;
+  IF (SELECT COUNT(*) FROM public.interviews                 WHERE id IN (SELECT id FROM cleanup_target_interviews)) <> 0 THEN
+    RAISE EXCEPTION 'ABORT: interviews residual > 0';
+  END IF;
+  IF (SELECT COUNT(*) FROM public.applicants                 WHERE id IN (SELECT id FROM cleanup_target_applicants)) <> 0 THEN
+    RAISE EXCEPTION 'ABORT: applicants residual > 0';
+  END IF;
+
+  -- (6) 保護対象 @example.com デモ応募者が削除後も 8 件であること（誤削除検知）
+  SELECT COUNT(*) INTO v_protected_example
+    FROM public.applicants a
+    JOIN public.companies c ON c.id = a.company_id
+   WHERE c.interview_slug = 'test'
+     AND a.email ILIKE '%@example.com';
+  IF v_protected_example <> 8 THEN
+    RAISE EXCEPTION 'ABORT: protected @example.com after delete = % (expected 8)', v_protected_example;
+  END IF;
+
+  -- (6-a) テスト会社 jobs が削除後も 5 件であること（削除対象外リソースが消えていないか）
+  SELECT COUNT(*) INTO v_jobs FROM public.jobs WHERE company_id = v_company_id;
+  IF v_jobs <> 5 THEN
+    RAISE EXCEPTION 'ABORT: test company jobs after delete = % (expected 5)', v_jobs;
+  END IF;
+  -- (6-b) テスト会社 common_questions が削除後も 3 件であること
+  SELECT COUNT(*) INTO v_common_questions FROM public.common_questions WHERE company_id = v_company_id;
+  IF v_common_questions <> 3 THEN
+    RAISE EXCEPTION 'ABORT: test company common_questions after delete = % (expected 3)', v_common_questions;
+  END IF;
+  -- (6-c) テスト会社 job_questions が削除後も 107 件であること
+  SELECT COUNT(*) INTO v_job_questions
+    FROM public.job_questions jq
+    JOIN public.jobs j ON j.id = jq.job_id
+   WHERE j.company_id = v_company_id;
+  IF v_job_questions <> 107 THEN
+    RAISE EXCEPTION 'ABORT: test company job_questions after delete = % (expected 107)', v_job_questions;
+  END IF;
+END $$;
+
+-- ── COMMIT は上記すべてのアサーション通過後にのみ手動実行する ────────────────────
+-- 上の DO ブロックがどれか 1 つでも RAISE すればトランザクションは abort 済みとなり、
+-- 下の COMMIT を打っても確定しない（実質ロールバック）。アサーションが全通過した時のみ確定する。
 -- 問題なければ:
 --   COMMIT;
--- 想定外なら:
+-- 明示的に中止したい場合:
 --   ROLLBACK;
 -- ↑ どちらか一方を手動で実行してトランザクションを閉じること（開いたまま放置しない）。
 --   COMMIT/ROLLBACK のいずれでも一時テーブル（ON COMMIT DROP）は自動消滅する。
