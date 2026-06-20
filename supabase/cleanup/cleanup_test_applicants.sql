@@ -53,7 +53,9 @@ SELECT COUNT(*) AS keep_example_count
   JOIN public.companies c ON c.id = a.company_id
  WHERE c.interview_slug = 'test'
    AND a.email ILIKE '%@example.com';
--- 期待: 10件（鈴木/渡辺/田中太郎/高橋/佐藤/伊藤/中村/山本/じじじじ×2）。これらは削除しない。
+-- 期待: 8件（鈴木/渡辺/田中太郎/高橋/佐藤/伊藤/中村/山本）。これらは削除しない。
+-- 参考: 非テスト応募者は合計10件（@example.com 8件 ＋ じじじじ2件＝jui@ki.com / loo@m.com）。
+--   じじじじ2件は @example.com ではないため本 SELECT には出ないが、email 条件にも一致せず削除対象外。
 
 -- (2-d) 削除対象に @example.com が混ざっていないこと（0 を期待＝誤爆ガード）
 SELECT COUNT(*) AS leaked_example_in_target
@@ -201,7 +203,7 @@ SELECT
     WHERE c.interview_slug = 'test'
       AND ( a.email = 'debug@test.com' OR a.email ILIKE '%@test.local' )) AS remaining_target_results;
 
--- 残す @example.com デモ応募者が無傷であること（期待: 10）
+-- 残す @example.com デモ応募者が無傷であること（期待: 8）
 SELECT COUNT(*) AS remaining_example_applicants
   FROM public.applicants a
   JOIN public.companies c ON c.id = a.company_id
@@ -240,7 +242,7 @@ SELECT
     WHERE c.interview_slug = 'test'
       AND ( a.email = 'debug@test.com' OR a.email ILIKE '%@test.local' )) AS target_results;
 
--- (7-b) @example.com デモ応募者が残っていること（期待: 10）
+-- (7-b) @example.com デモ応募者が残っていること（期待: 8）
 SELECT COUNT(*) AS example_applicants
   FROM public.applicants a
   JOIN public.companies c ON c.id = a.company_id
