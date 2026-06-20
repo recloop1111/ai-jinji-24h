@@ -1,13 +1,13 @@
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminServerClient } from '@/lib/supabase/server'
 
 export async function GET() {
   try {
     const { error: authError } = await getAdminUser()
     if (authError) return authError
 
-    const supabase = await createClient()
+    const supabase = await createAdminServerClient()
 
     const { data: accounts, error } = await supabase
       .from('locked_accounts')

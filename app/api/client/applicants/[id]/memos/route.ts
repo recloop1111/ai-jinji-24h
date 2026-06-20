@@ -1,7 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
+import { createClientServerClient } from '@/lib/supabase/server'
 
 export async function GET(
   _request: NextRequest,
@@ -12,7 +12,7 @@ export async function GET(
     if (authError) return authError
 
     const { id } = await params
-    const supabase = await createClient()
+    const supabase = await createClientServerClient()
 
     // 応募者の所有権確認
     const { data: applicant, error: appError } = await supabase
@@ -65,7 +65,7 @@ export async function POST(
       return apiError('VALIDATION_ERROR', `content は${MAX_MEMO_LENGTH}文字以内で入力してください`)
     }
 
-    const supabase = await createClient()
+    const supabase = await createClientServerClient()
 
     // 応募者の所有権確認
     const { data: applicant, error: appError } = await supabase

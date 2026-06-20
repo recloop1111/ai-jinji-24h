@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, usePathname } from 'next/navigation'
 import { Plus, FileText, Check, ChevronUp, ChevronDown, Pencil, X } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { createAdminBrowserClient, createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
 
 type Question = {
@@ -119,9 +119,18 @@ type QuestionEditorProps = {
 export default function QuestionEditor({ companyId: companyIdProp, theme, onNavigateToJobs }: QuestionEditorProps) {
   const searchParams = useSearchParams()
   const initialJobId = searchParams.get('jobId')
-  const { companyId: currentCompanyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
+  // companyId='current'（企業自身）のときだけ client セッションから解決する。
+  // admin 代理管理（companyIdProp に対象企業IDを明示）では client API を呼ばず redirect もしない。
+  const { companyId: currentCompanyId, loading: companyIdLoading, error: companyIdError } =
+    useCompanyId({ enabled: companyIdProp === 'current' })
   // Supabaseクライアント: createBrowserClientを使用（lib/supabase/client.ts経由）
-  const supabase = useMemo(() => createClient(), [])
+  // 共有コンポーネント（admin企業詳細・client質問設定の両方で使用）。
+  // 現在のパスで使う認証セッションを切替える（/admin→admin cookie・それ以外→client cookie）。
+  const pathname = usePathname()
+  const supabase = useMemo(
+    () => (pathname?.startsWith('/admin') ? createAdminBrowserClient() : createClientBrowserClient()),
+    [pathname],
+  )
   const resolvedCompanyId = companyIdProp === 'current' ? currentCompanyId : companyIdProp
 
   const [jobs, setJobs] = useState<Job[]>([])

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { createClientBrowserClient } from '@/lib/supabase/client'
 import { hasDemoCookie, clearDemoCookie } from '@/lib/config/demo'
 import { LayoutGrid as DashboardIcon, Users as UsersIcon, Briefcase as BriefcaseIcon, MessageSquare as QuestionsIcon, Mail as MailIcon, FileText as PlanIcon, CircleDollarSign as BillingIcon, Settings as SettingsIcon, Pause as SuspensionIcon, User as PersonIcon, Menu as MenuIcon, X as CloseIcon, Copy as CopyIcon, ArrowLeft as BackIcon } from 'lucide-react'
 
@@ -61,7 +62,13 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     }
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // client 専用セッション（client cookie）だけを失効。admin セッションは巻き添えにしない。
+    try {
+      await createClientBrowserClient().auth.signOut()
+    } catch {
+      // signOut 失敗時もデモ解除・遷移は行う
+    }
     clearDemoCookie()
     router.push('/client/login')
   }

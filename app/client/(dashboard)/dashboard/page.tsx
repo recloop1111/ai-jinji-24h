@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect, Suspense } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
 import { deriveCurrentStatus, CURRENT_STATUS_LABEL, type CurrentStatusKey } from '@/lib/applicants/displayStatus'
 import { useTemplates, type Template } from '../../contexts/TemplatesContext'
@@ -26,7 +26,7 @@ type DashboardApplicant = {
 
 function DashboardContent() {
   const { companyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
-  const supabase = createClient()
+  const supabase = createClientBrowserClient()
 
   const [kpis, setKpis] = useState({ interviews: 0, avgDuration: 0, applicants: 0, used: 0, limit: 0 })
   const [, setRecentApplicants] = useState<DashboardApplicant[]>([])

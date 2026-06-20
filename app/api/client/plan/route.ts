@@ -1,7 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
+import { createClientServerClient } from '@/lib/supabase/server'
 import { verifySettingPassword } from '@/lib/security/setting-password'
 import { applyNextMonthLimit } from '@/lib/companies/applyNextMonthLimit'
 import { PRICE_PER_INTERVIEW, MIN_INTERVIEW_LIMIT } from '@/types/database'
@@ -18,7 +18,7 @@ export async function GET() {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
 
-    const supabase = await createClient()
+    const supabase = await createClientServerClient()
 
     // 企業情報（migration 適用前後どちらでも壊れないよう select('*')）
     const { data: company, error: compError } = await supabase
@@ -116,7 +116,7 @@ export async function PATCH(request: NextRequest) {
       })
     }
 
-    const supabase = await createClient()
+    const supabase = await createClientServerClient()
 
     // 自社のみ（companyId は認証から取得。body の company_id は信用しない）
     const { data: company, error: compError } = await supabase

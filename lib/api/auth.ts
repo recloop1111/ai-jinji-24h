@@ -1,4 +1,4 @@
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { createAdminServerClient, createClientServerClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { apiError } from './response'
 
 type AuthSuccess<T> = { data: T; error: null }
@@ -21,7 +21,8 @@ export type AdminUser = {
  * RLS に依存しないため、profiles の SELECT ポリシーに関係なく動作する。
  */
 export async function getClientUser(): Promise<AuthResult<ClientUser>> {
-  const supabase = await createClient()
+  // client 専用セッション（client cookie）だけを読む。admin cookie はフォールバックしない。
+  const supabase = await createClientServerClient()
 
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
@@ -51,7 +52,8 @@ export async function getClientUser(): Promise<AuthResult<ClientUser>> {
  * RLS に依存しないため、profiles の SELECT ポリシーに関係なく動作する。
  */
 export async function getAdminUser(): Promise<AuthResult<AdminUser>> {
-  const supabase = await createClient()
+  // admin 専用セッション（admin cookie）だけを読む。client cookie はフォールバックしない。
+  const supabase = await createAdminServerClient()
 
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {

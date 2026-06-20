@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { createAdminBrowserClient } from '@/lib/supabase/client'
 import { deriveDisplayStatusJa } from '@/lib/applicants/displayStatus'
 import { ChevronLeft as ChevronLeftIcon, Play as PlayIcon } from 'lucide-react'
 
@@ -136,7 +136,7 @@ function RecommendLegendDark() {
 export default function AdminApplicantDetailPage() {
   const params = useParams()
   const id = params.id as string
-  const supabase = createClient()
+  const supabase = createAdminBrowserClient()
 
   const [activeTab, setActiveTab] = useState<TabKey>('summary')
   const [applicant, setApplicant] = useState<any>(null)

@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect, Suspense } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
 import { deriveCurrentStatus, CURRENT_STATUS_LABEL, type CurrentStatusKey } from '@/lib/applicants/displayStatus'
 import { useTemplates, type Template } from '../../contexts/TemplatesContext'
@@ -147,10 +147,10 @@ function AdminAuthModal({
 
 function ApplicantsContent() {
   const { companyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
-  // createClient() を毎レンダー生成すると、データ取得 effect の依存(supabase)が毎回変わり、
+  // createClientBrowserClient() を毎レンダー生成すると、データ取得 effect の依存(supabase)が毎回変わり、
   // CSV認証モーダルを開く等の再レンダーで一覧の再取得(setDataLoading(true))が走って一覧が空白になる。
   // useMemo で安定化し、CSV認証 loading と一覧取得 loading を分離する。
-  const supabase = useMemo(() => createClient(), [])
+  const supabase = useMemo(() => createClientBrowserClient(), [])
   const { templates } = useTemplates()
   const [searchQuery, setSearchQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')

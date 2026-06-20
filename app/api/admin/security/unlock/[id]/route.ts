@@ -2,7 +2,7 @@ import { type NextRequest } from 'next/server'
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { isValidUUID } from '@/lib/api/validation'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminServerClient } from '@/lib/supabase/server'
 
 export async function POST(
   _request: NextRequest,
@@ -17,7 +17,7 @@ export async function POST(
       return apiError('VALIDATION_ERROR', 'IDの形式が不正です')
     }
 
-    const supabase = await createClient()
+    const supabase = await createAdminServerClient()
 
     const { error: deleteError } = await supabase
       .from('locked_accounts')

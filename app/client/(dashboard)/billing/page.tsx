@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Download as DownloadIcon, Landmark as BankIcon } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
 import { PRICE_PER_INTERVIEW } from '@/types/database'
 
@@ -28,7 +28,7 @@ type Invoice = {
 
 export default function BillingPage() {
   const { companyId, loading: companyIdLoading } = useCompanyId()
-  const supabase = createClient()
+  const supabase = createClientBrowserClient()
 
   const [loading, setLoading] = useState(true)
   const [monthlyCount, setMonthlyCount] = useState(0)

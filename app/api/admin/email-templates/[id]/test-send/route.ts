@@ -2,7 +2,7 @@ import { type NextRequest } from 'next/server'
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { isValidUUID } from '@/lib/api/validation'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminServerClient } from '@/lib/supabase/server'
 
 export async function POST(
   request: NextRequest,
@@ -22,7 +22,7 @@ export async function POST(
       return apiError('VALIDATION_ERROR', '有効な送信先メールアドレス (to) を指定してください')
     }
 
-    const supabase = await createClient()
+    const supabase = await createAdminServerClient()
 
     // テンプレート取得
     const { data: template, error: tplError } = await supabase

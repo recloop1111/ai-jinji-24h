@@ -1,13 +1,13 @@
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
+import { createClientServerClient } from '@/lib/supabase/server'
 
 export async function POST() {
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
 
-    const supabase = await createClient()
+    const supabase = await createClientServerClient()
 
     // pending 状態の通常停止申請を取得（request_type='temporary'。緊急申請は取消対象外）
     const { data: request, error: fetchError } = await supabase

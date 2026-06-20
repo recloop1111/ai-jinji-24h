@@ -954,7 +954,7 @@ export default function CompanyDetailPage() {
         {/* タブ6: 求人管理 */}
         {activeTab === '求人管理' && (
           <div className={`${CARD_BASE} p-6`}>
-            <JobManager companyId={companyId} theme="dark" />
+            <JobManager companyId={companyId} theme="dark" onNavigateToQuestions={() => setActiveTab('質問設定')} />
           </div>
         )}
 

@@ -2,7 +2,7 @@ import { type NextRequest } from 'next/server'
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { isValidUUID } from '@/lib/api/validation'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminServerClient } from '@/lib/supabase/server'
 
 type RouteParams = { params: Promise<{ id: string; job_type_id: string }> }
 
@@ -24,7 +24,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return apiError('VALIDATION_ERROR', 'name は100文字以内で入力してください')
     }
 
-    const supabase = await createClient()
+    const supabase = await createAdminServerClient()
 
     const { data: jobType, error: updateError } = await supabase
       .from('job_types')
@@ -54,7 +54,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
       return apiError('VALIDATION_ERROR', 'IDの形式が不正です')
     }
 
-    const supabase = await createClient()
+    const supabase = await createAdminServerClient()
 
     const { error: deleteError } = await supabase
       .from('job_types')

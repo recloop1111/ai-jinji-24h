@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { createAdminBrowserClient } from '@/lib/supabase/client'
 import { LayoutGrid, Building2, Users, MessageSquare, CircleDollarSign, Settings, Shield, Menu, X, LogOut, ArrowLeft } from 'lucide-react'
 
 // 運営管理画面の UI シェル（サイドバー/ヘッダー/状態/ログアウト）。
@@ -40,7 +40,7 @@ function getPageName(pathname: string): string {
 export default function AdminDashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const supabase = createClient()
+  const supabase = createAdminBrowserClient()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const handleLogout = async () => {

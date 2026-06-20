@@ -1,13 +1,13 @@
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
+import { createClientServerClient } from '@/lib/supabase/server'
 
 export async function POST() {
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
 
-    const supabase = await createClient()
+    const supabase = await createClientServerClient()
 
     const { error: updateError } = await supabase
       .from('companies')

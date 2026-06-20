@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { Save as SaveIcon, Upload as UploadIcon, Eye as EyeIcon, EyeOff as EyeOffIcon, LogOut } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
 import PasswordInput from '@/components/shared/PasswordInput'
 
@@ -19,7 +19,7 @@ type CompanyForm = {
 function SettingsContent() {
   const router = useRouter()
   const { companyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
-  const supabase = createClient()
+  const supabase = createClientBrowserClient()
 
   const [activeTab, setActiveTab] = useState<TabType>('general')
   const [toast, setToast] = useState<string | null>(null)

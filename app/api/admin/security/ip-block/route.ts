@@ -1,7 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminServerClient } from '@/lib/supabase/server'
 
 const IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/
 
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
       return apiError('VALIDATION_ERROR', 'reason は500文字以内で入力してください')
     }
 
-    const supabase = await createClient()
+    const supabase = await createAdminServerClient()
 
     // 重複チェック
     const { data: existing } = await supabase

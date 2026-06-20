@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { createClientBrowserClient } from '@/lib/supabase/client'
 import { deriveCurrentStatus, CURRENT_STATUS_LABEL } from '@/lib/applicants/displayStatus'
 import { ChevronLeft as ChevronLeftIcon, ChevronDown as ChevronDownIcon, Play as PlayIcon, Download, Mail, LinkIcon, Copy, Check } from 'lucide-react'
 
@@ -385,7 +385,7 @@ function RecommendLegend() {
 export default function ApplicantDetailPage() {
   const params = useParams()
   const id = params.id as string
-  const supabase = createClient()
+  const supabase = createClientBrowserClient()
   
   
   const [activeTab, setActiveTab] = useState<TabKey>('summary')

@@ -13,18 +13,27 @@ export { CLIENT_DEMO_ENABLED } from '@/lib/config/demo'
  *   DEMO_COMPANY_ID を返す。sessionStorage は使わない。本番（CLIENT_DEMO_ENABLED=false）では常に無効。
  *   デモは実セッションを持たないため /api/client/company は呼ばず、保護API・実企業データへは到達しない。
  * - 実ログイン: /api/client/company（service role 経由）から companyId を取得する。
+ *
+ * enabled=false の場合は解決を一切行わない（fetch も redirect もしない）。
+ * 運営が共有コンポーネントで「対象企業ID」を明示する代理管理（admin 文脈）では、
+ * client セッションが無いため /api/client/company は 401 となり /client/login へ飛んでしまう。
+ * その回帰を避けるため、companyId を外部から渡すケースでは enabled=false で無効化する。
  */
-export function useCompanyId(): {
+export function useCompanyId(options?: { enabled?: boolean }): {
   companyId: string | null
   loading: boolean
   error: string | null
 } {
+  const enabled = options?.enabled ?? true
   const router = useRouter()
   const [companyId, setCompanyId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    // enabled=false（admin 代理管理など）は解決しない。client API も呼ばない。
+    // 初期 state が既に {companyId:null, loading:false(=enabled), error:null} のため setState 不要。
+    if (!enabled) return
     let cancelled = false
 
     async function resolveCompanyId() {
@@ -76,7 +85,7 @@ export function useCompanyId(): {
     return () => {
       cancelled = true
     }
-  }, [router])
+  }, [router, enabled])
 
   return { companyId, loading, error }
 }

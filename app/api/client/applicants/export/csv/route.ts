@@ -2,7 +2,7 @@ import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { apiError } from '@/lib/api/response'
 import { isValidDate } from '@/lib/api/validation'
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { createClientServerClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { verifySettingPassword } from '@/lib/security/setting-password'
 import { deriveCurrentStatus, CURRENT_STATUS_LABEL, type CurrentStatusKey } from '@/lib/applicants/displayStatus'
 
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
       return apiError('VALIDATION_ERROR', 'date_to の形式が不正です（YYYY-MM-DD）')
     }
 
-    const supabase = await createClient()
+    const supabase = await createClientServerClient()
 
     // Step 1: applicants（自社・created_at 降順）
     const { data: applicants, error: appError } = await supabase

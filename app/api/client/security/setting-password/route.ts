@@ -1,14 +1,14 @@
 import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
+import { createClientServerClient } from '@/lib/supabase/server'
 import { hashSettingPassword, verifySettingPassword, isValidSettingPassword } from '@/lib/security/setting-password'
 
 // 企業設定変更用パスワード（ログインPWとは別）の保存・検証基盤。
 // 保存先: companies.company_setting_password_hash（自社のみ）。
 
 async function fetchCompanyHash(companyId: string): Promise<{ hash: string | null; notFound: boolean }> {
-  const supabase = await createClient()
+  const supabase = await createClientServerClient()
   const { data, error } = await supabase
     .from('companies')
     .select('*')
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
       return apiError('CONFLICT', '設定変更用パスワードは既に設定済みです。変更はPATCHを使用してください')
     }
 
-    const supabase = await createClient()
+    const supabase = await createClientServerClient()
     const { error } = await supabase
       .from('companies')
       .update({ company_setting_password_hash: hashSettingPassword(newPassword), updated_at: new Date().toISOString() })
@@ -87,7 +87,7 @@ export async function PATCH(request: NextRequest) {
       return apiError('FORBIDDEN', '現在の設定変更用パスワードが正しくありません')
     }
 
-    const supabase = await createClient()
+    const supabase = await createClientServerClient()
     const { error } = await supabase
       .from('companies')
       .update({ company_setting_password_hash: hashSettingPassword(newPassword), updated_at: new Date().toISOString() })

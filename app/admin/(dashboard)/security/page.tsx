@@ -94,8 +94,8 @@ function LockedAccountsList() {
 
   useEffect(() => {
     async function fetchLocked() {
-      const { createClient } = await import('@/lib/supabase/client')
-      const supabase = createClient()
+      const { createAdminBrowserClient } = await import('@/lib/supabase/client')
+      const supabase = createAdminBrowserClient()
       const { data } = await supabase
         .from('companies')
         .select('id, name, is_locked, locked_at, login_fail_count')
@@ -107,8 +107,8 @@ function LockedAccountsList() {
   }, [])
 
   async function handleUnlock(companyId: string) {
-    const { createClient } = await import('@/lib/supabase/client')
-    const supabase = createClient()
+    const { createAdminBrowserClient } = await import('@/lib/supabase/client')
+    const supabase = createAdminBrowserClient()
     await supabase
       .from('companies')
       .update({ is_locked: false, locked_at: null, login_fail_count: 0, updated_at: new Date().toISOString() })

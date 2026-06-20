@@ -2,7 +2,7 @@ import { type NextRequest } from 'next/server'
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { isValidUUID } from '@/lib/api/validation'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminServerClient } from '@/lib/supabase/server'
 
 const VALID_PLANS = ['pay_per_use', 'custom'] as const
 const VALID_STATUSES = ['active', 'suspended'] as const
@@ -25,7 +25,7 @@ export async function PATCH(
       return apiError('VALIDATION_ERROR', 'リクエストボディが不正です')
     }
 
-    const supabase = await createClient()
+    const supabase = await createAdminServerClient()
 
     // 企業存在確認
     const { data: company, error: compError } = await supabase
