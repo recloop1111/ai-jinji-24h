@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { DEMO_STORAGE_KEY } from '@/lib/hooks/useCompanyId'
-import { LayoutGrid as DashboardIcon, Users as UsersIcon, Briefcase as BriefcaseIcon, MessageSquare as QuestionsIcon, Mail as MailIcon, FileText as PlanIcon, CircleDollarSign as BillingIcon, Settings as SettingsIcon, Pause as SuspensionIcon, User as PersonIcon, Menu as MenuIcon, X as CloseIcon, Copy as CopyIcon } from 'lucide-react'
+import { hasDemoCookie, clearDemoCookie } from '@/lib/config/demo'
+import { LayoutGrid as DashboardIcon, Users as UsersIcon, Briefcase as BriefcaseIcon, MessageSquare as QuestionsIcon, Mail as MailIcon, FileText as PlanIcon, CircleDollarSign as BillingIcon, Settings as SettingsIcon, Pause as SuspensionIcon, User as PersonIcon, Menu as MenuIcon, X as CloseIcon, Copy as CopyIcon, ArrowLeft as BackIcon } from 'lucide-react'
 
 // TODO: 実際の企業URLに差替え
 const INTERVIEW_URL = 'https://ai-jinji-24h.vercel.app/interview/demo-company'
@@ -27,22 +27,14 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [copySuccess, setCopySuccess] = useState(false)
   const [companyName, setCompanyName] = useState('')
-  // demo mode 判定（サイドバー遷移で ?demo=true を引き継ぐために使用）。通常ログイン時は false。
-  const [isDemo, setIsDemo] = useState(false)
 
   // ヘッダーの企業名: demo時は「デモ企業」、実ログイン時は /api/client/company から取得
   useEffect(() => {
     let cancelled = false
     async function loadCompanyName() {
-      const urlDemo =
-        typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === 'true'
-      const storedDemo =
-        typeof window !== 'undefined' && sessionStorage.getItem(DEMO_STORAGE_KEY) === 'true'
-      if (urlDemo || storedDemo) {
-        if (!cancelled) {
-          setCompanyName('デモ企業')
-          setIsDemo(true)
-        }
+      // デモ判定はサーバ判別可能な cookie（dev のみ・本番無効）。sessionStorage は使わない。
+      if (hasDemoCookie()) {
+        if (!cancelled) setCompanyName('デモ企業')
         return
       }
       try {
@@ -70,10 +62,18 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   }
 
   const handleLogout = () => {
-    if (typeof window !== 'undefined') {
-      sessionStorage.removeItem(DEMO_STORAGE_KEY)
-    }
+    clearDemoCookie()
     router.push('/client/login')
+  }
+
+  // ルート（ダッシュボード）以外で「戻る」を表示。履歴があれば1つ前へ、無ければダッシュボードへ。
+  const showBack = pathname !== '/client/dashboard'
+  const handleBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back()
+    } else {
+      router.push('/client/dashboard')
+    }
   }
 
   const isActive = (href: string) => pathname === href || (href !== '/client/dashboard' && pathname.startsWith(href))
@@ -108,7 +108,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             return (
               <Link
                 key={item.href}
-                href={isDemo ? `${item.href}?demo=true` : item.href}
+                href={item.href}
                 onClick={() => setSidebarOpen(false)}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
                   isActive(item.href)
@@ -164,6 +164,17 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
           >
             <MenuIcon className="w-6 h-6" />
           </button>
+          {showBack && (
+            <button
+              type="button"
+              onClick={handleBack}
+              title="前の画面へ戻る"
+              aria-label="前の画面へ戻る"
+              className="p-2 -ml-1 rounded-lg hover:bg-slate-100 text-slate-600 shrink-0"
+            >
+              <BackIcon className="w-5 h-5" />
+            </button>
+          )}
           <div className="flex-1" />
           <div className="flex items-center gap-3">
             <span className="text-sm font-medium text-slate-700 hidden sm:inline">{companyName || '読み込み中'}</span>

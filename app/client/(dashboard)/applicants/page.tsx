@@ -44,27 +44,37 @@ const CURRENT_STATUS_FILTER_OPTIONS: { value: CurrentStatusFilterValue; label: s
 ]
 
 // 管理者認証モーダルコンポーネント
+// CSV は「管理者設定用パスワード」をサーバ検証してから取得する。onSubmit はサーバへ
+// パスワードを送り、成功時は null（モーダルを閉じる）、失敗時はエラーメッセージを返す。
+// ログインパスワードでは取得できない（サーバ側で company_setting_password_hash と照合）。
 function AdminAuthModal({
   isOpen,
   onClose,
-  onConfirm,
+  onSubmit,
 }: {
   isOpen: boolean
   onClose: () => void
-  onConfirm: () => void
+  onSubmit: (password: string) => Promise<string | null>
 }) {
   const [adminPassword, setAdminPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
-  const handleSubmit = () => {
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault()
     if (!adminPassword.trim()) {
       setError('パスワードを入力してください')
       return
     }
-    // TODO: Phase 4 - Supabaseで管理者認証
     setError('')
-    onConfirm()
+    setSubmitting(true)
+    const errMsg = await onSubmit(adminPassword)
+    setSubmitting(false)
+    if (errMsg) {
+      setError(errMsg)
+      return
+    }
     setAdminPassword('')
     onClose()
   }
@@ -75,51 +85,61 @@ function AdminAuthModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden />
       <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
-        <h3 className="text-lg font-bold text-slate-900 mb-2">管理者認証</h3>
+        <h3 className="text-lg font-bold text-slate-900 mb-2">管理者設定用パスワード認証</h3>
         <p className="text-sm text-slate-600 mb-4">
-          この操作には管理者用パスワードが必要です。
+          CSVダウンロードには「管理者設定用パスワード」が必要です（ログインパスワードでは取得できません）。
         </p>
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-slate-700 mb-2">
-            管理者用パスワード
-          </label>
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={adminPassword}
-              onChange={(e) => {
-                setAdminPassword(e.target.value)
-                setError('')
-              }}
-              className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="管理者用パスワードを入力"
-            />
+        {/* 独立 form＋autoComplete無効化。応募者検索欄へのユーザー名自動入力（パスワードマネージャー誤認）を防ぐ */}
+        <form onSubmit={handleSubmit} autoComplete="off">
+          <div className="mb-4">
+            <label htmlFor="client-csv-setting-password" className="block text-sm font-medium text-slate-700 mb-2">
+              管理者設定用パスワード
+            </label>
+            <div className="relative">
+              <input
+                id="client-csv-setting-password"
+                name="client-csv-setting-password"
+                type={showPassword ? 'text' : 'password'}
+                value={adminPassword}
+                onChange={(e) => {
+                  setAdminPassword(e.target.value)
+                  setError('')
+                }}
+                autoComplete="new-password"
+                data-1p-ignore
+                data-lpignore="true"
+                data-form-type="other"
+                className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="管理者設定用パスワードを入力"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                {showPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
+              </button>
+            </div>
+            {error && <p className="mt-1.5 text-sm text-red-600">{error}</p>}
+          </div>
+          <div className="flex gap-3">
             <button
               type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              onClick={onClose}
+              disabled={submitting}
+              className="flex-1 px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50"
             >
-              {showPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
+              キャンセル
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-60"
+            >
+              {submitting ? '認証中...' : '認証してダウンロード'}
             </button>
           </div>
-          {error && <p className="mt-1.5 text-sm text-red-600">{error}</p>}
-        </div>
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-          >
-            キャンセル
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-          >
-            認証して実行
-          </button>
-        </div>
+        </form>
       </div>
     </div>
   )
@@ -127,7 +147,10 @@ function AdminAuthModal({
 
 function ApplicantsContent() {
   const { companyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
-  const supabase = createClient()
+  // createClient() を毎レンダー生成すると、データ取得 effect の依存(supabase)が毎回変わり、
+  // CSV認証モーダルを開く等の再レンダーで一覧の再取得(setDataLoading(true))が走って一覧が空白になる。
+  // useMemo で安定化し、CSV認証 loading と一覧取得 loading を分離する。
+  const supabase = useMemo(() => createClient(), [])
   const { templates } = useTemplates()
   const [searchQuery, setSearchQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
@@ -262,50 +285,47 @@ function ApplicantsContent() {
     setCsvAdminAuthModalOpen(true)
   }
 
-  const handleCsvDownload = (filteredData: Applicant[]) => {
-
-    const escapeCsvField = (v: string | number | null | undefined): string => {
-      const s = v === null || v === undefined ? '' : String(v)
-      if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
-        return '"' + s.replace(/"/g, '""') + '"'
+  // CSV は管理者設定用パスワードをサーバ検証してから、サーバ生成のCSVを取得する。
+  // ブラウザ生成はしない（フロントだけの判定にしない／サーバで必ず検証する要件）。
+  // 画面と同一の絞り込み（検索語・日付・結果・現在状況）をサーバへ渡し、同等の出力にする。
+  // 戻り値: 成功時 null・失敗時はモーダルに表示するエラーメッセージ。
+  const handleCsvDownloadSubmit = async (password: string): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/client/applicants/export/csv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          settingPassword: password,
+          search: searchQuery.trim(),
+          date_from: dateFrom,
+          date_to: dateTo,
+          status: statusFilter,
+          current_status: currentStatusFilter,
+        }),
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        return json?.error?.message ?? 'CSVの取得に失敗しました'
       }
-      return s
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const today = new Date()
+      const dateStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0')
+      a.download = `応募者一覧_${dateStr}.csv`
+      a.style.display = 'none'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      setCsvDownloadToast(true)
+      setTimeout(() => setCsvDownloadToast(false), 2000)
+      return null
+    } catch {
+      return 'CSVの取得に失敗しました'
     }
-
-    const currentStatusLabel = (s: string | null) => (
-      s && s in CURRENT_STATUS_LABEL ? CURRENT_STATUS_LABEL[s as CurrentStatusKey] : ''
-    )
-    const statusLabel = (s: string | null) =>
-      s === 'considering' ? '検討中' : s === 'second_pass' ? '二次通過' : s === 'rejected' ? '不採用' : '未対応'
-
-    const header = '応募者名,メールアドレス,電話番号,面接日時,現在状況,推薦度,結果'
-    const rows = filteredData.map((a) =>
-      [
-        a.name,
-        a.email,
-        a.phone,
-        a.interviewAt ?? '',
-        currentStatusLabel(a.currentStatus),
-        a.recommendationRank ?? '',
-        statusLabel(a.status),
-      ].map(escapeCsvField).join(',')
-    )
-    const csvContent = '\uFEFF' + [header, ...rows].join('\r\n')
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    const today = new Date()
-    const dateStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0')
-    a.download = `応募者一覧_${dateStr}.csv`
-    a.style.display = 'none'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-
-    setCsvDownloadToast(true)
-    setTimeout(() => setCsvDownloadToast(false), 2000)
   }
 
   const filtered = useMemo(() => {
@@ -491,9 +511,14 @@ function ApplicantsContent() {
         <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center">
           <input
             type="text"
+            name="applicant-search"
             placeholder="応募者名で検索"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            autoComplete="off"
+            data-1p-ignore
+            data-lpignore="true"
+            data-form-type="other"
             className="flex-1 min-w-0 px-4 py-2.5 border border-gray-300 bg-white rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           />
           <div className="flex flex-wrap items-center gap-2">
@@ -1047,7 +1072,7 @@ function ApplicantsContent() {
       <AdminAuthModal
         isOpen={csvAdminAuthModalOpen}
         onClose={() => setCsvAdminAuthModalOpen(false)}
-        onConfirm={() => handleCsvDownload(filtered)}
+        onSubmit={handleCsvDownloadSubmit}
       />
     </div>
   )

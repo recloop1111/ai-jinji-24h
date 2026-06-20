@@ -1,24 +1,24 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
+import { CLIENT_DEMO_ENABLED, DEMO_COMPANY_ID, hasDemoCookie } from '@/lib/config/demo'
 
-const DEMO_COMPANY_ID = '7a58cc1b-9f81-4da5-ae2c-fd3abea05c33'
-export const DEMO_STORAGE_KEY = 'client_demo_mode'
+// 後方互換のための再エクスポート（既存 import 元向け）。デモ判定の正は lib/config/demo。
+export { CLIENT_DEMO_ENABLED } from '@/lib/config/demo'
 
 /**
  * 企業側ページ共通の companyId 取得フック。
- * - デモモード: URL の ?demo=true もしくは sessionStorage 保存済みフラグで判定し、DEMO_COMPANY_ID を返す。
- *   一度デモモードに入るとサイドバー遷移で ?demo=true が落ちても sessionStorage で維持される。
+ * - デモモード（開発専用）: middleware が dev・?demo=true 時に発行する cookie（hasDemoCookie）で判定し、
+ *   DEMO_COMPANY_ID を返す。sessionStorage は使わない。本番（CLIENT_DEMO_ENABLED=false）では常に無効。
+ *   デモは実セッションを持たないため /api/client/company は呼ばず、保護API・実企業データへは到達しない。
  * - 実ログイン: /api/client/company（service role 経由）から companyId を取得する。
- *   anon クライアントの profiles 直クエリは RLS でブロックされ得るため使用しない。
  */
 export function useCompanyId(): {
   companyId: string | null
   loading: boolean
   error: string | null
 } {
-  const searchParams = useSearchParams()
   const router = useRouter()
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -28,14 +28,8 @@ export function useCompanyId(): {
     let cancelled = false
 
     async function resolveCompanyId() {
-      // デモモード判定: URL ?demo=true もしくは sessionStorage に保存済み
-      const urlDemo = searchParams.get('demo') === 'true'
-      const storedDemo =
-        typeof window !== 'undefined' && sessionStorage.getItem(DEMO_STORAGE_KEY) === 'true'
-      if (urlDemo && typeof window !== 'undefined') {
-        sessionStorage.setItem(DEMO_STORAGE_KEY, 'true')
-      }
-      if (urlDemo || storedDemo) {
+      // デモモード判定: サーバ判別可能な cookie（dev のみ・本番無効）
+      if (CLIENT_DEMO_ENABLED && hasDemoCookie()) {
         if (!cancelled) {
           setCompanyId(DEMO_COMPANY_ID)
           setError(null)
@@ -82,7 +76,7 @@ export function useCompanyId(): {
     return () => {
       cancelled = true
     }
-  }, [searchParams, router])
+  }, [router])
 
   return { companyId, loading, error }
 }

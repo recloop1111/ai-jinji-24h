@@ -1,9 +1,106 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { Search, Download, Users, CheckCircle, Clock, BarChart3, XCircle, Phone, Mail } from 'lucide-react'
+import { Search, Download, Users, CheckCircle, Clock, BarChart3, XCircle, Phone, Mail, Eye, EyeOff } from 'lucide-react'
 import Link from 'next/link'
 import { deriveDisplayStatusJa } from '@/lib/applicants/displayStatus'
+
+// 運営CSV出力の認証モーダル。運営管理設定変更用パスワードをサーバ検証してから取得する。
+// onSubmit はサーバへパスワードを送り、成功時 null（閉じる）、失敗時はエラーメッセージを返す。
+// ログインパスワードでは取得できない（サーバ側で admin_security_settings と照合）。
+function AdminSettingPasswordModal({
+  isOpen,
+  onClose,
+  onSubmit,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onSubmit: (password: string) => Promise<string | null>
+}) {
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault()
+    if (!password.trim()) {
+      setError('パスワードを入力してください')
+      return
+    }
+    setError('')
+    setSubmitting(true)
+    const errMsg = await onSubmit(password)
+    setSubmitting(false)
+    if (errMsg) {
+      setError(errMsg)
+      return
+    }
+    setPassword('')
+    onClose()
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden />
+      <div className="relative bg-gray-900 border border-white/10 rounded-2xl shadow-xl p-6 w-full max-w-md">
+        <h3 className="text-lg font-bold text-white mb-2">運営管理設定変更用パスワード認証</h3>
+        <p className="text-sm text-gray-400 mb-4">
+          CSV出力には「運営管理設定変更用パスワード」が必要です（ログインパスワードでは取得できません）。
+        </p>
+        {/* 独立 form＋autoComplete無効化。応募者検索欄へのユーザー名自動入力（パスワードマネージャー誤認）を防ぐ */}
+        <form onSubmit={handleSubmit} autoComplete="off">
+          <div className="mb-4">
+            <label htmlFor="admin-csv-setting-password" className="sr-only">運営管理設定変更用パスワード</label>
+            <div className="relative">
+              <input
+                id="admin-csv-setting-password"
+                name="admin-csv-setting-password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); setError('') }}
+                autoComplete="new-password"
+                data-1p-ignore
+                data-lpignore="true"
+                data-form-type="other"
+                className="w-full px-4 py-2 pr-10 bg-white/[0.03] border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="運営管理設定変更用パスワードを入力"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? 'パスワードを隠す' : 'パスワードを表示'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+              >
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
+            {error && <p className="mt-1.5 text-sm text-red-400">{error}</p>}
+          </div>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="flex-1 px-4 py-2 text-sm font-medium text-gray-300 bg-white/[0.05] hover:bg-white/[0.08] rounded-lg transition-colors disabled:opacity-50"
+            >
+              キャンセル
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-60"
+            >
+              {submitting ? '認証中...' : '認証してダウンロード'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
 
 type StatusFilter = 'all' | '準備中' | '面接中' | '完了' | '途中離脱'
 type ScoreFilter = 'all' | '80+' | '60-79' | '40-59' | '40-'
@@ -82,6 +179,7 @@ export default function AdminApplicantsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
+  const [csvModalOpen, setCsvModalOpen] = useState(false)
 
   useEffect(() => {
     async function fetchData() {
@@ -158,7 +256,48 @@ export default function AdminApplicantsPage() {
   }
 
   const handleCsvExport = () => {
-    showToast('CSV出力機能は今後実装予定です')
+    setCsvModalOpen(true)
+  }
+
+  // 運営CSV: 設定用パスワードをサーバ検証してからサーバ生成のCSVを取得する。
+  // 画面と同一の絞り込み（検索/企業/状況/スコア/結果/期間）をサーバへ渡し、同等の出力にする。
+  // 戻り値: 成功時 null・失敗時はモーダルに表示するエラーメッセージ。
+  const handleCsvSubmit = async (password: string): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/admin/applicant-data/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          settingPassword: password,
+          search: searchQuery.trim(),
+          company_id: companyFilter,
+          status: statusFilter,
+          score: scoreFilter,
+          result: resultFilter,
+          period: periodFilter,
+        }),
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        return json?.error?.message ?? 'CSVの取得に失敗しました'
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const today = new Date()
+      const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+      a.download = `応募者一覧_運営_${dateStr}.csv`
+      a.style.display = 'none'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      showToast('CSVをダウンロードしました')
+      return null
+    } catch {
+      return 'CSVの取得に失敗しました'
+    }
   }
 
   const formatDate = (dateStr: string | null) => {
@@ -237,9 +376,14 @@ export default function AdminApplicantsPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
               <input
                 type="text"
+                name="admin-applicant-search"
                 value={searchQuery}
                 onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
                 placeholder="応募者名・メールで検索"
+                autoComplete="off"
+                data-1p-ignore
+                data-lpignore="true"
+                data-form-type="other"
                 className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50 transition-all"
               />
             </div>
@@ -540,6 +684,13 @@ export default function AdminApplicantsPage() {
           {toastMessage}
         </div>
       )}
+
+      {/* CSV出力 設定用パスワード認証モーダル */}
+      <AdminSettingPasswordModal
+        isOpen={csvModalOpen}
+        onClose={() => setCsvModalOpen(false)}
+        onSubmit={handleCsvSubmit}
+      />
     </>
   )
 }

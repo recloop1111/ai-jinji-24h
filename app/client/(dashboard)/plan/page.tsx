@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { DEMO_STORAGE_KEY } from '@/lib/hooks/useCompanyId'
+import { hasDemoCookie } from '@/lib/config/demo'
 import PasswordInput from '@/components/shared/PasswordInput'
 
 type PlanData = {
@@ -66,9 +66,8 @@ export default function PlanPage() {
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const demo =
-        (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === 'true') ||
-        (typeof window !== 'undefined' && sessionStorage.getItem(DEMO_STORAGE_KEY) === 'true')
+      // デモ判定はサーバ判別可能な cookie（dev のみ・本番無効）。sessionStorage は使わない。
+      const demo = hasDemoCookie()
 
       if (demo) {
         if (cancelled) return

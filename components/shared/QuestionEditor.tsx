@@ -259,8 +259,10 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
         question: r.question ?? r.question_text ?? '',
       }))
 
-      if (ice.length > 0) setCommonQuestionsIcebreak(ice)
-      if (close.length > 0) setCommonQuestionsClosing(close)
+      // 設定済み企業は DB の実値を反映する（0件カテゴリは空配列にする＝「アイスブレイク0件」を許容）。
+      // data.length === 0（＝未設定の企業）は早期 return 済みでデフォルト雛形のまま表示する。
+      setCommonQuestionsIcebreak(ice)
+      setCommonQuestionsClosing(close)
     } catch (err) {
       console.error('[QuestionEditor 共通質問読み込み] 例外:', err)
     }
@@ -325,6 +327,34 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
         return prev.map((item, i) => (i === idx ? { ...item, question: value } : item))
       })
     }
+  }
+
+  // アイスブレイク質問は企業ごとに 0件・1件・複数件を柔軟に設定できる（評価対象の job_questions とは別管理）。
+  // 追加・削除・並べ替えはローカル state を操作し、「保存」で common_questions に delete→insert で反映する。
+  const handleAddIcebreak = () => {
+    const newId = `ice-new-${Date.now()}`
+    setCommonQuestionsIcebreak((prev) => [
+      ...prev,
+      { id: newId, label: 'アイスブレイク', category: 'アイスブレイク', question: '' },
+    ])
+    setEditingCommonId(newId)
+  }
+
+  const handleDeleteIcebreak = (id: string) => {
+    setCommonQuestionsIcebreak((prev) => prev.filter((x) => x.id !== id))
+    setEditingCommonId((cur) => (cur === id ? null : cur))
+  }
+
+  const handleMoveIcebreak = (id: string, dir: -1 | 1) => {
+    setCommonQuestionsIcebreak((prev) => {
+      const idx = prev.findIndex((x) => x.id === id)
+      if (idx < 0) return prev
+      const target = idx + dir
+      if (target < 0 || target >= prev.length) return prev
+      const next = [...prev]
+      ;[next[idx], next[target]] = [next[target], next[idx]]
+      return next
+    })
   }
 
   const MAX_TOTAL_QUESTIONS = 10
@@ -431,7 +461,7 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
           id: q.id,
           company_id: resolvedCompanyId,
           category: 'icebreakers',
-          label: q.label,
+          label: `アイスブレイク${index + 1}`, // 並べ替え後も表示順と一致するよう連番で保存
           question_text: q.question,
           is_scorable: false,
           sort_order: index + 1,
@@ -658,28 +688,45 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
         <>
           <div className={`mb-8 rounded-xl border p-6 ${cn.card}`}>
             <h2 className={`text-base font-semibold mb-2 ${cn.title}`}>共通質問（アイスブレイク）</h2>
-            <p className={`text-sm mb-4 ${cn.subtext}`}>すべての面接で冒頭に自動挿入されます。</p>
+            <p className={`text-sm mb-4 ${cn.subtext}`}>すべての面接で冒頭に自動挿入されます。0件・1件・複数件を設定でき、評価対象の質問とは別に扱われます。</p>
             <div className="space-y-4">
-              {commonQuestionsIcebreak.map((cq) => (
+              {commonQuestionsIcebreak.length === 0 && (
+                <p className={`text-sm ${cn.subtext}`}>アイスブレイク質問は設定されていません（0件のまま保存すると、面接は冒頭の挿入なしで開始します）。</p>
+              )}
+              {commonQuestionsIcebreak.map((cq, idx) => (
                 <div key={cq.id} className={`rounded-xl border p-4 ${cn.innerCard}`}>
                   <div className="flex items-start justify-between gap-3 mb-2">
-                    <p className={`text-xs font-semibold ${cn.label}`}>{cq.label}（{cq.category}）</p>
-                    {editingCommonId === cq.id ? (
-                      <button type="button" onClick={() => setEditingCommonId(null)} className={`text-xs font-medium ${isDark ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-700'}`}>保存</button>
-                    ) : (
-                      <button type="button" onClick={() => setEditingCommonId(cq.id)} className={`inline-flex items-center gap-1 text-xs ${cn.subtext} ${isDark ? 'hover:text-white' : 'hover:text-slate-900'}`}>
-                        <Pencil className="w-3 h-3" />編集
+                    <p className={`text-xs font-semibold ${cn.label}`}>アイスブレイク{idx + 1}</p>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button type="button" onClick={() => handleMoveIcebreak(cq.id, -1)} disabled={idx === 0} aria-label="上へ移動" className={`p-1 rounded ${cn.subtext} ${isDark ? 'hover:text-white' : 'hover:text-slate-900'} disabled:opacity-30`}>
+                        <ChevronUp className="w-4 h-4" />
                       </button>
-                    )}
+                      <button type="button" onClick={() => handleMoveIcebreak(cq.id, 1)} disabled={idx === commonQuestionsIcebreak.length - 1} aria-label="下へ移動" className={`p-1 rounded ${cn.subtext} ${isDark ? 'hover:text-white' : 'hover:text-slate-900'} disabled:opacity-30`}>
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                      {editingCommonId === cq.id ? (
+                        <button type="button" onClick={() => setEditingCommonId(null)} className={`text-xs font-medium px-1 ${isDark ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-700'}`}>保存</button>
+                      ) : (
+                        <button type="button" onClick={() => setEditingCommonId(cq.id)} className={`inline-flex items-center gap-1 text-xs px-1 ${cn.subtext} ${isDark ? 'hover:text-white' : 'hover:text-slate-900'}`}>
+                          <Pencil className="w-3 h-3" />編集
+                        </button>
+                      )}
+                      <button type="button" onClick={() => handleDeleteIcebreak(cq.id)} aria-label="削除" className={`p-1 rounded ${isDark ? 'text-red-400 hover:text-red-300' : 'text-red-500 hover:text-red-600'}`}>
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                   {editingCommonId === cq.id ? (
-                    <textarea value={cq.question} onChange={(e) => handleCommonQuestionChange(cq.id, e.target.value, 'icebreakers')} rows={3} className={`w-full px-4 py-2.5 border rounded-xl text-sm resize-none focus:ring-2 focus:outline-none ${cn.input}`} onBlur={() => setEditingCommonId(null)} />
+                    <textarea value={cq.question} onChange={(e) => handleCommonQuestionChange(cq.id, e.target.value, 'icebreakers')} rows={3} placeholder="アイスブレイク質問を入力" className={`w-full px-4 py-2.5 border rounded-xl text-sm resize-none focus:ring-2 focus:outline-none ${cn.input}`} />
                   ) : (
-                    <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-slate-800'}`}>{cq.question}</p>
+                    <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-slate-800'}`}>{cq.question || '（未入力）'}</p>
                   )}
                 </div>
               ))}
             </div>
+            <button type="button" onClick={handleAddIcebreak} className={`mt-4 inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border ${cn.btnAdd}`}>
+              <Plus className="w-4 h-4" />アイスブレイク質問を追加
+            </button>
           </div>
 
           <div className={`mb-8 rounded-xl border p-6 ${cn.card}`}>
