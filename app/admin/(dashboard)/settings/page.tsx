@@ -2,6 +2,16 @@
 
 import { useState, useEffect } from 'react'
 import PasswordInput from '@/components/shared/PasswordInput'
+import {
+  MAX_INTERVIEW_MINUTES,
+  INTERVIEW_WARNING_MINUTES,
+  MAX_TOTAL_QUESTIONS,
+  MAX_EVALUATION_QUESTIONS,
+  MAX_ICEBREAKER_QUESTIONS,
+  MAX_CLOSING_QUESTIONS,
+  RECORDING_RETENTION_DAYS,
+  DEEP_DIVE_MAX_PER_QUESTION,
+} from '@/lib/config/interview-policy'
 
 // メールテンプレートは既存API /api/admin/email-templates（email_templates テーブル）から取得
 type EmailTemplate = {
@@ -82,13 +92,6 @@ export default function SettingsPage() {
   const [fromEmail, setFromEmail] = useState('noreply@ai-interview.example.com')
   const [fromName, setFromName] = useState('AI面接官')
 
-  // TODO: 実データに差替え（面接設定の初期値）
-  const [defaultDuration, setDefaultDuration] = useState('30')
-  const [defaultQuestionCount, setDefaultQuestionCount] = useState('9')
-  const [openaiApiKey, setOpenaiApiKey] = useState('')
-  const [openaiModel, setOpenaiModel] = useState('GPT-4o')
-  const [voiceModel, setVoiceModel] = useState('alloy')
-  const [interviewTone, setInterviewTone] = useState('セミフォーマル')
 
   // TODO: 実データに差替え（通知設定の初期値）
   const [adminNotifyEmail, setAdminNotifyEmail] = useState('admin@ai-interview.example.com')
@@ -493,121 +496,68 @@ export default function SettingsPage() {
         {/* タブ3: 面接設定 */}
         {activeTab === 'interview' && (
           <div className="space-y-4">
+            {/* 面接・システム設定（固定運用ポリシー / 実装状態）。read-only・保存UIなし。 */}
             <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">面接基本設定</h2>
-              <div className="space-y-4">
-                <div>
-                  <InputLabel>デフォルト面接時間</InputLabel>
-                  <select
-                    value={defaultDuration}
-                    onChange={(e) => setDefaultDuration(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  >
-                    <option value="15">15分</option>
-                    <option value="20">20分</option>
-                    <option value="30">30分</option>
-                    <option value="40">40分</option>
-                    <option value="60">60分</option>
-                  </select>
+              <h2 className="text-lg font-semibold text-white mb-1">面接の運用ポリシー（固定）</h2>
+              <p className="text-xs text-gray-500 mb-4">システム共通の固定値です（編集不可）。値は lib/config/interview-policy で一元管理しています。</p>
+              <dl className="divide-y divide-white/[0.06] text-sm">
+                <div className="flex justify-between py-2.5">
+                  <dt className="text-gray-400">面接最大時間</dt>
+                  <dd className="text-white font-medium">{MAX_INTERVIEW_MINUTES}分</dd>
                 </div>
-                <div>
-                  <InputLabel>デフォルト質問数</InputLabel>
-                  <select
-                    value={defaultQuestionCount}
-                    onChange={(e) => setDefaultQuestionCount(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  >
-                    <option value="5">5問</option>
-                    <option value="7">7問</option>
-                    <option value="9">9問</option>
-                    <option value="12">12問</option>
-                  </select>
+                <div className="flex justify-between py-2.5">
+                  <dt className="text-gray-400">残り時間警告（開始からの経過）</dt>
+                  <dd className="text-white font-medium">{INTERVIEW_WARNING_MINUTES}分時点</dd>
                 </div>
-                <div>
-                  <InputLabel>深掘り最大回数</InputLabel>
-                  <p className="text-sm text-gray-400 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3">
-                    AIが回答の充実度に応じて0〜2回自動判定（v9.0仕様）
-                  </p>
+                <div className="flex justify-between py-2.5">
+                  <dt className="text-gray-400">全質問上限（アイスブレイク＋評価＋クロージング）</dt>
+                  <dd className="text-white font-medium">{MAX_TOTAL_QUESTIONS}問</dd>
                 </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => showToast('この設定の保存機能はまだ未実装です')}
-                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
-              >
-                保存
-              </button>
-              {/* TODO: Supabaseに保存 */}
+                <div className="flex justify-between py-2.5">
+                  <dt className="text-gray-400">アイスブレイク上限</dt>
+                  <dd className="text-white font-medium">{MAX_ICEBREAKER_QUESTIONS}問</dd>
+                </div>
+                <div className="flex justify-between py-2.5">
+                  <dt className="text-gray-400">評価質問（evaluation）上限</dt>
+                  <dd className="text-white font-medium">{MAX_EVALUATION_QUESTIONS}問</dd>
+                </div>
+                <div className="flex justify-between py-2.5">
+                  <dt className="text-gray-400">クロージング上限</dt>
+                  <dd className="text-white font-medium">{MAX_CLOSING_QUESTIONS}問</dd>
+                </div>
+                <div className="flex justify-between py-2.5">
+                  <dt className="text-gray-400">録画保存期間</dt>
+                  <dd className="text-white font-medium">{RECORDING_RETENTION_DAYS}日（適用予定値）</dd>
+                </div>
+                <div className="flex justify-between py-2.5">
+                  <dt className="text-gray-400">深掘り質問</dt>
+                  <dd className="text-amber-300 font-medium">最大{DEEP_DIVE_MAX_PER_QUESTION}回/質問（設計仕様・未実装）</dd>
+                </div>
+              </dl>
             </div>
 
+            {/* 外部API・機能の実装/接続状態（read-only）。キー値は表示せず .env 管理。 */}
             <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">AI面接官設定</h2>
-              <div className="space-y-4">
-                <div>
-                  <InputLabel>OpenAI APIキー</InputLabel>
-                  <input
-                    type="password"
-                    value={openaiApiKey}
-                    onChange={(e) => setOpenaiApiKey(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  />
+              <h2 className="text-lg font-semibold text-white mb-1">実装・接続状態</h2>
+              <p className="text-xs text-gray-500 mb-4">外部APIのキー値は表示しません（.env 管理）。現在の接続/実装状態のみ表示します。</p>
+              <dl className="divide-y divide-white/[0.06] text-sm">
+                <div className="flex justify-between py-2.5">
+                  <dt className="text-gray-400">OpenAI（リアルタイム音声面接）</dt>
+                  <dd className="text-gray-300 font-medium">未接続</dd>
                 </div>
-                <div>
-                  <InputLabel>使用モデル</InputLabel>
-                  <select
-                    value={openaiModel}
-                    onChange={(e) => setOpenaiModel(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  >
-                    <option value="GPT-4o">GPT-4o</option>
-                    <option value="GPT-4o-mini">GPT-4o-mini</option>
-                    <option value="GPT-4-turbo">GPT-4-turbo</option>
-                  </select>
+                <div className="flex justify-between py-2.5">
+                  <dt className="text-gray-400">Cloudflare R2（録画保存）</dt>
+                  <dd className="text-gray-300 font-medium">未接続</dd>
                 </div>
-                <div>
-                  <InputLabel>音声モデル</InputLabel>
-                  <select
-                    value={voiceModel}
-                    onChange={(e) => setVoiceModel(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  >
-                    <option value="alloy">alloy</option>
-                    <option value="echo">echo</option>
-                    <option value="fable">fable</option>
-                    <option value="onyx">onyx</option>
-                    <option value="nova">nova</option>
-                    <option value="shimmer">shimmer</option>
-                  </select>
+                <div className="flex justify-between py-2.5">
+                  <dt className="text-gray-400">Twilio（SMS / OTP）</dt>
+                  <dd className="text-gray-300 font-medium">未接続</dd>
                 </div>
-                <div>
-                  <InputLabel>面接官のトーン</InputLabel>
-                  <select
-                    value={interviewTone}
-                    onChange={(e) => setInterviewTone(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  >
-                    <option value="フォーマル">フォーマル</option>
-                    <option value="セミフォーマル">セミフォーマル</option>
-                    <option value="カジュアル">カジュアル</option>
-                  </select>
+                <div className="flex justify-between py-2.5">
+                  <dt className="text-gray-400">レポート生成（EBCA writer）</dt>
+                  <dd className="text-gray-300 font-medium">未実装</dd>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => showToast('API接続テスト機能は今後実装予定です')}
-                  className="bg-white/[0.06] hover:bg-white/[0.1] text-white text-sm px-4 py-2 rounded-xl"
-                >
-                  接続テスト
-                </button>
-                {/* TODO: OpenAI API接続テスト */}
-              </div>
-              <button
-                type="button"
-                onClick={() => showToast('この設定の保存機能はまだ未実装です')}
-                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
-              >
-                保存
-              </button>
-              {/* TODO: Supabaseに保存 */}
+              </dl>
             </div>
 
             <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">

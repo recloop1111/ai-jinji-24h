@@ -2,6 +2,12 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import {
+  MAX_INTERVIEW_SECONDS,
+  INTERVIEW_WARNING_SECONDS,
+  MAX_INTERVIEW_MINUTES,
+  INTERVIEW_WARNING_REMAINING_MINUTES,
+} from '@/lib/config/interview-policy'
 // 公開フローの DB アクセスは token付き service-role API 経由（browser直アクセス廃止）
 
 const LANGUAGES = [
@@ -40,8 +46,8 @@ export default function SessionPage() {
   const streamRef = useRef<MediaStream | null>(null)
   const timeoutRefs = useRef<NodeJS.Timeout[]>([])
 
-  const MAX_INTERVIEW_SECONDS = 60 * 60
-  const TIME_WARNING_SECONDS = 50 * 60
+  // 共通ポリシー（lib/config/interview-policy）へ接続。60分終了 / 50分警告。
+  const TIME_WARNING_SECONDS = INTERVIEW_WARNING_SECONDS
   const [showTimeWarning, setShowTimeWarning] = useState(false)
 
   // sessionStorageから情報取得と面接開始
@@ -434,7 +440,7 @@ export default function SessionPage() {
         {/* 面接経過時間（上部中央） */}
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-30 text-sm text-gray-500">
           {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:
-          {String(elapsedSeconds % 60).padStart(2, '0')} / 60:00
+          {String(elapsedSeconds % 60).padStart(2, '0')} / {String(MAX_INTERVIEW_MINUTES).padStart(2, '0')}:00
         </div>
 
         {/* 応募者カメラ小窓（左上固定） */}
@@ -478,7 +484,7 @@ export default function SessionPage() {
         {/* 残り時間アラート */}
         {showTimeWarning && !isEnding && (
           <div className="fixed top-12 left-1/2 transform -translate-x-1/2 z-20 bg-orange-500/90 text-white text-sm py-2 px-4 rounded-lg">
-            残り10分です。回答をまとめてください。
+            残り{INTERVIEW_WARNING_REMAINING_MINUTES}分です。回答をまとめてください。
           </div>
         )}
 

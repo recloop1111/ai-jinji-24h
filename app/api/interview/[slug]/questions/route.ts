@@ -3,6 +3,12 @@ import { successJson, apiError } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifyInterviewToken } from '@/lib/interview/capability-token'
 import { derivePatternKey } from '@/lib/interview/patternKey'
+import {
+  MAX_TOTAL_QUESTIONS,
+  MAX_ICEBREAKER_QUESTIONS,
+  MAX_EVALUATION_QUESTIONS,
+  MAX_CLOSING_QUESTIONS,
+} from '@/lib/config/interview-policy'
 
 // node:crypto（POST の token検証）を使うため Node runtime を明示
 export const runtime = 'nodejs'
@@ -123,6 +129,20 @@ export async function POST(
 
     // 配信順 = icebreaker(job×pattern) → evaluation(job×pattern) → closing(企業共通)。各 category 内は sort_order 昇順。
     const questions = [...icebreakers, ...evaluation, ...closing]
+
+    // 防御的検証: カテゴリ別上限（ice2/eval13/closing1）・全体16問を超える場合は、
+    // 先頭16問へ切り捨てず・面接を開始せず HTTP 422 を返す。質問本文・個人情報はログ/レスポンスに出さない（件数のみ）。
+    if (
+      icebreakers.length > MAX_ICEBREAKER_QUESTIONS ||
+      evaluation.length > MAX_EVALUATION_QUESTIONS ||
+      closing.length > MAX_CLOSING_QUESTIONS ||
+      questions.length > MAX_TOTAL_QUESTIONS
+    ) {
+      return apiError(
+        'QUESTION_LIMIT_EXCEEDED',
+        `この求人・区分の質問数が上限（アイスブレイク${MAX_ICEBREAKER_QUESTIONS}・評価${MAX_EVALUATION_QUESTIONS}・クロージング${MAX_CLOSING_QUESTIONS}・合計${MAX_TOTAL_QUESTIONS}問）を超えているため面接を開始できません。企業の質問設定を見直してください。`,
+      )
+    }
 
     return successJson({ questions })
   } catch {

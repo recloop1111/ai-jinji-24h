@@ -6,6 +6,12 @@ import { useSearchParams, usePathname } from 'next/navigation'
 import { Plus, FileText, Check, ChevronUp, ChevronDown, Pencil, X } from 'lucide-react'
 import { createAdminBrowserClient, createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
+import {
+  MAX_TOTAL_QUESTIONS,
+  MAX_EVALUATION_QUESTIONS,
+  MAX_ICEBREAKER_QUESTIONS,
+  MAX_CLOSING_QUESTIONS,
+} from '@/lib/config/interview-policy'
 
 type Question = {
   id: string
@@ -340,6 +346,14 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
   // アイスブレイク質問は企業ごとに 0件・1件・複数件を柔軟に設定できる（評価対象の job_questions とは別管理）。
   // 追加・削除・並べ替えはローカル state を操作し、「保存」で common_questions に delete→insert で反映する。
   const handleAddIcebreak = () => {
+    if (icebreakerCount >= MAX_ICEBREAKER_QUESTIONS) {
+      showToast(`アイスブレイクは最大${MAX_ICEBREAKER_QUESTIONS}問までです`)
+      return
+    }
+    if (totalQuestionCount >= MAX_TOTAL_QUESTIONS) {
+      showToast(`全質問合計（アイスブレイク+評価+クロージング）は最大${MAX_TOTAL_QUESTIONS}問までです`)
+      return
+    }
     const newId = `ice-new-${Date.now()}`
     setCommonQuestionsIcebreak((prev) => [
       ...prev,
@@ -365,8 +379,13 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     })
   }
 
-  const MAX_TOTAL_QUESTIONS = 10
-  const totalQuestionCount = patternQuestions.length
+  // 質問数ポリシー（lib/config/interview-policy）: 全質問合計15問 / evaluation単体10問。
+  // 全質問合計 = icebreaker + evaluation + closing（選択中の job × pattern_key 単位）。
+  const evaluationCount = patternQuestions.length
+  const icebreakerCount = commonQuestionsIcebreak.length
+  const closingCount = commonQuestionsClosing.length
+  const totalQuestionCount = icebreakerCount + evaluationCount + closingCount
+  const remainingTotal = MAX_TOTAL_QUESTIONS - totalQuestionCount
 
   // 質問リスト（カスタム質問のみ。社風分析質問は廃止）
   type IntegratedQuestion = {
@@ -387,8 +406,12 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
 
   const handleAddQuestion = () => {
     if (!selectedJobId) return
+    if (evaluationCount >= MAX_EVALUATION_QUESTIONS) {
+      showToast(`評価質問は最大${MAX_EVALUATION_QUESTIONS}問までです`)
+      return
+    }
     if (totalQuestionCount >= MAX_TOTAL_QUESTIONS) {
-      showToast(`質問は最大${MAX_TOTAL_QUESTIONS}問までです`)
+      showToast(`全質問合計（アイスブレイク+評価+クロージング）は最大${MAX_TOTAL_QUESTIONS}問までです`)
       return
     }
     const newQuestion: Question = { id: `temp-${Date.now()}`, question: '' }
@@ -529,10 +552,78 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     }
   }
 
+  // 保存前の上限検証。OK なら null、超過ならエラーメッセージ（どのカテゴリが何問超過か）を返す。
+  // - icebreaker ≤ MAX_ICEBREAKER_QUESTIONS(2) / evaluation ≤ MAX_EVALUATION_QUESTIONS(13) / closing ≤ MAX_CLOSING_QUESTIONS(1)
+  // - 選択中 (job,pattern) の合計(ice+eval+closing) ≤ MAX_TOTAL_QUESTIONS(16)
+  // - クロージングは企業共通のため、企業内の全 job×pattern で 16 を超えないか確認（超過する求人・区分を提示）。
+  const validateSaveLimits = async (): Promise<string | null> => {
+    const newIce = commonQuestionsIcebreak.length
+    const newEval = patternQuestions.length
+    const newClosing = commonQuestionsClosing.length
+
+    // カテゴリ別上限（どのカテゴリが何問超過か明示）
+    const overflows: string[] = []
+    if (newIce > MAX_ICEBREAKER_QUESTIONS) overflows.push(`アイスブレイク ${newIce}問（上限${MAX_ICEBREAKER_QUESTIONS}問・${newIce - MAX_ICEBREAKER_QUESTIONS}問超過）`)
+    if (newEval > MAX_EVALUATION_QUESTIONS) overflows.push(`評価質問 ${newEval}問（上限${MAX_EVALUATION_QUESTIONS}問・${newEval - MAX_EVALUATION_QUESTIONS}問超過）`)
+    if (newClosing > MAX_CLOSING_QUESTIONS) overflows.push(`クロージング ${newClosing}問（上限${MAX_CLOSING_QUESTIONS}問・${newClosing - MAX_CLOSING_QUESTIONS}問超過）`)
+    if (overflows.length > 0) {
+      return `カテゴリ上限を超えています: ${overflows.join(' / ')}。減らしてから保存してください。`
+    }
+
+    const curTotal = newIce + newEval + newClosing
+    if (curTotal > MAX_TOTAL_QUESTIONS) {
+      return `全質問合計が${curTotal}問です（アイスブレイク${newIce}＋評価${newEval}＋クロージング${newClosing}）。最大${MAX_TOTAL_QUESTIONS}問までにしてください。`
+    }
+
+    // クロージング変更は企業内の全 job×pattern に波及するため、各組が 16 を超えないか確認。
+    const jobIds = jobs.map((j) => j.id)
+    if (jobIds.length > 0) {
+      const { data, error } = await supabase
+        .from('job_questions')
+        .select('job_id, pattern_key, category')
+        .in('job_id', jobIds)
+      if (error) return '保存前チェックに失敗しました。時間をおいて再度お試しください。'
+
+      const counts: Record<string, { ice: number; ev: number }> = {}
+      for (const r of (data ?? []) as { job_id: string; pattern_key: string; category: string }[]) {
+        const k = `${r.job_id}|${r.pattern_key}`
+        if (!counts[k]) counts[k] = { ice: 0, ev: 0 }
+        if (r.category === 'icebreaker') counts[k].ice++
+        else if (r.category === 'evaluation') counts[k].ev++
+      }
+      // 編集中の (job,pattern) は未保存の in-memory 値で上書き（DB値より優先）。
+      counts[`${selectedJobId}|${activePattern}`] = {
+        ice: commonQuestionsIcebreak.length,
+        ev: patternQuestions.length,
+      }
+
+      const violations: string[] = []
+      for (const [k, c] of Object.entries(counts)) {
+        const total = c.ice + c.ev + newClosing
+        if (total > MAX_TOTAL_QUESTIONS) {
+          const [jid, pk] = k.split('|')
+          const title = jobs.find((j) => j.id === jid)?.title ?? jid.slice(0, 8)
+          violations.push(`${title}／${pk}（ice ${c.ice}＋eval ${c.ev}＋closing ${newClosing}＝${total}問）`)
+        }
+      }
+      if (violations.length > 0) {
+        return `クロージングを${newClosing}問にすると、次の求人・区分が全質問${MAX_TOTAL_QUESTIONS}問を超えます: ${violations.join(' / ')}。クロージングまたは該当区分の質問を減らしてください。`
+      }
+    }
+    return null
+  }
+
   const handleSaveQuestions = async () => {
     if (!selectedJobId || !activePattern) return
     setIsLoading(true)
     try {
+      // 上限検証（15問合計・evaluation10・closing全pattern横断）。超過なら保存せず中断（切り捨てない）。
+      const limitError = await validateSaveLimits()
+      if (limitError) {
+        showToast(limitError)
+        return
+      }
+
       // クロージング（企業共通）を保存
       await handleSaveClosingQuestions()
 
@@ -688,33 +779,45 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
             <h2 className={`text-base font-semibold mb-2 ${cn.title}`}>
               面接質問
             </h2>
-            <p className={`text-sm mb-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-              アイスブレイク（{commonQuestionsIcebreak.length}問）の後に以下の質問が順番に出題されます。
+            <p className={`text-sm mb-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+              アイスブレイク（{icebreakerCount}問）の後に以下の評価質問、最後にクロージング（{closingCount}問）が出題されます。
+            </p>
+            <p className={`text-sm mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+              カテゴリ別: アイスブレイク {icebreakerCount} / {MAX_ICEBREAKER_QUESTIONS}問・評価質問 {evaluationCount} / {MAX_EVALUATION_QUESTIONS}問・クロージング {closingCount} / {MAX_CLOSING_QUESTIONS}問
             </p>
             <p className={`text-sm mb-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-              質問数: {totalQuestionCount} / {MAX_TOTAL_QUESTIONS}問（アイスブレイク除く）
+              全質問合計（アイスブレイク{icebreakerCount}＋評価{evaluationCount}＋クロージング{closingCount}）:{' '}
+              <span className={totalQuestionCount > MAX_TOTAL_QUESTIONS ? (isDark ? 'text-red-300 font-semibold' : 'text-red-700 font-semibold') : ''}>
+                {totalQuestionCount}
+              </span>{' '}/ {MAX_TOTAL_QUESTIONS}問（残り {Math.max(0, remainingTotal)}問追加可能）
             </p>
-            {totalQuestionCount > MAX_TOTAL_QUESTIONS && (
+            {icebreakerCount > MAX_ICEBREAKER_QUESTIONS && (
               <div className={`rounded-lg p-3 mb-4 ${isDark ? 'bg-red-900/30 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
                 <p className={`text-sm ${isDark ? 'text-red-300' : 'text-red-800'}`}>
-                  ⚠ 質問数が上限を超えています。面接で全質問に到達できない可能性があります。質問を削除してください。
+                  ⚠ アイスブレイクが上限（{MAX_ICEBREAKER_QUESTIONS}問）を超えています。保存できません。減らしてください。
                 </p>
               </div>
             )}
-            {totalQuestionCount === MAX_TOTAL_QUESTIONS && (
-              isDark ? (
-                <div className="bg-yellow-900/30 border border-yellow-700 rounded-lg p-3 mb-4">
-                  <p className="text-sm text-yellow-300">
-                    ⚠ 質問を10問に設定した場合、応募者の回答時間によっては最終質問まで到達できない可能性があります。推奨は8問以下です。
-                  </p>
-                </div>
-              ) : (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
-                  <p className="text-sm text-yellow-800">
-                    ⚠ 質問を10問に設定した場合、応募者の回答時間によっては最終質問まで到達できない可能性があります。推奨は8問以下です。
-                  </p>
-                </div>
-              )
+            {closingCount > MAX_CLOSING_QUESTIONS && (
+              <div className={`rounded-lg p-3 mb-4 ${isDark ? 'bg-red-900/30 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
+                <p className={`text-sm ${isDark ? 'text-red-300' : 'text-red-800'}`}>
+                  ⚠ クロージングが上限（{MAX_CLOSING_QUESTIONS}問）を超えています。保存できません。減らしてください。
+                </p>
+              </div>
+            )}
+            {evaluationCount > MAX_EVALUATION_QUESTIONS && (
+              <div className={`rounded-lg p-3 mb-4 ${isDark ? 'bg-red-900/30 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
+                <p className={`text-sm ${isDark ? 'text-red-300' : 'text-red-800'}`}>
+                  ⚠ 評価質問が上限（{MAX_EVALUATION_QUESTIONS}問）を超えています。保存できません。質問を減らしてください。
+                </p>
+              </div>
+            )}
+            {totalQuestionCount > MAX_TOTAL_QUESTIONS && (
+              <div className={`rounded-lg p-3 mb-4 ${isDark ? 'bg-red-900/30 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
+                <p className={`text-sm ${isDark ? 'text-red-300' : 'text-red-800'}`}>
+                  ⚠ 全質問合計が上限（{MAX_TOTAL_QUESTIONS}問）を超えています。保存できません。アイスブレイク／評価／クロージングのいずれかを減らしてください。
+                </p>
+              </div>
             )}
             <div className={`flex border-b mb-4 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
               {patternTabs.map((tab) => (
@@ -792,21 +895,23 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
                 <div className="mt-6">
                   <button 
                     type="button" 
-                    onClick={handleAddQuestion} 
-                    disabled={totalQuestionCount >= MAX_TOTAL_QUESTIONS}
+                    onClick={handleAddQuestion}
+                    disabled={evaluationCount >= MAX_EVALUATION_QUESTIONS || totalQuestionCount >= MAX_TOTAL_QUESTIONS}
                     className={`w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed text-sm font-medium rounded-xl transition-colors ${
-                      totalQuestionCount >= MAX_TOTAL_QUESTIONS
-                        ? isDark 
-                          ? 'border-gray-700 text-gray-600 cursor-not-allowed opacity-50' 
+                      evaluationCount >= MAX_EVALUATION_QUESTIONS || totalQuestionCount >= MAX_TOTAL_QUESTIONS
+                        ? isDark
+                          ? 'border-gray-700 text-gray-600 cursor-not-allowed opacity-50'
                           : 'border-gray-300 text-gray-400 cursor-not-allowed opacity-50'
                         : cn.btnAdd
                     }`}
                   >
                     <Plus className="w-5 h-5" />質問を追加
                   </button>
-                  {totalQuestionCount >= MAX_TOTAL_QUESTIONS && (
+                  {(evaluationCount >= MAX_EVALUATION_QUESTIONS || totalQuestionCount >= MAX_TOTAL_QUESTIONS) && (
                     <p className={`mt-2 text-center text-sm ${isDark ? 'text-gray-400' : 'text-gray-400'}`}>
-                      質問は最大{MAX_TOTAL_QUESTIONS}問までです
+                      {evaluationCount >= MAX_EVALUATION_QUESTIONS
+                        ? `評価質問は最大${MAX_EVALUATION_QUESTIONS}問までです`
+                        : `全質問合計は最大${MAX_TOTAL_QUESTIONS}問までです`}
                     </p>
                   )}
                 </div>
