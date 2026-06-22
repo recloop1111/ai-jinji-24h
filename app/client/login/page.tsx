@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClientBrowserClient } from '@/lib/supabase/client'
 import PasswordInput from '@/components/shared/PasswordInput'
 
 export default function ClientLoginPage() {
@@ -17,10 +16,14 @@ export default function ClientLoginPage() {
     setError('')
     setLoading(true)
     try {
-      const supabase = createClientBrowserClient()
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
-      if (signInError) {
-        setError(signInError.message)
+      const res = await fetch('/api/client/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        setError(data?.error?.message || 'ログインに失敗しました')
         setLoading(false)
         return
       }

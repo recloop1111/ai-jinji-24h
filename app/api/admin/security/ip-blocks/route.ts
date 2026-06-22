@@ -1,13 +1,14 @@
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createAdminServerClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 
 export async function GET() {
   try {
     const { error: authError } = await getAdminUser()
     if (authError) return authError
 
-    const supabase = await createAdminServerClient()
+    // service-role 境界（RLS bypass）。ip_blocks の table 権限 hardening（別 migration）に備える。
+    const supabase = createServiceRoleClient()
 
     const { data: blockedIps, error } = await supabase
       .from('ip_blocks')

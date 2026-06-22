@@ -169,7 +169,7 @@ export async function PATCH(
       'name', 'contact_person', 'contact_email', 'phone', 'email',
       'industry', 'monthly_interview_limit', 'plan', 'price_per_interview',
       'next_month_interview_limit', 'next_month_limit_effective_month',
-      'is_suspended', 'status', 'is_locked', 'locked_at', 'login_fail_count',
+      'is_suspended', 'status',
       'logo_url', 'avatar_url',
     ]
 

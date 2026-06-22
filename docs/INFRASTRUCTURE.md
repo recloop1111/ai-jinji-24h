@@ -161,6 +161,12 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=sb_secret_...
 # 公開面接フローの HMAC ケイパビリティ・トークン署名/検証に使用。.env.local と本番環境変数に設定。
 INTERVIEW_TOKEN_SECRET=（十分に長いランダム文字列）
+# ログイン スロットル（account/IP）の scope_key HMAC-SHA256 署名鍵。サーバー専用（NEXT_PUBLIC 不可）。
+# - 生成例: `openssl rand -hex 32`（32バイト=64hex 以上必須）。値はコミット禁止（.env.local / Vercel Env のみ）。
+# - 未設定時はログインAPIが 503 fail closed（NODE_ENV=test を除く）。
+# - 同じ Supabase DB へ接続する全環境（dev/staging/prod）で **同一の鍵** を使用すること。
+#   鍵を変更すると scope_key が変わり、既存の auth_login_throttles のロック判定キーが変化（＝既存ブロックが実質リセット）する。
+AUTH_LOGIN_THROTTLE_SECRET=（openssl rand -hex 32 で生成したランダム値）
 ```
 
 > 外部有料API（OpenAI Realtime / Twilio Verify / Cloudflare R2 / Stripe / Resend）は**未導入または最後にまとめてE2E確認**する方針。現時点は外部有料API導入なしで DB / API / RLS の土台を整備中（SMS認証は現状「1234」モック）。
@@ -387,6 +393,7 @@ SENTRY_PROJECT=ai-jinji-24h
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | 開発Key | ステージングKey | 本番Key |
 | `SUPABASE_SERVICE_ROLE_KEY` | No | 開発Key | ステージングKey | 本番Key |
 | `INTERVIEW_TOKEN_SECRET` | No | 開発用ランダム値 | ステージング用 | 本番用ランダム値 |
+| `AUTH_LOGIN_THROTTLE_SECRET` | No | ランダム値(32B+) | 同左 | 同左（**同一DB接続環境は同じ鍵**） |
 | `OPENAI_API_KEY` | No | テスト用 | テスト用 | 本番Key |
 | `STRIPE_SECRET_KEY` | No | sk_test_ | sk_test_ | sk_live_ |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Yes | pk_test_ | pk_test_ | pk_live_ |

@@ -1038,36 +1038,13 @@ export default function CompanyDetailPage() {
             <div className={`${CARD_BASE} p-6`}>
               <h2 className="text-base font-semibold text-white mb-2">アカウントロック管理</h2>
               <p className="text-sm text-gray-400 mb-4">
-                ログイン失敗回数に基づく自動ロック・自動解除は現在未実装です。既にロック状態となっている企業アカウントがある場合のみ、運営管理者が手動解除できます。
+                ログイン失敗に基づく自動ブロックは「アカウント単位（ログインメール）」で管理します。企業単位ではありません。
+                現在ブロック中のアカウントの確認・手動解除は、運営の「セキュリティ」画面の「ログインスロットル管理」で行えます。
               </p>
               <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-white">アカウント状態</p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {company?.is_locked
-                        ? `ロック中（${company?.locked_at ? new Date(company.locked_at).toLocaleString('ja-JP') : ''}）`
-                        : 'ロックなし（正常）'}
-                    </p>
-                  </div>
-                  {company?.is_locked && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const result = await patchCompany({ is_locked: false, locked_at: null, login_fail_count: 0 })
-                        if (result.ok) {
-                          showToast('アカウントロックを解除しました')
-                          setRefreshTrigger((t) => t + 1)
-                        } else {
-                          showToast(result.error || '解除に失敗しました')
-                        }
-                      }}
-                      className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15 border border-emerald-500/20 rounded-xl px-4 py-2 text-sm transition-colors"
-                    >
-                      ロック解除
-                    </button>
-                  )}
-                </div>
+                <p className="text-xs text-gray-400">
+                  ブロックはログインメールのハッシュ（scope_key）単位のため、企業詳細からの直接解除は提供していません。
+                </p>
               </div>
             </div>
           </div>

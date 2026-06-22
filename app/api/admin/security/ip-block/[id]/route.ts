@@ -2,7 +2,7 @@ import { type NextRequest } from 'next/server'
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { isValidUUID } from '@/lib/api/validation'
-import { createAdminServerClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 
 export async function DELETE(
   _request: NextRequest,
@@ -17,7 +17,7 @@ export async function DELETE(
       return apiError('VALIDATION_ERROR', 'IDの形式が不正です')
     }
 
-    const supabase = await createAdminServerClient()
+    const supabase = createServiceRoleClient()
 
     const { error: deleteError } = await supabase
       .from('ip_blocks')

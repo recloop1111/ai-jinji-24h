@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createAdminBrowserClient } from '@/lib/supabase/client'
 import PasswordInput from '@/components/shared/PasswordInput'
 
 export default function AdminLoginPage() {
@@ -17,44 +16,17 @@ export default function AdminLoginPage() {
     setError('')
     setLoading(true)
     try {
-      const supabase = createAdminBrowserClient()
-      const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
       })
-      if (signInError) {
-        setError(signInError.message)
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        setError(data?.error?.message || 'ログインに失敗しました')
         setLoading(false)
         return
       }
-      const user = authData.user
-      if (!user) {
-        setError('認証に失敗しました')
-        setLoading(false)
-        return
-      }
-
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-
-      if (profileError || !profile) {
-        await supabase.auth.signOut()
-        setError('管理者権限がありません')
-        setLoading(false)
-        return
-      }
-
-      const role = profile.role as string
-      if (role !== 'admin' && role !== 'super_admin') {
-        await supabase.auth.signOut()
-        setError('管理者権限がありません')
-        setLoading(false)
-        return
-      }
-
       router.push('/admin/dashboard')
       router.refresh()
     } catch {

@@ -5,66 +5,73 @@ import { useState, useEffect } from 'react'
 // セキュリティアラートは /api/admin/security/alerts（security_alerts テーブル）から取得
 type SecurityAlertItem = { id: string; type: string; ip_address: string | null; details: string | null; resolved: boolean; created_at: string }
 
-type LockedCompany = {
-  id: string
-  name: string
-  is_locked: boolean
-  locked_at: string | null
-  login_fail_count: number | null
+type BlockedAccount = {
+  portal_type: 'admin' | 'client'
+  scope_key: string
+  failure_count: number
+  blocked_until: string | null
+  last_attempt_at: string | null
+  user_email: string | null
+  user_name: string | null
 }
 
 function LockedAccountsList() {
-  const [lockedCompanies, setLockedCompanies] = useState<LockedCompany[]>([])
+  const [items, setItems] = useState<BlockedAccount[]>([])
   const [loadingLocked, setLoadingLocked] = useState(true)
 
   useEffect(() => {
-    async function fetchLocked() {
-      const { createAdminBrowserClient } = await import('@/lib/supabase/client')
-      const supabase = createAdminBrowserClient()
-      const { data } = await supabase
-        .from('companies')
-        .select('id, name, is_locked, locked_at, login_fail_count')
-        .eq('is_locked', true)
-      setLockedCompanies(data || [])
-      setLoadingLocked(false)
+    let cancelled = false
+    async function fetchBlocked() {
+      try {
+        const res = await fetch('/api/admin/security/login-throttles')
+        const data = await res.json().catch(() => null)
+        if (!cancelled) setItems(res.ok && Array.isArray(data?.blocked) ? data.blocked : [])
+      } finally {
+        if (!cancelled) setLoadingLocked(false)
+      }
     }
-    fetchLocked()
+    fetchBlocked()
+    return () => { cancelled = true }
   }, [])
 
-  async function handleUnlock(companyId: string) {
-    const { createAdminBrowserClient } = await import('@/lib/supabase/client')
-    const supabase = createAdminBrowserClient()
-    await supabase
-      .from('companies')
-      .update({ is_locked: false, locked_at: null, login_fail_count: 0, updated_at: new Date().toISOString() })
-      .eq('id', companyId)
-    setLockedCompanies((prev) => prev.filter((c) => c.id !== companyId))
+  async function handleUnlock(portal: string, scopeKey: string) {
+    const res = await fetch('/api/admin/security/login-throttles/unlock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ portal_type: portal, scope_key: scopeKey }),
+    })
+    if (res.ok) {
+      setItems((prev) => prev.filter((x) => !(x.portal_type === portal && x.scope_key === scopeKey)))
+    }
   }
 
   if (loadingLocked) return <p className="text-sm text-gray-500">読み込み中...</p>
 
-  if (lockedCompanies.length === 0) {
+  if (items.length === 0) {
     return (
       <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
-        <p className="text-sm text-emerald-400">現在ロックされている企業アカウントはありません。</p>
+        <p className="text-sm text-emerald-400">現在ブロック中のアカウントはありません。</p>
       </div>
     )
   }
 
   return (
     <div className="space-y-3">
-      {lockedCompanies.map((company) => (
-        <div key={company.id} className="flex items-center justify-between bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+      {items.map((item) => (
+        <div key={`${item.portal_type}:${item.scope_key}`} className="flex items-center justify-between bg-red-500/10 border border-red-500/20 rounded-xl p-4">
           <div>
-            <p className="text-sm font-medium text-white">{company.name}</p>
+            <p className="text-sm font-medium text-white">
+              {item.user_email || item.user_name || `識別子 ${item.scope_key.slice(0, 12)}…`}
+              <span className="ml-2 text-xs text-gray-400">[{item.portal_type === 'admin' ? '運営' : '企業'}]</span>
+            </p>
             <p className="text-xs text-gray-400 mt-1">
-              ロック日時: {company.locked_at ? new Date(company.locked_at).toLocaleString('ja-JP') : '不明'}
-              {company.login_fail_count && ` | 失敗回数: ${company.login_fail_count}回`}
+              ブロック解除予定: {item.blocked_until ? new Date(item.blocked_until).toLocaleString('ja-JP') : '不明'}
+              {typeof item.failure_count === 'number' ? ` | 失敗回数: ${item.failure_count}回` : ''}
             </p>
           </div>
           <button
             type="button"
-            onClick={() => handleUnlock(company.id)}
+            onClick={() => handleUnlock(item.portal_type, item.scope_key)}
             className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15 border border-emerald-500/20 rounded-xl px-4 py-2 text-sm transition-colors shrink-0"
           >
             ロック解除
@@ -257,11 +264,12 @@ export default function SecurityPage() {
               </dl>
             </div>
 
-            {/* 企業アカウントロック管理 */}
+            {/* ログイン スロットル（アカウント/IP）管理 */}
             <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-2">企業アカウントロック管理</h2>
+              <h2 className="text-lg font-semibold text-white mb-2">ログインスロットル管理</h2>
               <p className="text-sm text-gray-400 mb-4">
-                ログイン失敗回数に基づく自動ロック・自動解除は現在未実装です。既にロック状態となっている企業アカウントがある場合のみ、運営管理者が手動解除できます。
+                ログイン失敗に基づく自動ブロック（アカウント: 30分窓で10回 / IP: 10分窓で60回 → 30分待機）を実装済みです。
+                期限切れは次回判定時に自動解除されます。下記は現在ブロック中のアカウントで、運営管理者が手動解除できます。
               </p>
               <LockedAccountsList />
             </div>
