@@ -1008,30 +1008,28 @@ export default function CompanyDetailPage() {
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
                   <h3 className="text-sm font-medium text-blue-400 mb-2">パスワードポリシー</h3>
                   <p className="text-xs text-gray-300 leading-relaxed">
-                    企業アカウントのパスワードは12文字以上（大文字・小文字・数字・特殊文字を各1文字以上）が必要です。
-                    NISTガイドラインに準拠し、定期的なパスワード変更は求めません。
-                    漏洩が検知された場合のみ変更を要求します。
+                    現在、ログインパスワード・管理者設定用パスワードともに最低8文字を強制しています。
+                    大文字・小文字・数字・特殊文字の混在や有効期限・定期変更の強制は未実装です（推奨にとどまります）。
                   </p>
                 </div>
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
                   <h3 className="text-sm font-medium text-blue-400 mb-2">セッション管理</h3>
                   <p className="text-xs text-gray-300 leading-relaxed">
-                    企業アカウント: 最終操作から24時間でタイムアウト。同時ログイン制限なし。
-                    運営管理者: 最終操作から8時間でタイムアウト。同時ログイン制限なし。
+                    運営・企業のセッションは別cookieで分離済みです。
+                    無操作タイムアウトの独自制御は未実装で、セッション期限は Supabase Auth の既定に依存します
+                    （企業24時間・運営8時間といった独自のタイムアウトや同時ログイン制限は強制していません）。
                   </p>
                 </div>
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
                   <h3 className="text-sm font-medium text-blue-400 mb-2">MFA（多要素認証）</h3>
                   <p className="text-xs text-gray-300 leading-relaxed">
-                    運営管理者: TOTP必須。企業アカウント: 推奨（任意）。
-                    Google AuthenticatorやAuthyなどのアプリで6桁コードを生成します。
+                    TOTP等の多要素認証は未実装です（今後実装予定）。
                   </p>
                 </div>
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
                   <h3 className="text-sm font-medium text-blue-400 mb-2">異常検知・ログイン通知</h3>
                   <p className="text-xs text-gray-300 leading-relaxed">
-                    通常と異なる国やIPアドレスからのログインが検知された場合、
-                    登録メールアドレスに自動通知が送信されます。
+                    異常ログインの自動検知・メール通知は未実装です（今後実装予定）。
                   </p>
                 </div>
               </div>
@@ -1040,8 +1038,7 @@ export default function CompanyDetailPage() {
             <div className={`${CARD_BASE} p-6`}>
               <h2 className="text-base font-semibold text-white mb-2">アカウントロック管理</h2>
               <p className="text-sm text-gray-400 mb-4">
-                企業アカウントが10回連続ログイン失敗でロックされた場合、ここから手動で解除できます。
-                通常は30分後に自動解除されます。
+                ログイン失敗回数に基づく自動ロック・自動解除は現在未実装です。既にロック状態となっている企業アカウントがある場合のみ、運営管理者が手動解除できます。
               </p>
               <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
                 <div className="flex items-center justify-between">

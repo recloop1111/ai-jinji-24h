@@ -51,7 +51,6 @@ function SettingsContent() {
   const [showLoginConfirmPassword, setShowLoginConfirmPassword] = useState(false)
 
 
-  const [twoFactorAuth, setTwoFactorAuth] = useState(false)
 
   // 管理者設定用パスワード（ログインPWとは別）
   const [settingPwConfigured, setSettingPwConfigured] = useState<boolean | null>(null)
@@ -443,9 +442,8 @@ function SettingsContent() {
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
               <h4 className="text-sm font-semibold text-blue-900 mb-2">パスワードポリシー</h4>
               <ul className="text-xs text-blue-800 space-y-1 list-disc list-inside">
-                <li>12文字以上（大文字・小文字・数字・特殊文字を各1文字以上含む）</li>
-                <li>定期的なパスワード変更は不要です（NISTガイドライン準拠）</li>
-                <li>パスワード漏洩が検知された場合のみ、変更をお願いします</li>
+                <li>8文字以上で設定してください</li>
+                <li>定期的なパスワード変更は求めていません</li>
               </ul>
             </div>
             <div className="space-y-4">
@@ -486,7 +484,7 @@ function SettingsContent() {
                     {showLoginNewPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
                   </button>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">12文字以上、大文字・小文字・数字・特殊文字を各1文字以上含む</p>
+                <p className="text-xs text-slate-500 mt-1">8文字以上で設定してください</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">新しいパスワード（確認）</label>
@@ -576,22 +574,11 @@ function SettingsContent() {
           </div>
 
           <div className={cardClass}>
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">二要素認証（2FA）</label>
-                <p className="text-xs text-slate-500">
-                  ログイン時にGoogle AuthenticatorなどのTOTPアプリで生成される6桁のコードが必要になります。アカウントの不正アクセス防止のため、有効化を強く推奨します。
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setTwoFactorAuth(!twoFactorAuth)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  twoFactorAuth ? 'bg-blue-600' : 'bg-slate-300'
-                }`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${twoFactorAuth ? 'translate-x-6' : 'translate-x-1'}`} />
-              </button>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">二要素認証（2FA）</label>
+              <p className="text-xs text-slate-500">
+                TOTPアプリ（Google Authenticator等）による二要素認証は未実装です（今後実装予定）。現在は設定できません。
+              </p>
             </div>
           </div>
 
@@ -600,15 +587,15 @@ function SettingsContent() {
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-3">
               <div>
                 <h4 className="text-sm font-medium text-slate-700">セッション管理</h4>
-                <p className="text-xs text-slate-500 mt-1">最終操作から24時間が経過すると自動的にログアウトされます。複数デバイスからの同時ログインに制限はありません。</p>
+                <p className="text-xs text-slate-500 mt-1">運営・企業のセッションは別cookieで分離済みです。無操作タイムアウトの独自制御は未実装で、セッション期限は認証基盤（Supabase Auth）の既定に依存します。複数デバイスからの同時ログインに制限はありません。</p>
               </div>
               <div>
                 <h4 className="text-sm font-medium text-slate-700">アカウントロック</h4>
-                <p className="text-xs text-slate-500 mt-1">ログインに10回連続で失敗すると、30分間アカウントがロックされます。30分経過後に自動で解除されます。ロック中にお急ぎの場合は運営までご連絡ください。</p>
+                <p className="text-xs text-slate-500 mt-1">ロック管理用の基盤はありますが、ログイン失敗回数に基づく自動ロックは現在未実装です。</p>
               </div>
               <div>
                 <h4 className="text-sm font-medium text-slate-700">ログイン通知</h4>
-                <p className="text-xs text-slate-500 mt-1">通常と異なるIPアドレスや地域からのログインが検知された場合、登録メールアドレスに通知が送信されます。</p>
+                <p className="text-xs text-slate-500 mt-1">通常と異なるIPアドレスや地域からのログインを検知してメール通知する機能は未実装です（今後実装予定）。</p>
               </div>
             </div>
           </div>
