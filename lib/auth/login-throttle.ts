@@ -31,30 +31,45 @@ export function computeScopeKey(
   return createHmac('sha256', secret).update(`${kind}:${portal}:${value}`).digest('hex')
 }
 
-export type ReserveResult = {
-  allowed: boolean
-  reason: string
+export type ThrottleCheckResult = {
+  account_blocked: boolean
+  ip_blocked: boolean
   blocked_until: string | null
-  account_failure_count: number
-  ip_failure_count: number
 }
 
-// 認証前に呼ぶ原子的予約。失敗時は null（呼び出し側で fail closed）。
-export async function reserveAttempt(params: {
-  portal: PortalType
-  accountScopeKey: string
-  ipScopeKey: string
-  authUserId: string | null
-}): Promise<ReserveResult | null> {
+// 認証前のブロック判定（副作用なし＝failure_count を変更しない）。判定不能時は null（呼び出し側で fail closed）。
+// 旧 auth_throttle_reserve_attempt は新フローでは使わない（CAPTCHA 検証前に加算してしまうため）。
+export async function throttleCheck(
+  portal: PortalType,
+  accountScopeKey: string,
+  ipScopeKey: string,
+): Promise<ThrottleCheckResult | null> {
   const service = createServiceRoleClient()
-  const { data, error } = await service.rpc('auth_throttle_reserve_attempt', {
-    p_portal: params.portal,
-    p_account_scope_key: params.accountScopeKey,
-    p_ip_scope_key: params.ipScopeKey,
-    p_auth_user_id: params.authUserId,
+  const { data, error } = await service.rpc('auth_throttle_check', {
+    p_portal: portal,
+    p_account_scope_key: accountScopeKey,
+    p_ip_scope_key: ipScopeKey,
   })
   if (error || !Array.isArray(data) || data.length === 0) return null
-  return data[0] as ReserveResult
+  return data[0] as ThrottleCheckResult
+}
+
+// CAPTCHA 成功後の認証失敗 / role mismatch 時のみ呼ぶ。account/IP を原子的に加算（blocked 中は延長しない）。
+// 生email/IP は保存せず scope_key（HMAC）のみ。auth_user_id は account の本人特定用（任意）。
+export async function recordFailure(
+  portal: PortalType,
+  accountScopeKey: string,
+  ipScopeKey: string,
+  authUserId: string | null,
+): Promise<void> {
+  const service = createServiceRoleClient()
+  const { error } = await service.rpc('auth_throttle_record_failure', {
+    p_portal: portal,
+    p_account_scope_key: accountScopeKey,
+    p_ip_scope_key: ipScopeKey,
+    p_auth_user_id: authUserId,
+  })
+  if (error) throw new Error('auth_throttle_record_failure failed')
 }
 
 // 認証成功時に account 側のみリセット（IP はリセットしない）。失敗時は throw（呼び出し側で signOut + 503）。

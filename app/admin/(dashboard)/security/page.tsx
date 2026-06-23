@@ -239,7 +239,7 @@ export default function SecurityPage() {
                 <p className="text-xs text-gray-300 leading-relaxed">
                   運営／企業のセッションは別cookieで分離済みです。セッションの有効時間（タイムアウト）は
                   アプリ独自では制御しておらず、Supabase Auth の現在のセッション仕様に依存します。
-                  アカウントロックの手動解除は下記「企業アカウントロック管理」から可能です。
+                  ブロック中アカウントの手動解除は下記「ログインスロットル管理」から可能です。
                 </p>
               </div>
               <dl className="divide-y divide-white/[0.06] text-sm">
@@ -268,8 +268,10 @@ export default function SecurityPage() {
             <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
               <h2 className="text-lg font-semibold text-white mb-2">ログインスロットル管理</h2>
               <p className="text-sm text-gray-400 mb-4">
-                ログイン失敗に基づく自動ブロック（アカウント: 30分窓で10回 / IP: 10分窓で60回 → 30分待機）を実装済みです。
+                アプリ経由ログインの一時制限（アカウント: 30分窓で10回 / IP: 10分窓で60回 → 30分待機）を実装済みです。
                 期限切れは次回判定時に自動解除されます。下記は現在ブロック中のアカウントで、運営管理者が手動解除できます。
+                なお本機能はアプリAPI経由のログインを制限するもので、Supabase Auth への直接アクセスを完全には遮断しません。
+                直接アクセスには Supabase ネイティブ CAPTCHA と標準 rate limit が適用されます。
               </p>
               <LockedAccountsList />
             </div>

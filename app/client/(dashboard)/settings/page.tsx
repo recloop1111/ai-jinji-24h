@@ -1,11 +1,14 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { Save as SaveIcon, Upload as UploadIcon, Eye as EyeIcon, EyeOff as EyeOffIcon, LogOut } from 'lucide-react'
 import { createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
 import PasswordInput from '@/components/shared/PasswordInput'
+import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget'
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
 type TabType = 'general' | 'notifications' | 'security'
 
@@ -49,6 +52,10 @@ function SettingsContent() {
   const [showLoginCurrentPassword, setShowLoginCurrentPassword] = useState(false)
   const [showLoginNewPassword, setShowLoginNewPassword] = useState(false)
   const [showLoginConfirmPassword, setShowLoginConfirmPassword] = useState(false)
+  // パスワード変更前の「現在のPW再認証」用 Turnstile（Supabaseネイティブ CAPTCHA）。
+  // ※ この再認証はブラウザから直接 Supabase Auth を呼ぶため、ログインAPIの独自スロットル対象外。
+  const [loginCaptchaToken, setLoginCaptchaToken] = useState('')
+  const loginTurnstileRef = useRef<TurnstileHandle>(null)
 
 
 
@@ -204,13 +211,23 @@ function SettingsContent() {
       return
     }
     setLoginPasswordLoading(true)
+    // 現在のパスワード再認証（Supabaseネイティブ CAPTCHA。captchaToken を options で渡す）
     const { error: signInError } = await supabase.auth.signInWithPassword({
       email: user.email,
       password: loginCurrentPassword,
+      options: { captchaToken: loginCaptchaToken },
     })
+    // token は単回使用 → 試行後は成功・失敗を問わず破棄＋widget reset
+    setLoginCaptchaToken('')
+    loginTurnstileRef.current?.reset()
     if (signInError) {
       setLoginPasswordLoading(false)
-      setLoginPasswordError('現在のパスワードが正しくありません')
+      // captcha 失敗は error.code で判定（文字列比較しない）
+      if (signInError.code === 'captcha_failed') {
+        setLoginPasswordError('Bot対策の確認に失敗しました。再度お試しください。')
+      } else {
+        setLoginPasswordError('現在のパスワードが正しくありません')
+      }
       return
     }
     const { error: updateError } = await supabase.auth.updateUser({ password: loginNewPassword })
@@ -505,11 +522,21 @@ function SettingsContent() {
                   </button>
                 </div>
               </div>
+              {TURNSTILE_SITE_KEY && (
+                <TurnstileWidget
+                  ref={loginTurnstileRef}
+                  siteKey={TURNSTILE_SITE_KEY}
+                  action="client_password_reauth"
+                  theme="light"
+                  onVerify={setLoginCaptchaToken}
+                  onExpire={() => setLoginCaptchaToken('')}
+                />
+              )}
               {loginPasswordError && <p className="text-sm text-red-600">{loginPasswordError}</p>}
               <button
                 type="button"
                 onClick={handleLoginPasswordChange}
-                disabled={loginPasswordLoading}
+                disabled={loginPasswordLoading || (!!TURNSTILE_SITE_KEY && !loginCaptchaToken)}
                 className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm disabled:opacity-70"
               >
                 {loginPasswordLoading ? '変更中...' : '変更する'}

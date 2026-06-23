@@ -1,8 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import PasswordInput from '@/components/shared/PasswordInput'
+import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget'
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
 export default function AdminLoginPage() {
   const router = useRouter()
@@ -10,6 +13,8 @@ export default function AdminLoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState('')
+  const turnstileRef = useRef<TurnstileHandle>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -19,11 +24,14 @@ export default function AdminLoginPage() {
       const res = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, captchaToken }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => null)
         setError(data?.error?.message || 'ログインに失敗しました')
+        // token は単回使用のため、失敗後はウィジェットを reset して再取得
+        setCaptchaToken('')
+        turnstileRef.current?.reset()
         setLoading(false)
         return
       }
@@ -31,6 +39,8 @@ export default function AdminLoginPage() {
       router.refresh()
     } catch {
       setError('ログインに失敗しました')
+      setCaptchaToken('')
+      turnstileRef.current?.reset()
       setLoading(false)
     }
   }
@@ -75,6 +85,16 @@ export default function AdminLoginPage() {
                 iconClassName="text-slate-400 hover:text-slate-200"
               />
             </div>
+            {TURNSTILE_SITE_KEY && (
+              <TurnstileWidget
+                ref={turnstileRef}
+                siteKey={TURNSTILE_SITE_KEY}
+                action="admin_login"
+                theme="dark"
+                onVerify={setCaptchaToken}
+                onExpire={() => setCaptchaToken('')}
+              />
+            )}
             {error && (
               <p className="text-sm text-red-400" role="alert">
                 {error}
@@ -82,7 +102,7 @@ export default function AdminLoginPage() {
             )}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (!!TURNSTILE_SITE_KEY && !captchaToken)}
               className="w-full py-3 px-4 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading ? (
