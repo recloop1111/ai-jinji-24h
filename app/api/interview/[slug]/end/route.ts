@@ -56,21 +56,31 @@ export async function POST(
     if (appError || !applicant) return apiError('NOT_FOUND', '応募者が見つかりません')
     if (applicant.company_id !== company.id) return apiError('FORBIDDEN', '不正なリクエストです')
 
-    // interview 実在＆applicant 一致
+    // interview 実在＆applicant 一致（現在の status も取得）
     const { data: interview, error: ivError } = await supabase
       .from('interviews')
-      .select('id, applicant_id')
+      .select('id, applicant_id, status')
       .eq('id', interviewId)
       .single()
     if (ivError || !interview) return apiError('NOT_FOUND', '面接が見つかりません')
     if (interview.applicant_id !== applicantId) return apiError('FORBIDDEN', '不正なリクエストです')
 
+    // 二重送信/トークン再利用対策: in_progress（更新可能な状態）のときだけ確定する。
+    // completed / cancelled 等の終了済みは上書きせず、冪等に現状を返す。
+    if (interview.status !== 'in_progress') {
+      return successJson({
+        interview_id: interviewId,
+        final_status: interview.status,
+        already_finalized: true,
+      })
+    }
+
     const durationSeconds = typeof body.duration_seconds === 'number' ? body.duration_seconds : 0
     // 課金判定（INT-009）: 10分超の利用は途中離脱でも従量課金対象
     const isBillable = durationSeconds > 600
 
-    // 対象 interview を確定
-    const { error: updError } = await supabase
+    // 対象 interview を確定（status='in_progress' 条件付きUPDATEで競合時の二重確定も防ぐ）
+    const { data: updatedRows, error: updError } = await supabase
       .from('interviews')
       .update({
         status: finalStatus,
@@ -82,7 +92,17 @@ export async function POST(
         is_billable: isBillable,
       })
       .eq('id', interviewId)
+      .eq('status', 'in_progress')
+      .select('id')
     if (updError) return apiError('INTERNAL_ERROR', '面接の終了処理に失敗しました')
+    // 並行リクエストに先に確定された場合（0件）は applicant 更新を行わず冪等に返す
+    if (!updatedRows || updatedRows.length === 0) {
+      return successJson({
+        interview_id: interviewId,
+        final_status: finalStatus,
+        already_finalized: true,
+      })
+    }
 
     // applicants.status をサーバ確定（anon では更新できないためここで確定する）
     const applicantStatus = finalStatus === 'completed' ? '完了' : '途中離脱'

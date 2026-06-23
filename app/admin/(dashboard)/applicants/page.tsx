@@ -185,12 +185,28 @@ export default function AdminApplicantsPage() {
     async function fetchData() {
       setLoading(true)
       try {
-        const res = await fetch('/api/admin/applicant-data?per_page=100')
-        if (res.ok) {
+        // 全件取得（API は最大 per_page=100。total_count を見て全ページをたどり 101件目以降の漏れを防ぐ）
+        const PER_PAGE = 100
+        const all: Applicant[] = []
+        let companiesSet = false
+        let page = 1
+        let total = 0
+        // 安全弁: 最大ページ数で打ち切り（無限ループ防止）
+        for (let guard = 0; guard < 1000; guard += 1) {
+          const res = await fetch(`/api/admin/applicant-data?page=${page}&per_page=${PER_PAGE}`)
+          if (!res.ok) break
           const json = await res.json()
-          if (json.applicants) setApplicants(json.applicants)
-          if (json.companies) setCompanies(json.companies)
+          if (!companiesSet && json.companies) {
+            setCompanies(json.companies)
+            companiesSet = true
+          }
+          const batch: Applicant[] = json.applicants ?? []
+          all.push(...batch)
+          total = typeof json.total_count === 'number' ? json.total_count : all.length
+          if (batch.length === 0 || all.length >= total) break
+          page += 1
         }
+        setApplicants(all)
       } catch {
       } finally {
         setLoading(false)

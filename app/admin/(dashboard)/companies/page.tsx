@@ -116,9 +116,22 @@ export default function CompaniesPage() {
   async function fetchCompanies() {
     setLoading(true)
     try {
-      const res = await fetch('/api/admin/companies?per_page=100')
-      const json = await res.json()
-      const items = json.companies ?? []
+      // 全件取得（API は最大 per_page=100。total_count を見て全ページをたどり 101社目以降の漏れを防ぐ）
+      const PER_PAGE = 100
+      const items: unknown[] = []
+      let page = 1
+      let total = 0
+      // 安全弁: 最大ページ数で打ち切り（無限ループ防止）
+      for (let guard = 0; guard < 1000; guard += 1) {
+        const res = await fetch(`/api/admin/companies?page=${page}&per_page=${PER_PAGE}`)
+        if (!res.ok) break
+        const json = await res.json()
+        const batch = json.companies ?? []
+        items.push(...batch)
+        total = typeof json.total_count === 'number' ? json.total_count : items.length
+        if (batch.length === 0 || items.length >= total) break
+        page += 1
+      }
 
       setCompanies(items)
 
