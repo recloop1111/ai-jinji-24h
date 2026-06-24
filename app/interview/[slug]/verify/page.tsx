@@ -121,6 +121,11 @@ export default function VerifyPage() {
         body: JSON.stringify({ token, applicant_id: applicantId, code: codeString }),
       })
       if (res.ok) {
+        // SMS認証完了トークンを保存（start 側で必須検証される）
+        const data = await res.json().catch(() => null)
+        if (data?.sms_token) {
+          sessionStorage.setItem(`interview_${slug}_sms_token`, data.sms_token)
+        }
         setToast('認証が完了しました')
         setTimeout(() => {
           router.push(`/interview/${slug}/prepare`)

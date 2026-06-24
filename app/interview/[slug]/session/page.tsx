@@ -60,6 +60,7 @@ export default function SessionPage() {
 
     // 面接開始: service-role API（token検証）経由で interviews を作成する（browser直INSERTは廃止）
     const storedToken = sessionStorage.getItem(`interview_${slug}_token`)
+    const storedSmsToken = sessionStorage.getItem(`interview_${slug}_sms_token`)
     async function startInterview() {
       if (!storedApplicantId || !storedToken) {
         return
@@ -68,7 +69,8 @@ export default function SessionPage() {
         const res = await fetch(`/api/interview/${slug}/start`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: storedToken, applicant_id: storedApplicantId }),
+          // SMS認証完了トークン（sms_token）も送る。start 側で必須検証される。
+          body: JSON.stringify({ token: storedToken, applicant_id: storedApplicantId, sms_token: storedSmsToken }),
         })
         const json = await res.json().catch(() => null)
         if (!res.ok || !json?.interview_id) {

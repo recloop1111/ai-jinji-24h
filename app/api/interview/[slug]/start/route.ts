@@ -1,7 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { successJson, apiError } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { verifyInterviewToken } from '@/lib/interview/capability-token'
+import { verifyInterviewToken, verifySmsVerifiedToken } from '@/lib/interview/capability-token'
 import { applyNextMonthLimit } from '@/lib/companies/applyNextMonthLimit'
 
 // node:crypto（token検証）を使うため Node runtime を明示
@@ -29,6 +29,14 @@ export async function POST(
       return apiError('UNAUTHORIZED', 'applicant_id が一致しません')
     }
 
+    // SMS認証完了トークンを必須化（テスト企業含め素通しさせない）。
+    // purpose='sms_verified' / 署名 / exp / slug / applicant_id（applicant token と一致）を検証。company_id は company 取得後に照合。
+    const smsPayload = verifySmsVerifiedToken(typeof body.sms_token === 'string' ? body.sms_token : null)
+    if (!smsPayload) return apiError('FORBIDDEN', 'SMS認証が完了していません')
+    if (smsPayload.slug !== slug || smsPayload.applicant_id !== applicantId) {
+      return apiError('FORBIDDEN', 'SMS認証情報が一致しません')
+    }
+
     const supabase = createServiceRoleClient()
 
     // slug → 企業特定（停止中は受付不可）。月間上限判定用に limit 列も取得。
@@ -39,6 +47,8 @@ export async function POST(
       .single()
     if (compError || !company) return apiError('NOT_FOUND', '無効な面接URLです')
     if (company.is_suspended) return apiError('FORBIDDEN', '現在、面接の受付を停止しています')
+    // SMS認証トークンの company_id が当該企業と一致すること（別企業のトークン流用を防止）
+    if (smsPayload.company_id !== company.id) return apiError('FORBIDDEN', 'SMS認証情報が一致しません')
 
     // applicant 実在＆当該企業所属を検証。終了状態判定用に status / selection_status も取得。
     const { data: applicant, error: appError } = await supabase
