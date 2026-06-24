@@ -3,6 +3,7 @@ import { successJson, apiError } from '@/lib/api/response'
 import { isValidUUID } from '@/lib/api/validation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { signInterviewToken } from '@/lib/interview/capability-token'
+import { verifyTurnstileToken } from '@/lib/auth/turnstile'
 
 // node:crypto を使うため Node runtime を明示（Edge にしない）
 export const runtime = 'nodejs'
@@ -20,6 +21,16 @@ export async function POST(
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') {
       return apiError('VALIDATION_ERROR', 'リクエストボディが不正です')
+    }
+
+    const captchaToken = typeof body.captchaToken === 'string' ? body.captchaToken : null
+    const remoteIp =
+      request.headers.get('cf-connecting-ip') ||
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      null
+    const captchaOk = await verifyTurnstileToken(captchaToken, 'interview_applicant', remoteIp)
+    if (!captchaOk) {
+      return apiError('VALIDATION_ERROR', '認証に失敗しました。もう一度お試しください。')
     }
 
     const supabase = createServiceRoleClient()

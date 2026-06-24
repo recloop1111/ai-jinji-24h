@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import InterviewLayout from '@/components/interview/InterviewLayout'
 import {
@@ -13,6 +13,9 @@ import {
   SelectField,
   RadioGroup,
 } from '@/components/interview/FormComponents'
+import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget'
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
 const STEP_LABELS = ['同意', '情報入力', 'SMS認証', '環境確認', '面接']
 
@@ -64,6 +67,8 @@ export default function FormPage() {
   const [qualifications, setQualifications] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState('')
+  const turnstileRef = useRef<TurnstileHandle>(null)
 
   useEffect(() => {
     initialize()
@@ -163,6 +168,7 @@ export default function FormPage() {
     }
     if (jobId && !industryExperience) newErrors.industryExperience = '業界経験を選択してください'
     if (jobTypes.length > 0 && !jobId) newErrors.jobId = '応募職種を選択してください'
+    if (TURNSTILE_SITE_KEY && !captchaToken) newErrors.submit = '認証を完了してください'
 
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -206,6 +212,7 @@ export default function FormPage() {
         job_id: jobId || null,
         work_history: workHistory.trim() || null,
         qualifications: qualifications.trim() || null,
+        captchaToken,
       }
 
       // applicants の直INSERT は廃止し、service-role API で作成＋ケイパビリティ・トークンを発行する
@@ -218,6 +225,8 @@ export default function FormPage() {
 
       if (!res.ok || !json?.applicant_id) {
         setErrors({ submit: '情報の保存に失敗しました。もう一度お試しください。' })
+        setCaptchaToken('')
+        turnstileRef.current?.reset()
         setSubmitting(false)
         return
       }
@@ -228,6 +237,8 @@ export default function FormPage() {
       router.push(`/interview/${slug}/verify?phone=${encodeURIComponent(phone)}`)
     } catch {
       setErrors({ submit: '情報の保存に失敗しました。もう一度お試しください。' })
+      setCaptchaToken('')
+      turnstileRef.current?.reset()
       setSubmitting(false)
     }
   }
@@ -435,6 +446,19 @@ export default function FormPage() {
               rows={3}
             />
           </InputField>
+
+          {TURNSTILE_SITE_KEY && (
+            <div className="flex justify-center py-2">
+              <TurnstileWidget
+                ref={turnstileRef}
+                siteKey={TURNSTILE_SITE_KEY}
+                action="interview_applicant"
+                theme="light"
+                onVerify={setCaptchaToken}
+                onExpire={() => setCaptchaToken('')}
+              />
+            </div>
+          )}
 
           {errors.submit && (
             <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-3 rounded">
