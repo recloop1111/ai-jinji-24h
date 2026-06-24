@@ -100,16 +100,38 @@ export default function VerifyPage() {
     }
   }
 
-  function handleVerify() {
+  async function handleVerify() {
     const codeString = code.join('')
-    if (code.every((digit) => digit !== '')) {
-      // デモ/本番とも現時点は固定コード「1234」で通過（本番は Twilio Verify API に差し替え予定）
-      if (codeString === '1234') {
-        setCodeError(null)
+    if (!code.every((digit) => digit !== '')) return
+
+    // 認証判定はサーバー側で行う（固定コード許可はテスト企業の company_id のときのみ）。
+    const token = sessionStorage.getItem(`interview_${slug}_token`)
+    const applicantId = sessionStorage.getItem(`interview_${slug}_applicant_id`)
+    if (!token || !applicantId) {
+      setCodeError('セッションの有効期限が切れました。最初からやり直してください。')
+      setToast('セッションが無効です')
+      return
+    }
+
+    setCodeError(null)
+    try {
+      const res = await fetch(`/api/interview/${slug}/sms/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, applicant_id: applicantId, code: codeString }),
+      })
+      if (res.ok) {
         setToast('認証が完了しました')
         setTimeout(() => {
           router.push(`/interview/${slug}/prepare`)
         }, 1000)
+        return
+      }
+      const data = await res.json().catch(() => null)
+      if (res.status === 503 || data?.error?.code === 'SMS_NOT_AVAILABLE') {
+        // 通常企業: SMS 未接続（誤コードとは区別して表示）
+        setCodeError('SMS認証は現在準備中です。お手数ですが運営までお問い合わせください。')
+        setToast('SMS認証は現在準備中です')
       } else {
         // 誤コード: 入力をクリアして先頭にフォーカスし、すぐ再入力できるようにする
         setCodeError('認証コードが正しくありません。もう一度入力してください。')
@@ -117,6 +139,9 @@ export default function VerifyPage() {
         setCode(['', '', '', ''])
         inputRefs[0].current?.focus()
       }
+    } catch {
+      setCodeError('通信エラーが発生しました。もう一度お試しください。')
+      setToast('通信エラーが発生しました')
     }
   }
 
