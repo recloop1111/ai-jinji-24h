@@ -254,9 +254,6 @@ export default function CompaniesPage() {
     showToast('CSV出力機能は今後実装予定です')
   }
 
-  const handleStop = () => {
-    showToast('停止処理は今後実装予定です')
-  }
 
   const handleRowClick = (id: string) => {
     router.push(`/admin/companies/${id}`)
@@ -425,22 +422,13 @@ export default function CompaniesPage() {
                           </div>
                         </td>
                         <td className="py-4 px-5">
+                          {/* 契約停止/停止解除は企業詳細画面の正式導線に統一（一覧からは詳細のみ） */}
                           <button
                             type="button"
                             onClick={(e) => handleDetailClick(e, c.id)}
-                            className="text-xs text-blue-400 hover:text-blue-300 mr-3"
+                            className="text-xs text-blue-400 hover:text-blue-300"
                           >
                             詳細
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleStop()
-                            }}
-                            className="text-xs text-red-400/60 hover:text-red-400 ml-3"
-                          >
-                            停止
                           </button>
                         </td>
                       </tr>
