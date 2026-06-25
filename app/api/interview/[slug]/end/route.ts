@@ -58,10 +58,10 @@ export async function POST(
     if (appError || !applicant) return apiError('NOT_FOUND', '応募者が見つかりません')
     if (applicant.company_id !== company.id) return apiError('FORBIDDEN', '不正なリクエストです')
 
-    // interview 実在＆applicant 一致（現在の status も取得）
+    // interview 実在＆applicant 一致（現在の status / 課金算出用の started_at も取得）
     const { data: interview, error: ivError } = await supabase
       .from('interviews')
-      .select('id, applicant_id, status')
+      .select('id, applicant_id, status, started_at')
       .eq('id', interviewId)
       .single()
     if (ivError || !interview) return apiError('NOT_FOUND', '面接が見つかりません')
@@ -77,8 +77,14 @@ export async function POST(
       })
     }
 
-    const durationSeconds = typeof body.duration_seconds === 'number' ? body.duration_seconds : 0
-    // 課金判定（INT-009）: 10分超の利用は途中離脱でも従量課金対象
+    // 課金は応募者制御の入力（body.duration_seconds）を信用しない。
+    // サーバ保存の started_at とサーバ終了時刻の差分で算出する（10分超の面接後に 0 を送る等の過少申告で課金回避させない）。
+    const endedAtIso = new Date().toISOString()
+    const startedAtMs = interview.started_at ? new Date(interview.started_at).getTime() : NaN
+    const durationSeconds = Number.isFinite(startedAtMs)
+      ? Math.max(0, Math.floor((new Date(endedAtIso).getTime() - startedAtMs) / 1000))
+      : 0
+    // 課金判定（INT-009）: 10分超の利用は途中離脱でも従量課金対象（サーバ算出値で判定）
     const isBillable = durationSeconds > 600
 
     // 対象 interview を確定（status='in_progress' 条件付きUPDATEで競合時の二重確定も防ぐ）
@@ -86,7 +92,7 @@ export async function POST(
       .from('interviews')
       .update({
         status: finalStatus,
-        ended_at: new Date().toISOString(),
+        ended_at: endedAtIso,
         duration_seconds: durationSeconds,
         total_questions: typeof body.total_questions === 'number' ? body.total_questions : null,
         answered_questions: typeof body.answered_questions === 'number' ? body.answered_questions : null,

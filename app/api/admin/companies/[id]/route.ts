@@ -4,7 +4,7 @@ import { successJson, apiError } from '@/lib/api/response'
 import { isValidUUID } from '@/lib/api/validation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifySettingPassword } from '@/lib/security/setting-password'
-import { applyNextMonthLimit, jstFirstOfNextMonthDate } from '@/lib/companies/applyNextMonthLimit'
+import { applyNextMonthLimit, jstFirstOfNextMonthDate, jstCurrentMonthStartIso } from '@/lib/companies/applyNextMonthLimit'
 
 export async function GET(
   _request: NextRequest,
@@ -154,7 +154,8 @@ export async function PATCH(
       if (typeof newLimit !== 'number' || newLimit < 5) {
         return apiError('VALIDATION_ERROR', '月間上限は5件以上に設定してください')
       }
-      const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
+      // 月初は JST 基準（start / client plan と同一基準）。サーバTZ(UTC)依存にしない。
+      const monthStart = jstCurrentMonthStartIso()
       const { count: monthlyCount } = await supabase
         .from('interviews')
         .select('id', { count: 'exact', head: true })
