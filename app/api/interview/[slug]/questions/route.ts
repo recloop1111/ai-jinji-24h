@@ -123,12 +123,16 @@ export async function POST(
     }
 
     // クロージングは企業共通（common_questions.category='closing'）。旧 common icebreakers は配信しない。
-    const { data: commonRows } = await supabase
+    const { data: commonRows, error: commonError } = await supabase
       .from('common_questions')
       .select('category, question_text, sort_order')
       .eq('company_id', company.id)
       .eq('category', 'closing')
       .order('sort_order', { ascending: true })
+
+    // job_questions と同様、DB/query エラーは握りつぶさず非OKで返す（0件＝closing無しの正当な空とは分離）。
+    // ※ error を空扱いにすると closing 欠落のまま 200＆スナップショット固定されてしまう。
+    if (commonError) return apiError('INTERNAL_ERROR', '質問の取得に失敗しました')
 
     const closing = (commonRows ?? []).map((r) => ({ question_text: r.question_text, sort_order: r.sort_order }))
 

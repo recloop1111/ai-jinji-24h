@@ -56,6 +56,22 @@ export function jstCurrentMonthStartIso(now: number = Date.now()): string {
   return new Date(Date.UTC(y, m, 1) - 9 * 60 * 60 * 1000).toISOString()
 }
 
+/**
+ * 翌月1日（JST基準）を `YYYY-MM-01` で返す。翌月上限予約の effective_month の算出に使う。
+ *
+ * isTodayOnOrAfterJst / jstCurrentMonthStartIso と同じ JST 基準（Date.now()+9h）で当月を導出してから +1 月する。
+ * これにより「Vercel(UTC) で JST 月初の最初の9時間に予約すると effective_month が当月になり即時昇格してしまう」
+ * というズレ（適用は必ず翌月1日、の仕様違反）を防ぐ。
+ */
+export function jstFirstOfNextMonthDate(now: number = Date.now()): string {
+  const jstNow = new Date(now + 9 * 60 * 60 * 1000)
+  const y = jstNow.getUTCFullYear()
+  const m = jstNow.getUTCMonth() // 0-indexed（JST基準の当月）
+  // 翌月の1日。Date.UTC は m+1=12（翌年1月）でも年繰り上げを正しく処理する。
+  const next = new Date(Date.UTC(y, m + 1, 1))
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-01`
+}
+
 export async function applyNextMonthLimit(company: NextMonthLimitInput): Promise<NextMonthLimitResult> {
   const nextLimit = company.next_month_interview_limit
   const effMonth = company.next_month_limit_effective_month

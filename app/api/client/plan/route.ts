@@ -3,14 +3,14 @@ import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createClientServerClient } from '@/lib/supabase/server'
 import { verifySettingPassword } from '@/lib/security/setting-password'
-import { applyNextMonthLimit } from '@/lib/companies/applyNextMonthLimit'
+import { applyNextMonthLimit, jstCurrentMonthStartIso, jstFirstOfNextMonthDate } from '@/lib/companies/applyNextMonthLimit'
 import { PRICE_PER_INTERVIEW, MIN_INTERVIEW_LIMIT } from '@/types/database'
 
-// 翌月1日（YYYY-MM-01）を返す
+// 翌月1日（YYYY-MM-01）を返す。
+// ※ JST基準（applyNextMonthLimit の昇格判定と同一基準）。サーバTZ(UTC)依存にすると、
+//   JST月初の最初の9時間に effective_month が当月になり即時昇格してしまう（仕様: 適用は必ず翌月1日）。
 function firstOfNextMonth(): string {
-  const now = new Date()
-  const d = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+  return jstFirstOfNextMonthDate()
 }
 
 export async function GET() {
@@ -45,9 +45,8 @@ export async function GET() {
     const nextMonthLimit = applied.next_month_interview_limit
     const nextMonthEffectiveMonth = applied.next_month_limit_effective_month
 
-    // 当月の面接件数（billable のみ）
-    const now = new Date()
-    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+    // 当月の面接件数（billable のみ）。月初は JST 基準（start API の上限カウントと同一基準）。
+    const monthStart = jstCurrentMonthStartIso()
     const { count: monthlyCount } = await supabase
       .from('interviews')
       .select('id', { count: 'exact', head: true })
@@ -58,8 +57,8 @@ export async function GET() {
     const used = monthlyCount ?? 0
     const remaining = Math.max(0, limit - used)
 
-    const nextReset = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-    const nextResetDate = `${nextReset.getFullYear()}-${String(nextReset.getMonth() + 1).padStart(2, '0')}-${String(nextReset.getDate()).padStart(2, '0')}`
+    // 次回リセット日（翌月1日）も JST 基準で算出
+    const nextResetDate = jstFirstOfNextMonthDate()
 
     return successJson({
       // 企業側には plan(custom等)を出さず、契約形態は常に「従量課金」表記

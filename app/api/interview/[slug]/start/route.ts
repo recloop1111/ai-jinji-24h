@@ -109,12 +109,15 @@ export async function POST(
     if (typeof effectiveLimit === 'number' && effectiveLimit > 0) {
       // 月初は JST 基準（applyNextMonthLimit の昇格と同一基準）。サーバTZ(UTC)依存にしない。
       const monthStart = jstCurrentMonthStartIso()
-      const { count: monthlyCount } = await supabase
+      const { count: monthlyCount, error: countError } = await supabase
         .from('interviews')
         .select('id', { count: 'exact', head: true })
         .eq('company_id', company.id)
         .eq('is_billable', true)
         .gte('created_at', monthStart)
+      // 上限カウントの失敗は fail-closed（0件扱いで素通りさせない）。
+      // ※ 集計失敗を「使用0」とみなすと上限超過でも開始できてしまうため、非OKで止める。
+      if (countError) return apiError('INTERNAL_ERROR', '面接実施数の確認に失敗しました')
       if ((monthlyCount ?? 0) >= effectiveLimit) {
         return apiError('FORBIDDEN', '今月の面接実施数が上限に達しているため、開始できません')
       }
