@@ -97,12 +97,17 @@ export async function POST(
 
     // job_questions を取得（当該 job_id + pattern_key のみ・昇順）。category で評価質問とアイスブレイクに振り分ける。
     // 他求人・他 pattern は混ぜない。
-    const { data: jqRows } = await supabase
+    const { data: jqRows, error: jqError } = await supabase
       .from('job_questions')
       .select('question_text, sort_order, category')
       .eq('job_id', applicant.job_id)
       .eq('pattern_key', patternKey)
       .order('sort_order', { ascending: true })
+
+    // DB/query エラーは握りつぶさず非OKで返す。
+    // ※「該当0件＝正当な空（200+空配列→既定質問フォールバック）」とは明確に分離する。
+    //   error を空扱いにすると、誤った既定質問で面接続行＆スナップショットしてしまう（クライアントのブロッキング経路を発火させる）。
+    if (jqError) return apiError('INTERNAL_ERROR', '質問の取得に失敗しました')
 
     const rows = jqRows ?? []
     const evaluation = rows

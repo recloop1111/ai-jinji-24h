@@ -40,6 +40,22 @@ function isTodayOnOrAfterJst(effectiveMonth: string): boolean {
   return todayJst >= effectiveMonth.slice(0, 10)
 }
 
+/**
+ * 当月（JST）の月初 00:00 JST を、UTC インスタントの ISO 文字列で返す。
+ * interviews.created_at（UTC timestamptz）との `>=` 比較に使う。JST = UTC+9。
+ *
+ * 月初昇格（isTodayOnOrAfterJst）と同じ JST 基準（Date.now()+9h）で当月の年月を導出するため、
+ * 「上限が翌月分へ昇格済みなのに当月カウントは先月分（UTC月）」というズレを起こさない。
+ * Vercel(UTC) でも JST 月初の最初の9時間で当月カウントが先月へずれない。
+ */
+export function jstCurrentMonthStartIso(now: number = Date.now()): string {
+  const jstNow = new Date(now + 9 * 60 * 60 * 1000)
+  const y = jstNow.getUTCFullYear()
+  const m = jstNow.getUTCMonth()
+  // JST の y-m-01 00:00 を UTC インスタントに直すと 9時間前（= 前日 15:00 UTC）。
+  return new Date(Date.UTC(y, m, 1) - 9 * 60 * 60 * 1000).toISOString()
+}
+
 export async function applyNextMonthLimit(company: NextMonthLimitInput): Promise<NextMonthLimitResult> {
   const nextLimit = company.next_month_interview_limit
   const effMonth = company.next_month_limit_effective_month

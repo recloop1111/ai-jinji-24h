@@ -46,6 +46,8 @@ export default function SessionPage() {
   const snapshotSaved = useRef(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  // blockingError の最新値を camera 取得の非同期処理から参照するための ref（クロージャの陳腐化対策）
+  const blockingErrorRef = useRef(false)
   const timeoutRefs = useRef<NodeJS.Timeout[]>([])
 
   // 共通ポリシー（lib/config/interview-policy）へ接続。60分終了 / 50分警告。
@@ -107,12 +109,19 @@ export default function SessionPage() {
   // カメラ取得（start 成功＝interviewId 確定後のみ。403/失敗時は起動しない）
   useEffect(() => {
     if (!interviewId) return
+    // ブロッキングエラーが既に出ているならカメラを起動しない
+    if (blockingErrorRef.current) return
     async function setupCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: true,
         })
+        // 取得が blockingError 発生後に解決した場合（権限プロンプト遅延等）は即停止して保持しない
+        if (blockingErrorRef.current) {
+          stream.getTracks().forEach((track) => track.stop())
+          return
+        }
         streamRef.current = stream
         setHasStream(true)
       } catch {
@@ -127,6 +136,19 @@ export default function SessionPage() {
       }
     }
   }, [interviewId])
+
+  // blockingError 表示中はカメラ/マイクを確実に停止する。
+  // カメラ取得 effect の deps は [interviewId] のみで、blockingError が立っても cleanup が走らないため、
+  // 取得済みストリームがブロッキング画面で動き続けないよう専用に停止する。
+  useEffect(() => {
+    blockingErrorRef.current = blockingError !== null
+    if (!blockingError) return
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
+      setHasStream(false)
+    }
+  }, [blockingError])
 
   useEffect(() => {
     if (hasStream && videoRef.current && streamRef.current) {

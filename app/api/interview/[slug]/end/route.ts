@@ -38,14 +38,16 @@ export async function POST(
 
     const supabase = createServiceRoleClient()
 
-    // slug → 企業特定（停止中は受付不可）
+    // slug → 企業特定。
+    // ※ 企業停止（is_suspended）は「新規 start」だけを抑止する。開始済み（in_progress）面接の確定（/end）は、
+    //   token / interview / applicant の整合が取れていれば通す。停止で /end を 403 にすると、
+    //   面接中に管理者が停止した場合に interview が in_progress のまま固着し、applicants も更新されないため。
     const { data: company, error: compError } = await supabase
       .from('companies')
-      .select('id, is_suspended')
+      .select('id')
       .eq('interview_slug', slug)
       .single()
     if (compError || !company) return apiError('NOT_FOUND', '無効な面接URLです')
-    if (company.is_suspended) return apiError('FORBIDDEN', '現在、面接の受付を停止しています')
 
     // applicant 実在＆当該企業所属
     const { data: applicant, error: appError } = await supabase

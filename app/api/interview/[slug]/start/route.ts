@@ -2,7 +2,7 @@ import { type NextRequest } from 'next/server'
 import { successJson, apiError, errorJson } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifyInterviewToken, verifySmsVerifiedToken } from '@/lib/interview/capability-token'
-import { applyNextMonthLimit } from '@/lib/companies/applyNextMonthLimit'
+import { applyNextMonthLimit, jstCurrentMonthStartIso } from '@/lib/companies/applyNextMonthLimit'
 
 // node:crypto（token検証）を使うため Node runtime を明示
 export const runtime = 'nodejs'
@@ -107,7 +107,8 @@ export async function POST(
     })
     const effectiveLimit = applied.monthly_interview_limit
     if (typeof effectiveLimit === 'number' && effectiveLimit > 0) {
-      const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
+      // 月初は JST 基準（applyNextMonthLimit の昇格と同一基準）。サーバTZ(UTC)依存にしない。
+      const monthStart = jstCurrentMonthStartIso()
       const { count: monthlyCount } = await supabase
         .from('interviews')
         .select('id', { count: 'exact', head: true })
