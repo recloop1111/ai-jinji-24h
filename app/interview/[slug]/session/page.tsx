@@ -40,6 +40,8 @@ export default function SessionPage() {
   const [totalQuestions, setTotalQuestions] = useState(0)
   const [answeredQuestions, setAnsweredQuestions] = useState(0)
   const [isEnding, setIsEnding] = useState(false)
+  // start / questions が失敗した場合のブロッキングエラー（面接UIを描画させない）
+  const [blockingError, setBlockingError] = useState<string | null>(null)
   const [questionList, setQuestionList] = useState<string[]>([])
   const snapshotSaved = useRef(false)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -62,7 +64,14 @@ export default function SessionPage() {
     const storedToken = sessionStorage.getItem(`interview_${slug}_token`)
     const storedSmsToken = sessionStorage.getItem(`interview_${slug}_sms_token`)
     async function startInterview() {
+      // フロー無効（token/applicant 欠落）→ 最初からやり直し
       if (!storedApplicantId || !storedToken) {
+        router.push(`/interview/${slug}`)
+        return
+      }
+      // SMS未認証（sms_token 欠落）→ verify へ戻す（/verify を飛ばした直アクセス対策）
+      if (!storedSmsToken) {
+        router.push(`/interview/${slug}/verify`)
         return
       }
       try {
@@ -74,6 +83,12 @@ export default function SessionPage() {
         })
         const json = await res.json().catch(() => null)
         if (!res.ok || !json?.interview_id) {
+          // 403 = SMS未認証/期限切れ等 → verify へ戻す。それ以外はブロッキングエラー。
+          if (res.status === 403) {
+            router.push(`/interview/${slug}/verify`)
+          } else {
+            setBlockingError('面接を開始できませんでした。お手数ですが最初からやり直してください。')
+          }
           return
         }
         setInterviewId(json.interview_id)
@@ -81,14 +96,16 @@ export default function SessionPage() {
         if (json.company_id) setCompanyId(json.company_id)
         sessionStorage.setItem(`interview_${slug}_interview_id`, json.interview_id)
       } catch {
+        setBlockingError('面接を開始できませんでした。通信環境をご確認のうえ、もう一度お試しください。')
       }
     }
 
     startInterview()
-  }, [slug])
+  }, [slug, router])
 
-  // カメラ取得
+  // カメラ取得（start 成功＝interviewId 確定後のみ。403/失敗時は起動しない）
   useEffect(() => {
+    if (!interviewId) return
     async function setupCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -108,7 +125,7 @@ export default function SessionPage() {
         streamRef.current.getTracks().forEach((track) => track.stop())
       }
     }
-  }, [])
+  }, [interviewId])
 
   useEffect(() => {
     if (hasStream && videoRef.current && streamRef.current) {
@@ -204,36 +221,38 @@ export default function SessionPage() {
         const applicant_id = sessionStorage.getItem(`interview_${slug}_applicant_id`)
         const interview_id = interviewId ?? sessionStorage.getItem(`interview_${slug}_interview_id`)
 
-        let data: { question_text: string; sort_order: number }[] | null = null
-        if (token && applicant_id && interview_id) {
-          const res = await fetch(`/api/interview/${slug}/questions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token, applicant_id, interview_id }),
-          })
-          const json = await res.json().catch(() => null)
-          if (res.ok && Array.isArray(json?.questions)) {
-            data = json.questions
-          }
+        if (!token || !applicant_id || !interview_id) return
+
+        const res = await fetch(`/api/interview/${slug}/questions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, applicant_id, interview_id }),
+        })
+        const json = await res.json().catch(() => null)
+
+        // non-OK（QUESTION_LIMIT_EXCEEDED 等のAPIエラー）はデフォルトに落とさずブロッキング。
+        // ※ end API は叩かない（応募者ステータス/結果を不用意に変更しない）。
+        if (!res.ok || !Array.isArray(json?.questions)) {
+          setBlockingError('面接質問の取得に失敗しました。管理者にお問い合わせください。')
+          return
         }
 
-        if (data && data.length > 0) {
-          const finalQuestions = data.map(q => q.question_text)
-
+        const data: { question_text: string; sort_order: number }[] = json.questions
+        if (data.length > 0) {
+          const finalQuestions = data.map((q) => q.question_text)
           setQuestionList(finalQuestions)
           setTotalQuestions(finalQuestions.length)
           // 最初の質問を表示
           setAiSpeechText(finalQuestions[0])
         } else {
-          // デフォルト質問
+          // 200 + 空配列 = job_id無/pattern未設定の正当なデフォルト質問フォールバック（維持）
           setQuestionList(['本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？'])
           setTotalQuestions(1)
           setAiSpeechText('本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？')
         }
       } catch {
-        setQuestionList(['本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？'])
-        setTotalQuestions(1)
-        setAiSpeechText('本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？')
+        // 通信失敗もデフォルトに落とさずブロッキング（取得不能のため続行しない）
+        setBlockingError('面接質問の取得に失敗しました。管理者にお問い合わせください。')
       }
     }
 
@@ -275,8 +294,9 @@ export default function SessionPage() {
     }).catch(() => {})
   }, [interviewId, questionList, slug])
 
-  // 面接タイマー（60分で自動終了）
+  // 面接タイマー（60分で自動終了）。interviewId 確定（start 成功）後のみ作動させる。
   useEffect(() => {
+    if (!interviewId) return
     if (elapsedSeconds >= MAX_INTERVIEW_SECONDS && !isEnding) {
       setAiSpeechText('お時間となりましたので、面接を終了いたします。結果は後日、お知らせいたします。本日はありがとうございました。')
       const endTimer = setTimeout(() => {
@@ -292,7 +312,7 @@ export default function SessionPage() {
       setElapsedSeconds((prev) => prev + 1)
     }, 1000)
     return () => clearInterval(timer)
-  }, [elapsedSeconds, isEnding, totalQuestions, answeredQuestions, showTimeWarning])
+  }, [interviewId, elapsedSeconds, isEnding, totalQuestions, answeredQuestions, showTimeWarning])
 
   // ブラウザ離脱時の処理
   useEffect(() => {
@@ -391,6 +411,38 @@ export default function SessionPage() {
       // interviewIdがない場合も途中終了画面へ
       router.push(`/interview/${slug}/ended`)
     }
+  }
+
+  // start / questions が失敗した場合: カメラ・タイマー・面接UIを一切描画せずブロッキング表示。
+  if (blockingError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center px-6">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center space-y-4">
+          <div className="mx-auto w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
+            <svg className="w-6 h-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3.75h.008M10.34 3.94l-7.5 12.99A1.5 1.5 0 004.14 19.5h15.72a1.5 1.5 0 001.3-2.25l-7.5-12.99a1.5 1.5 0 00-2.6 0z" />
+            </svg>
+          </div>
+          <h2 className="text-lg font-bold text-gray-800">面接を開始できませんでした</h2>
+          <p className="text-sm text-gray-600 whitespace-pre-line">{blockingError}</p>
+        </div>
+      </div>
+    )
+  }
+
+  // start 成功（interviewId 確定）まではカメラ/タイマー/面接UIを出さず「接続中」のみ表示。
+  if (!interviewId) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4 text-white">
+          <svg className="animate-spin h-8 w-8 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+          <p className="text-sm text-gray-300">面接を準備しています…</p>
+        </div>
+      </div>
+    )
   }
 
   return (
