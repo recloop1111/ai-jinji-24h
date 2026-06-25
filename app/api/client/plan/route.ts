@@ -136,6 +136,16 @@ export async function PATCH(request: NextRequest) {
       return apiError('FORBIDDEN', '企業設定変更用パスワードが正しくありません')
     }
 
+    // 新しい翌月予約で next_month_* を上書きする前に、満了済みの予約があれば先に昇格しておく。
+    // （JST月替わり後、その月まだ GET/start が一度も走っていない状態で PATCH が来た場合に、
+    //  当月へ効くはずだった既存予約を上書きで黙って飛ばさないため。二重反映ガードは applyNextMonthLimit 側にある）
+    await applyNextMonthLimit({
+      id: company.id,
+      monthly_interview_limit: company.monthly_interview_limit ?? null,
+      next_month_interview_limit: company.next_month_interview_limit ?? null,
+      next_month_limit_effective_month: company.next_month_limit_effective_month ?? null,
+    })
+
     // 翌月上限予約のみ更新（今月の monthly_interview_limit は変更しない）
     const { error: updateError } = await supabase
       .from('companies')
