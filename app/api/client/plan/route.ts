@@ -1,7 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClientServerClient } from '@/lib/supabase/server'
+import { createClientServerClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { verifySettingPassword } from '@/lib/security/setting-password'
 import { applyNextMonthLimit, jstCurrentMonthStartIso, jstFirstOfNextMonthDate } from '@/lib/companies/applyNextMonthLimit'
 import { PRICE_PER_INTERVIEW, MIN_INTERVIEW_LIMIT } from '@/types/database'
@@ -146,8 +146,11 @@ export async function PATCH(request: NextRequest) {
       next_month_limit_effective_month: company.next_month_limit_effective_month ?? null,
     })
 
-    // 翌月上限予約のみ更新（今月の monthly_interview_limit は変更しない）
-    const { error: updateError } = await supabase
+    // 翌月上限予約のみ更新（今月の monthly_interview_limit は変更しない）。
+    // 書き込みは service-role で行う（companies の機微列は authenticated 直接UPDATEを RLS/列権限で禁止するため）。
+    // 認証は getClientUser、対象企業は session 由来の user.companyId のみ（body の company_id は信用しない）。
+    const serviceSupabase = createServiceRoleClient()
+    const { error: updateError } = await serviceSupabase
       .from('companies')
       .update({
         next_month_interview_limit,
