@@ -1,12 +1,8 @@
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { jstCurrentMonthStartIso, jstFirstOfNextMonthDate } from '@/lib/companies/applyNextMonthLimit'
 import { PRICE_PER_INTERVIEW } from '@/types/database'
-
-// YYYY-MM
-function toPeriod(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
 
 // 当月見込み + 請求サマリーを返す（service role / RLS非依存）
 export async function GET() {
@@ -16,20 +12,23 @@ export async function GET() {
 
     const supabase = createServiceRoleClient()
 
-    const now = new Date()
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    const monthStartIso = monthStart.toISOString()
-    const currentPeriod = toPeriod(now)
-    const currentYear = String(now.getFullYear())
-    // 過去12ヶ月（古い順）の period 一覧
+    // 月境界・期間は JST 基準（start / client plan / admin limit と統一）。
+    // UTC サーバ（Vercel）でも JST 月初の最初の9時間で当月/期間がズレない。
+    const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000)
+    const jY = jstNow.getUTCFullYear()
+    const jM = jstNow.getUTCMonth() // 0-indexed（JST当月）
+    const monthStartIso = jstCurrentMonthStartIso()
+    const currentPeriod = `${jY}-${String(jM + 1).padStart(2, '0')}`
+    const currentYear = String(jY)
+    // 過去12ヶ月（古い順）の period 一覧（JST基準）
     const periods: string[] = []
     for (let i = 11; i >= 0; i--) {
-      periods.push(toPeriod(new Date(now.getFullYear(), now.getMonth() - i, 1)))
+      const d = new Date(Date.UTC(jY, jM - i, 1))
+      periods.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`)
     }
     const oldestPeriod = periods[0]
-    // 翌月1日（次回請求日）
-    const nextBilling = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-    const nextBillingDate = `${nextBilling.getFullYear()}-${String(nextBilling.getMonth() + 1).padStart(2, '0')}-${String(nextBilling.getDate()).padStart(2, '0')}`
+    // 翌月1日（次回請求日・JST基準）
+    const nextBillingDate = jstFirstOfNextMonthDate()
 
     // 企業一覧
     const { data: companies, error: compError } = await supabase

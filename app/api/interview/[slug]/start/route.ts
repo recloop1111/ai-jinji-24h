@@ -123,12 +123,26 @@ export async function POST(
       }
     }
 
-    // 再入場/リロードの in_progress 孤児を cancelled 化（最新の1件だけ in_progress に保つ）
-    await supabase
+    // 再入場/リロードの in_progress 孤児を finalize（cancelled）する。最新の1件だけ in_progress に保つ。
+    // ここで課金を確定しないと、/end が非 in_progress を冪等スキップするため、10分超の旧セッションが
+    // 未課金・上限未カウントのまま取り残される。よってサーバ保存の started_at から duration を算出し is_billable を確定する。
+    const cancelNowIso = new Date().toISOString()
+    const { data: orphanInterviews } = await supabase
       .from('interviews')
-      .update({ status: 'cancelled', ended_at: new Date().toISOString() })
+      .select('id, started_at')
       .eq('applicant_id', applicantId)
       .eq('status', 'in_progress')
+    for (const orphan of orphanInterviews ?? []) {
+      const startedMs = orphan.started_at ? new Date(orphan.started_at).getTime() : NaN
+      const dur = Number.isFinite(startedMs)
+        ? Math.max(0, Math.floor((new Date(cancelNowIso).getTime() - startedMs) / 1000))
+        : 0
+      await supabase
+        .from('interviews')
+        .update({ status: 'cancelled', ended_at: cancelNowIso, duration_seconds: dur, is_billable: dur > 600 })
+        .eq('id', orphan.id)
+        .eq('status', 'in_progress')
+    }
 
     // 新しい面接を開始
     const { data: interview, error: insError } = await supabase
