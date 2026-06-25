@@ -186,6 +186,25 @@ export async function PATCH(
 
     updates.updated_at = new Date().toISOString()
 
+    // 翌月予約（next_month_*）を上書きする場合は、書き込み前に満了済み予約を昇格しておく。
+    // （client/plan PATCH と同じ事故＝JST月替わり後の最初のリクエストで、当月に効くはずだった
+    //  既存予約を上書きで黙って飛ばすのを防ぐ。二重反映/CAS ガードは applyNextMonthLimit 側にある）
+    if ('next_month_interview_limit' in body || 'next_month_limit_effective_month' in body) {
+      const { data: existing } = await supabase
+        .from('companies')
+        .select('id, monthly_interview_limit, next_month_interview_limit, next_month_limit_effective_month')
+        .eq('id', id)
+        .single()
+      if (existing) {
+        await applyNextMonthLimit({
+          id: existing.id,
+          monthly_interview_limit: existing.monthly_interview_limit ?? null,
+          next_month_interview_limit: existing.next_month_interview_limit ?? null,
+          next_month_limit_effective_month: existing.next_month_limit_effective_month ?? null,
+        })
+      }
+    }
+
     const { data: company, error } = await supabase
       .from('companies')
       .update(updates)

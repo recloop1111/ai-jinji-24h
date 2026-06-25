@@ -106,8 +106,12 @@ export async function applyNextMonthLimit(company: NextMonthLimitInput): Promise
         updated_at: new Date().toISOString(),
       })
       .eq('id', company.id)
-      // 二重反映防止: まだ予約が残っている行だけ更新する
-      .not('next_month_limit_effective_month', 'is', null)
+      // 二重反映防止 ＋ compare-and-swap: 「読んだ予約とまったく同じ行」のときだけ昇格・クリアする。
+      // 単なる non-null 判定だと、別リクエストが先に昇格して新しい未来予約を作った後に
+      // stale な本リクエストが到達した場合、その新しい未来予約まで誤ってクリアしてしまう。
+      // 読んだ effective_month / limit と一致する行に限定することで、自分が読んだ予約だけを昇格する。
+      .eq('next_month_limit_effective_month', effMonth)
+      .eq('next_month_interview_limit', nextLimit)
 
     if (error) {
       // 背景処理の失敗は API を壊さない。昇格前の値を返す。
