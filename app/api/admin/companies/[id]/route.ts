@@ -4,7 +4,7 @@ import { successJson, apiError } from '@/lib/api/response'
 import { isValidUUID } from '@/lib/api/validation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifySettingPassword } from '@/lib/security/setting-password'
-import { applyNextMonthLimit } from '@/lib/companies/applyNextMonthLimit'
+import { applyNextMonthLimit, jstFirstOfNextMonthDate } from '@/lib/companies/applyNextMonthLimit'
 
 export async function GET(
   _request: NextRequest,
@@ -95,9 +95,11 @@ export async function PATCH(
     // 重要設定（今月上限/翌月予約/契約種別plan/単価）の変更時は
     // 「運営管理設定変更用パスワード」(ログインPWとは別) を必須にする。
     // adminSettingPassword を admin_security_settings.setting_password_hash と照合する。
+    // 重要操作: 契約/上限/単価に加え、企業停止・再開（status / is_suspended）も設定パスワード必須にする。
     const IMPORTANT_FIELDS = [
       'monthly_interview_limit', 'plan', 'price_per_interview',
       'next_month_interview_limit', 'next_month_limit_effective_month',
+      'status', 'is_suspended',
     ]
     const requiresAuth = IMPORTANT_FIELDS.some((f) => f in body)
     if (requiresAuth) {
@@ -185,6 +187,16 @@ export async function PATCH(
     }
 
     updates.updated_at = new Date().toISOString()
+
+    // next_month_limit_effective_month はクライアント値を信用しない（admin ブラウザTZ依存だと
+    // 月境界で当月日付を送ってしまい即時適用される）。サーバ側で JST 基準に確定する。
+    if ('next_month_interview_limit' in updates) {
+      updates.next_month_limit_effective_month =
+        updates.next_month_interview_limit === null ? null : jstFirstOfNextMonthDate()
+    } else {
+      // 予約上限を伴わない effective_month 単独指定は採用しない（client 値を破棄）
+      delete updates.next_month_limit_effective_month
+    }
 
     // 翌月予約（next_month_*）を上書きする場合は、書き込み前に満了済み予約を昇格しておく。
     // （client/plan PATCH と同じ事故＝JST月替わり後の最初のリクエストで、当月に効くはずだった

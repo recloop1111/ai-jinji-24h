@@ -9,11 +9,16 @@ import PasswordInput from '@/components/shared/PasswordInput'
 
 const CARD_BASE = 'bg-gradient-to-br from-white/[0.07] to-white/[0.02] backdrop-blur-2xl border border-white/[0.08] rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)]'
 
-// 翌月1日（YYYY-MM-01）
+// 翌月1日（YYYY-MM-01）を JST 基準で返す（表示整合用）。
+// ※ 予約の実値はサーバ(admin PATCH API)が JST で確定するため、ここは表示のみ。
+//    server専用 helper（applyNextMonthLimit.ts は service-role client を import）を
+//    client component に取り込まないよう、ローカルに JST 実装する。
 function firstOfNextMonth(): string {
-  const d = new Date()
-  const n = new Date(d.getFullYear(), d.getMonth() + 1, 1)
-  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-01`
+  const j = new Date(Date.now() + 9 * 60 * 60 * 1000) // UTC+9（JST）
+  const y = j.getUTCFullYear()
+  const m = j.getUTCMonth()
+  const n = new Date(Date.UTC(y, m + 1, 1))
+  return `${n.getUTCFullYear()}-${String(n.getUTCMonth() + 1).padStart(2, '0')}-01`
 }
 
 const EVALUATION_AXES = [
@@ -41,6 +46,10 @@ export default function CompanyDetailPage() {
   // モーダル state
   const [stopModalOpen, setStopModalOpen] = useState(false)
   const [resumeModalOpen, setResumeModalOpen] = useState(false)
+  // 停止/再開は重要操作のため運営設定パスワード必須
+  const [contractPw, setContractPw] = useState('')
+  const [contractPwError, setContractPwError] = useState('')
+  const [contractSaving, setContractSaving] = useState(false)
   const [limitModalOpen, setLimitModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [newLimitStr, setNewLimitStr] = useState('20')
@@ -283,24 +292,40 @@ export default function CompanyDetailPage() {
   }
 
   async function handleStopContract() {
-    const result = await patchCompany({ is_suspended: true, status: 'suspended' })
+    if (!contractPw) {
+      setContractPwError('運営管理設定変更用パスワードを入力してください')
+      return
+    }
+    setContractPwError('')
+    setContractSaving(true)
+    const result = await patchCompany({ is_suspended: true, status: 'suspended', adminSettingPassword: contractPw })
+    setContractSaving(false)
     if (result.ok) {
       setStopModalOpen(false)
+      setContractPw('')
       showToast('契約を停止しました')
       setRefreshTrigger((t) => t + 1)
     } else {
-      showToast(result.error || '停止に失敗しました')
+      setContractPwError(result.error || '停止に失敗しました')
     }
   }
 
   async function handleResumeContract() {
-    const result = await patchCompany({ is_suspended: false, status: 'active' })
+    if (!contractPw) {
+      setContractPwError('運営管理設定変更用パスワードを入力してください')
+      return
+    }
+    setContractPwError('')
+    setContractSaving(true)
+    const result = await patchCompany({ is_suspended: false, status: 'active', adminSettingPassword: contractPw })
+    setContractSaving(false)
     if (result.ok) {
       setResumeModalOpen(false)
+      setContractPw('')
       showToast('契約を再開しました')
       setRefreshTrigger((t) => t + 1)
     } else {
-      showToast(result.error || '再開に失敗しました')
+      setContractPwError(result.error || '再開に失敗しました')
     }
   }
 
@@ -479,7 +504,7 @@ export default function CompanyDetailPage() {
               {statusType === 'active' ? (
                 <button
                   type="button"
-                  onClick={() => setStopModalOpen(true)}
+                  onClick={() => { setContractPw(''); setContractPwError(''); setStopModalOpen(true) }}
                   className="bg-red-500/10 text-red-400 hover:bg-red-500/15 border border-red-500/20 rounded-xl px-4 py-2 text-sm transition-colors"
                 >
                   契約停止
@@ -487,7 +512,7 @@ export default function CompanyDetailPage() {
               ) : statusType === 'suspended' ? (
                 <button
                   type="button"
-                  onClick={() => setResumeModalOpen(true)}
+                  onClick={() => { setContractPw(''); setContractPwError(''); setResumeModalOpen(true) }}
                   className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15 border border-emerald-500/20 rounded-xl px-4 py-2 text-sm transition-colors"
                 >
                   停止を解除する
@@ -1054,14 +1079,25 @@ export default function CompanyDetailPage() {
       {/* 契約停止確認モーダル */}
       {stopModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setStopModalOpen(false)} aria-hidden />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setStopModalOpen(false); setContractPw(''); setContractPwError('') }} aria-hidden />
           <div className={`relative ${CARD_BASE} p-6 max-w-md w-full`}>
             <h3 className="text-lg font-semibold text-white mb-2">契約停止の確認</h3>
-            <p className="text-sm text-gray-400 mb-6">本当に停止しますか？停止すると新規面接の受付が停止されます。</p>
+            <p className="text-sm text-gray-400 mb-4">本当に停止しますか？停止すると新規面接の受付が停止されます。</p>
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-gray-400 mb-1">運営管理設定変更用パスワード</label>
+              <PasswordInput
+                value={contractPw}
+                onChange={(v) => { setContractPw(v); setContractPwError('') }}
+                placeholder="運営管理設定変更用パスワードを入力"
+                iconClassName="text-gray-400 hover:text-gray-200"
+                className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none pr-16"
+              />
+              {contractPwError && <p className="text-xs text-red-400 mt-1">{contractPwError}</p>}
+            </div>
             <div className="flex gap-3 justify-end">
               <button
                 type="button"
-                onClick={() => setStopModalOpen(false)}
+                onClick={() => { setStopModalOpen(false); setContractPw(''); setContractPwError('') }}
                 className="bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-2 text-sm transition-colors"
               >
                 キャンセル
@@ -1069,7 +1105,8 @@ export default function CompanyDetailPage() {
               <button
                 type="button"
                 onClick={handleStopContract}
-                className="bg-red-500/10 text-red-400 hover:bg-red-500/15 border border-red-500/20 rounded-xl px-4 py-2 text-sm transition-colors"
+                disabled={contractSaving || !contractPw}
+                className="bg-red-500/10 text-red-400 hover:bg-red-500/15 border border-red-500/20 rounded-xl px-4 py-2 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 停止する
               </button>
@@ -1081,14 +1118,25 @@ export default function CompanyDetailPage() {
       {/* 契約再開確認モーダル */}
       {resumeModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setResumeModalOpen(false)} aria-hidden />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setResumeModalOpen(false); setContractPw(''); setContractPwError('') }} aria-hidden />
           <div className={`relative ${CARD_BASE} p-6 max-w-md w-full`}>
             <h3 className="text-lg font-semibold text-white mb-2">契約再開の確認</h3>
-            <p className="text-sm text-gray-400 mb-6">契約を再開しますか？再開すると面接の受付が再開されます。</p>
+            <p className="text-sm text-gray-400 mb-4">契約を再開しますか？再開すると面接の受付が再開されます。</p>
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-gray-400 mb-1">運営管理設定変更用パスワード</label>
+              <PasswordInput
+                value={contractPw}
+                onChange={(v) => { setContractPw(v); setContractPwError('') }}
+                placeholder="運営管理設定変更用パスワードを入力"
+                iconClassName="text-gray-400 hover:text-gray-200"
+                className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none pr-16"
+              />
+              {contractPwError && <p className="text-xs text-red-400 mt-1">{contractPwError}</p>}
+            </div>
             <div className="flex gap-3 justify-end">
               <button
                 type="button"
-                onClick={() => setResumeModalOpen(false)}
+                onClick={() => { setResumeModalOpen(false); setContractPw(''); setContractPwError('') }}
                 className="bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-2 text-sm transition-colors"
               >
                 キャンセル
@@ -1096,7 +1144,8 @@ export default function CompanyDetailPage() {
               <button
                 type="button"
                 onClick={handleResumeContract}
-                className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15 border border-emerald-500/20 rounded-xl px-4 py-2 text-sm transition-colors"
+                disabled={contractSaving || !contractPw}
+                className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15 border border-emerald-500/20 rounded-xl px-4 py-2 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 再開する
               </button>
