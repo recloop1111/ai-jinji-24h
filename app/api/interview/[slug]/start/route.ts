@@ -1,5 +1,5 @@
 import { type NextRequest } from 'next/server'
-import { successJson, apiError } from '@/lib/api/response'
+import { successJson, apiError, errorJson } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifyInterviewToken, verifySmsVerifiedToken } from '@/lib/interview/capability-token'
 import { applyNextMonthLimit } from '@/lib/companies/applyNextMonthLimit'
@@ -31,10 +31,12 @@ export async function POST(
 
     // SMS認証完了トークンを必須化（テスト企業含め素通しさせない）。
     // purpose='sms_verified' / 署名 / exp / slug / applicant_id（applicant token と一致）を検証。company_id は company 取得後に照合。
+    // SMS系の 403 は専用コード SMS_VERIFICATION_REQUIRED を返す（クライアントは verify へ戻す判定に使う）。
+    // 企業停止/月間上限などのポリシー 403（FORBIDDEN）と区別し、verify↔start の無限ループを防ぐ。
     const smsPayload = verifySmsVerifiedToken(typeof body.sms_token === 'string' ? body.sms_token : null)
-    if (!smsPayload) return apiError('FORBIDDEN', 'SMS認証が完了していません')
+    if (!smsPayload) return errorJson('SMS_VERIFICATION_REQUIRED', 'SMS認証が完了していません', 403)
     if (smsPayload.slug !== slug || smsPayload.applicant_id !== applicantId) {
-      return apiError('FORBIDDEN', 'SMS認証情報が一致しません')
+      return errorJson('SMS_VERIFICATION_REQUIRED', 'SMS認証情報が一致しません', 403)
     }
 
     const supabase = createServiceRoleClient()
@@ -48,7 +50,7 @@ export async function POST(
     if (compError || !company) return apiError('NOT_FOUND', '無効な面接URLです')
     if (company.is_suspended) return apiError('FORBIDDEN', '現在、面接の受付を停止しています')
     // SMS認証トークンの company_id が当該企業と一致すること（別企業のトークン流用を防止）
-    if (smsPayload.company_id !== company.id) return apiError('FORBIDDEN', 'SMS認証情報が一致しません')
+    if (smsPayload.company_id !== company.id) return errorJson('SMS_VERIFICATION_REQUIRED', 'SMS認証情報が一致しません', 403)
 
     // applicant 実在＆当該企業所属を検証。終了状態判定用に status / selection_status も取得。
     const { data: applicant, error: appError } = await supabase

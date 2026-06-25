@@ -83,8 +83,9 @@ export default function SessionPage() {
         })
         const json = await res.json().catch(() => null)
         if (!res.ok || !json?.interview_id) {
-          // 403 = SMS未認証/期限切れ等 → verify へ戻す。それ以外はブロッキングエラー。
-          if (res.status === 403) {
+          // SMS系の 403（SMS_VERIFICATION_REQUIRED）だけ verify へ戻す。
+          // 企業停止/月間上限など他の 403（FORBIDDEN）や非403は blockingError（verify↔start ループを作らない）。
+          if (res.status === 403 && json?.error?.code === 'SMS_VERIFICATION_REQUIRED') {
             router.push(`/interview/${slug}/verify`)
           } else {
             setBlockingError('面接を開始できませんでした。お手数ですが最初からやり直してください。')
@@ -212,6 +213,14 @@ export default function SessionPage() {
 
   // 質問を job_questions（questions API）から取得
   useEffect(() => {
+    // job_id 無し / 200+空配列 のときに使う既存デフォルト質問（質問ゼロで面接UIに入らないようにする）
+    const DEFAULT_QUESTION = '本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？'
+    function setDefaultQuestions() {
+      setQuestionList([DEFAULT_QUESTION])
+      setTotalQuestions(1)
+      setAiSpeechText(DEFAULT_QUESTION)
+    }
+
     async function fetchQuestions() {
       if (!jobId || !companyId) return
 
@@ -245,10 +254,8 @@ export default function SessionPage() {
           // 最初の質問を表示
           setAiSpeechText(finalQuestions[0])
         } else {
-          // 200 + 空配列 = job_id無/pattern未設定の正当なデフォルト質問フォールバック（維持）
-          setQuestionList(['本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？'])
-          setTotalQuestions(1)
-          setAiSpeechText('本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？')
+          // 200 + 空配列 = pattern未設定の正当なデフォルト質問フォールバック（維持）
+          setDefaultQuestions()
         }
       } catch {
         // 通信失敗もデフォルトに落とさずブロッキング（取得不能のため続行しない）
@@ -256,19 +263,26 @@ export default function SessionPage() {
       }
     }
 
-    if (jobId && companyId) {
-      const t1 = setTimeout(() => {
-        fetchQuestions()
-      }, 3000)
-      const t2 = setTimeout(() => {
-        setAiSpeechText('')
-        // 質問が表示されたら回答済みカウントを増やす（デモ用）
-        setAnsweredQuestions((prev) => Math.min(prev + 1, totalQuestions))
-      }, 10000)
-      return () => {
-        clearTimeout(t1)
-        clearTimeout(t2)
-      }
+    // start 成功（interviewId 確定）後に質問を用意する。
+    if (!interviewId || !companyId) return
+
+    // job_id 無し → /questions を呼ばず、明示的に既存デフォルト質問を即セット（totalQuestions=1・最初の質問）
+    if (!jobId) {
+      setDefaultQuestions()
+      return
+    }
+
+    const t1 = setTimeout(() => {
+      fetchQuestions()
+    }, 3000)
+    const t2 = setTimeout(() => {
+      setAiSpeechText('')
+      // 質問が表示されたら回答済みカウントを増やす（デモ用）
+      setAnsweredQuestions((prev) => Math.min(prev + 1, totalQuestions))
+    }, 10000)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
     }
   }, [jobId, companyId, totalQuestions, interviewId, slug])
 
@@ -297,6 +311,8 @@ export default function SessionPage() {
   // 面接タイマー（60分で自動終了）。interviewId 確定（start 成功）後のみ作動させる。
   useEffect(() => {
     if (!interviewId) return
+    // ブロッキングエラー中はタイマー（自動終了＝end 送信経路）を作動させない
+    if (blockingError) return
     if (elapsedSeconds >= MAX_INTERVIEW_SECONDS && !isEnding) {
       setAiSpeechText('お時間となりましたので、面接を終了いたします。結果は後日、お知らせいたします。本日はありがとうございました。')
       const endTimer = setTimeout(() => {
@@ -312,11 +328,13 @@ export default function SessionPage() {
       setElapsedSeconds((prev) => prev + 1)
     }, 1000)
     return () => clearInterval(timer)
-  }, [interviewId, elapsedSeconds, isEnding, totalQuestions, answeredQuestions, showTimeWarning])
+  }, [interviewId, blockingError, elapsedSeconds, isEnding, totalQuestions, answeredQuestions, showTimeWarning])
 
   // ブラウザ離脱時の処理
   useEffect(() => {
     const handleBeforeUnload = async (e: BeforeUnloadEvent) => {
+      // ブロッキングエラー中（start/questions 失敗）は離脱警告を出さない（end も送らない）
+      if (blockingError) return
       if (interviewId && applicantId && !isEnding) {
         // ブラウザ離脱時の警告を表示
         e.preventDefault()
@@ -329,6 +347,8 @@ export default function SessionPage() {
     }
 
     const handlePageHide = () => {
+      // ブロッキングエラー中は /end を送らない（応募者を途中離脱/不採用に変えない）
+      if (blockingError) return
       if (interviewId && applicantId && !isEnding) {
         const token = sessionStorage.getItem(`interview_${slug}_token`)
         if (!token) return
@@ -353,7 +373,7 @@ export default function SessionPage() {
       window.removeEventListener('beforeunload', handleBeforeUnload)
       window.removeEventListener('pagehide', handlePageHide)
     }
-  }, [interviewId, applicantId, elapsedSeconds, totalQuestions, answeredQuestions, isEnding, slug])
+  }, [interviewId, applicantId, elapsedSeconds, totalQuestions, answeredQuestions, isEnding, slug, blockingError])
 
   async function handleEndInterview(endReason: '全質問完了' | '時間切れ' | '自主終了' = '自主終了') {
     if (isEnding) return // 重複実行を防止
