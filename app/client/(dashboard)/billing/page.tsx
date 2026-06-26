@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Download as DownloadIcon, Landmark as BankIcon } from 'lucide-react'
 import { createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
@@ -28,7 +28,9 @@ type Invoice = {
 
 export default function BillingPage() {
   const { companyId, loading: companyIdLoading } = useCompanyId()
-  const supabase = createClientBrowserClient()
+  // createClientBrowserClient() を毎レンダー生成すると、データ取得 effect の依存(supabase)が
+  // 毎回変わり再取得ループ（画面チカチカ）になるため useMemo で安定化する（applicants ページと同方式）。
+  const supabase = useMemo(() => createClientBrowserClient(), [])
 
   const [loading, setLoading] = useState(true)
   const [monthlyCount, setMonthlyCount] = useState(0)
