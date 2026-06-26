@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createAdminBrowserClient } from '@/lib/supabase/client'
@@ -136,7 +136,9 @@ function RecommendLegendDark() {
 export default function AdminApplicantDetailPage() {
   const params = useParams()
   const id = params.id as string
-  const supabase = createAdminBrowserClient()
+  // createAdminBrowserClient() を毎レンダー生成するとデータ取得 effect の依存(supabase)が
+  // 毎回変わり再取得ループ（画面チカチカ）になるため useMemo で安定化する（billing ページと同方式・6620f8f）。
+  const supabase = useMemo(() => createAdminBrowserClient(), [])
 
   const [activeTab, setActiveTab] = useState<TabKey>('summary')
   const [applicant, setApplicant] = useState<any>(null)

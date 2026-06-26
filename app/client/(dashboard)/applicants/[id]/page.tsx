@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClientBrowserClient } from '@/lib/supabase/client'
@@ -385,7 +385,9 @@ function RecommendLegend() {
 export default function ApplicantDetailPage() {
   const params = useParams()
   const id = params.id as string
-  const supabase = createClientBrowserClient()
+  // createClientBrowserClient() を毎レンダー生成するとデータ取得 effect の依存(supabase)が
+  // 毎回変わり再取得ループ（画面チカチカ）になるため useMemo で安定化する（billing ページと同方式・6620f8f）。
+  const supabase = useMemo(() => createClientBrowserClient(), [])
   
   
   const [activeTab, setActiveTab] = useState<TabKey>('summary')
