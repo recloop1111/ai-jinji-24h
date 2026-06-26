@@ -1,6 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,7 +11,9 @@ export async function POST(request: NextRequest) {
       return apiError('UNAUTHORIZED', '認証に失敗しました')
     }
 
-    const supabase = await createClient()
+    // service-role で実行（companies / suspension_requests を RLS 下でも更新するため。
+    // 内部バッチは INTERNAL_BATCH_SECRET で認証済み・anon クライアントでは RLS で更新失敗する）。
+    const supabase = createServiceRoleClient()
     const now = new Date().toISOString()
 
     // 予定停止日カラムが無いため、申請日（created_at）の1ヶ月後に達した通常停止を対象とする

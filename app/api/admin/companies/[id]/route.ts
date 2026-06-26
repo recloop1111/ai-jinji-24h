@@ -249,7 +249,31 @@ export async function PATCH(
       return apiError('INTERNAL_ERROR', '企業情報の更新に失敗しました')
     }
 
-    return successJson({ company })
+    // GET と同様にホワイトリストで返す（company_setting_password_hash / auth_user_id 等の機微列を返さない）。
+    return successJson({
+      company: {
+        id: company.id,
+        name: company.name,
+        email: company.email,
+        contact_person: company.contact_person,
+        contact_email: company.contact_email,
+        phone: company.phone,
+        industry: company.industry,
+        interview_slug: company.interview_slug,
+        plan: company.plan,
+        price_per_interview: company.price_per_interview,
+        monthly_interview_count: company.monthly_interview_count,
+        monthly_interview_limit: company.monthly_interview_limit,
+        next_month_interview_limit: company.next_month_interview_limit,
+        next_month_limit_effective_month: company.next_month_limit_effective_month,
+        is_suspended: company.is_suspended,
+        is_active: company.is_active,
+        status: company.status,
+        created_at: company.created_at,
+        logo_url: company.logo_url,
+        avatar_url: company.avatar_url,
+      },
+    })
   } catch {
     return apiError('INTERNAL_ERROR')
   }
