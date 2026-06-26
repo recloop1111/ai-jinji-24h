@@ -56,9 +56,29 @@ export async function GET(
       next_month_limit_effective_month: company.next_month_limit_effective_month ?? null,
     })
 
+    // レスポンスはホワイトリストで構築する。company 全列を spread すると
+    // company_setting_password_hash / auth_user_id 等の機微列まで admin ブラウザへ返るため、
+    // 管理画面が必要とする列だけを明示的に返す（hash / auth_user_id は絶対に返さない）。
     return successJson({
       company: {
-        ...company,
+        id: company.id,
+        name: company.name,
+        email: company.email,
+        contact_person: company.contact_person,
+        contact_email: company.contact_email,
+        phone: company.phone,
+        industry: company.industry,
+        interview_slug: company.interview_slug,
+        plan: company.plan,
+        price_per_interview: company.price_per_interview,
+        monthly_interview_count: company.monthly_interview_count,
+        is_suspended: company.is_suspended,
+        is_active: company.is_active,
+        status: company.status,
+        created_at: company.created_at,
+        logo_url: company.logo_url,
+        avatar_url: company.avatar_url,
+        // サーバ算出/上書き値
         monthly_interview_limit: applied.monthly_interview_limit,
         next_month_interview_limit: applied.next_month_interview_limit,
         next_month_limit_effective_month: applied.next_month_limit_effective_month,
