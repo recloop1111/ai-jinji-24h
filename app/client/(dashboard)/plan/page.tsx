@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { hasDemoCookie } from '@/lib/config/demo'
 import PasswordInput from '@/components/shared/PasswordInput'
+import { normalizeDigits } from '@/lib/utils/normalizeDigits'
 
 type PlanData = {
   contract_type_label: string
@@ -139,7 +140,7 @@ export default function PlanPage() {
   const isAtLimit = remaining === 0
   const minLimit = plan.min_interview_limit
 
-  const parsedNewLimit = parseInt(newLimit, 10)
+  const parsedNewLimit = parseInt(normalizeDigits(newLimit), 10)
   const isValidNewLimit = !isNaN(parsedNewLimit) && Number.isInteger(parsedNewLimit) && parsedNewLimit >= minLimit
   const previewMaxCharge = isValidNewLimit ? parsedNewLimit * price : 0
 
@@ -313,7 +314,7 @@ export default function PlanPage() {
                     min={minLimit}
                     step={1}
                     value={newLimit}
-                    onChange={(e) => setNewLimit(e.target.value)}
+                    onChange={(e) => setNewLimit(normalizeDigits(e.target.value))}
                     placeholder={String(plan.next_month_interview_limit ?? limit)}
                     className="w-32 px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
                   />

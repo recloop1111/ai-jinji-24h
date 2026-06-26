@@ -6,6 +6,7 @@ import { ArrowLeft, Link as LinkIcon, User, Info, X } from 'lucide-react'
 import JobManager from '@/components/shared/JobManager'
 import QuestionEditor from '@/components/shared/QuestionEditor'
 import PasswordInput from '@/components/shared/PasswordInput'
+import { normalizeDigits } from '@/lib/utils/normalizeDigits'
 
 const CARD_BASE = 'bg-gradient-to-br from-white/[0.07] to-white/[0.02] backdrop-blur-2xl border border-white/[0.08] rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)]'
 
@@ -203,7 +204,7 @@ export default function CompanyDetailPage() {
       return
     }
     if (csNextLimit.trim() !== '') {
-      const n = parseInt(csNextLimit, 10)
+      const n = parseInt(normalizeDigits(csNextLimit), 10)
       if (!Number.isInteger(n) || n < 5) {
         setCsError('翌月上限は5以上の整数、または空欄にしてください')
         return
@@ -219,7 +220,7 @@ export default function CompanyDetailPage() {
   async function saveContractSettings() {
     const price = parseInt(csPrice, 10)
     const monthly = parseInt(csMonthlyLimit, 10)
-    const nextLimit = csNextLimit.trim() === '' ? null : parseInt(csNextLimit, 10)
+    const nextLimit = csNextLimit.trim() === '' ? null : parseInt(normalizeDigits(csNextLimit), 10)
     // 翌月上限の適用開始日は必ず翌月1日（任意日入力は採用しない）。予約なしなら null。
     const effMonth = nextLimit != null ? firstOfNextMonth() : null
 
@@ -594,7 +595,7 @@ export default function CompanyDetailPage() {
                   min={5}
                   step={1}
                   value={csNextLimit}
-                  onChange={(e) => setCsNextLimit(e.target.value)}
+                  onChange={(e) => setCsNextLimit(normalizeDigits(e.target.value))}
                   placeholder="未予約"
                   className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
                 />
