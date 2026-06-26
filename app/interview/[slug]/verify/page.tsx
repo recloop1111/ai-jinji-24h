@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { normalizeDigits } from '@/lib/utils/normalizeDigits'
 
 export default function VerifyPage() {
   const params = useParams()
@@ -54,7 +55,9 @@ export default function VerifyPage() {
     }
   }, [toast])
 
-  function handleCodeChange(index: number, value: string) {
+  function handleCodeChange(index: number, rawValue: string) {
+    // 全角数字（１２３４）も半角へ正規化してから判定・保持する
+    const value = normalizeDigits(rawValue)
     // 数字のみ受け付ける
     if (value && !/^\d$/.test(value)) {
       return
@@ -82,7 +85,8 @@ export default function VerifyPage() {
 
   function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
     e.preventDefault()
-    const pastedData = e.clipboardData.getData('text').slice(0, 4)
+    // 全角数字を含む貼り付けも半角へ正規化してから抽出
+    const pastedData = normalizeDigits(e.clipboardData.getData('text')).slice(0, 4)
     const digits = pastedData.split('').filter((char) => /^\d$/.test(char))
     
     if (digits.length > 0) {
@@ -101,7 +105,8 @@ export default function VerifyPage() {
   }
 
   async function handleVerify() {
-    const codeString = code.join('')
+    // 念のため送信前にも半角へ正規化（入力時に正規化済みだが防御的に）
+    const codeString = normalizeDigits(code.join(''))
     if (!code.every((digit) => digit !== '')) return
 
     // 認証判定はサーバー側で行う（固定コード許可はテスト企業の company_id のときのみ）。

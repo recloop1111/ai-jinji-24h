@@ -3,6 +3,7 @@ import { successJson, apiError, errorJson } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifyInterviewToken, signSmsVerifiedToken } from '@/lib/interview/capability-token'
 import { DEMO_COMPANY_ID } from '@/lib/config/demo'
+import { normalizeDigits } from '@/lib/utils/normalizeDigits'
 
 // node:crypto（token検証）を使うため Node runtime を明示
 export const runtime = 'nodejs'
@@ -45,7 +46,8 @@ export async function POST(
     if (!applicantId || applicantId !== payload.applicant_id) {
       return noStore(apiError('UNAUTHORIZED', 'applicant_id が一致しません'))
     }
-    const code = typeof body.code === 'string' ? body.code : ''
+    // 全角数字（１２３４）でも通るよう、比較前にサーバ側でも半角へ正規化する
+    const code = normalizeDigits(typeof body.code === 'string' ? body.code : '')
 
     const supabase = createServiceRoleClient()
 

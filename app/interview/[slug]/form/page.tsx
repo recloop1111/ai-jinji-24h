@@ -14,6 +14,7 @@ import {
   RadioGroup,
 } from '@/components/interview/FormComponents'
 import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget'
+import { normalizeDigits } from '@/lib/utils/normalizeDigits'
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
@@ -192,11 +193,12 @@ export default function FormPage() {
         first_name_kana: firstNameKana.trim(),
         birth_date: (() => {
           const now = new Date()
-          const birthYear = now.getFullYear() - parseInt(age, 10)
+          const birthYear = now.getFullYear() - parseInt(normalizeDigits(age), 10)
           return `${birthYear}-01-01`
         })(),
         gender: gender,
-        phone_number: phone,
+        // API送信前にも半角へ正規化（autofill 等で onChange を経由しない場合の防御）
+        phone_number: normalizeDigits(phone),
         email: email.trim(),
         selection_status: 'pending', // 準備中（面接前の初期状態）
         status: '準備中', // 面接の進行状況（準備中・完了・途中離脱）
@@ -204,7 +206,7 @@ export default function FormPage() {
         duplicate_flag: false,
         inappropriate_flag: false,
         // NULL可能カラム（任意）
-        age: parseInt(age, 10) || null,
+        age: parseInt(normalizeDigits(age), 10) || null,
         prefecture: prefecture || null,
         education: education || null,
         employment_type: employmentType || null, // フォームで選択された値を常に設定
@@ -329,7 +331,7 @@ export default function FormPage() {
               min={1}
               max={100}
               value={age}
-              onChange={(e) => setAge(e.target.value)}
+              onChange={(e) => setAge(normalizeDigits(e.target.value))}
               placeholder="例）25"
               className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors bg-white text-gray-900"
             />
@@ -352,7 +354,7 @@ export default function FormPage() {
             <TextInput
               type="tel"
               value={phone}
-              onChange={setPhone}
+              onChange={(v) => setPhone(normalizeDigits(v))}
               placeholder="例）09012345678"
             />
           </InputField>
