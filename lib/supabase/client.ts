@@ -13,7 +13,14 @@ function makePortalBrowserClient(storageKey: string) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       isSingleton: false,
-      cookieOptions: { name: storageKey },
+      // sameSite=lax / secure（本番=https のみ。dev は http のため無効）を明示。
+      // httpOnly は付けない: ブラウザ側 Supabase クライアントが document.cookie からセッションを読むため
+      //   HttpOnly にすると client/admin のブラウザ直クエリが anon 化して壊れる（受容リスク・docs記録）。
+      cookieOptions: {
+        name: storageKey,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+      },
     },
   )
 }
