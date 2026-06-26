@@ -40,7 +40,19 @@ const EMPTY_SUMMARY: BillingSummary = {
   achievement_rate: 0,
 }
 
-const MONTH_LABELS = ['3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '1月', '2月']
+// 直近12ヶ月の月ラベル（現在JST月を末尾）。summary API の monthly_sales は同じローリング順
+//（古い→新しい・末尾が当月）で返るため、固定ラベルではなく当月基準で生成して値とズレないようにする。
+function getMonthLabels(): string[] {
+  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000) // UTC+9（JST）
+  const y = jst.getUTCFullYear()
+  const m = jst.getUTCMonth()
+  const labels: string[] = []
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(Date.UTC(y, m - i, 1))
+    labels.push(`${d.getUTCMonth() + 1}月`)
+  }
+  return labels
+}
 
 const ITEMS_PER_PAGE = 8
 
@@ -236,7 +248,7 @@ export default function BillingPage() {
                 </div>
               </div>
               <div className="flex justify-around gap-1 mt-2">
-                {MONTH_LABELS.map((label, i) => (
+                {getMonthLabels().map((label, i) => (
                   <span key={i} className="flex-1 min-w-0 text-center text-xs text-gray-500 truncate">
                     {label}
                   </span>

@@ -310,9 +310,8 @@ export default function PlanPage() {
                 <div className="flex items-center gap-2">
                   <input
                     id="next-limit"
-                    type="number"
-                    min={minLimit}
-                    step={1}
+                    type="text"
+                    inputMode="numeric"
                     value={newLimit}
                     onChange={(e) => setNewLimit(normalizeDigits(e.target.value))}
                     placeholder={String(plan.next_month_interview_limit ?? limit)}

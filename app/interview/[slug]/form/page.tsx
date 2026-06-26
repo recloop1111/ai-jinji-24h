@@ -327,9 +327,8 @@ export default function FormPage() {
 
           <InputField label="年齢" required error={errors.age}>
             <input
-              type="number"
-              min={1}
-              max={100}
+              type="text"
+              inputMode="numeric"
               value={age}
               onChange={(e) => setAge(normalizeDigits(e.target.value))}
               placeholder="例）25"

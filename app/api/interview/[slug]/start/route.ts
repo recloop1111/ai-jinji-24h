@@ -97,8 +97,30 @@ export async function POST(
       if (!job) jobId = null
     }
 
+    // 再入場/リロードの in_progress 孤児を finalize（cancelled）する。最新の1件だけ in_progress に保つ。
+    // ※ 上限カウントより前に実行する: 10分超の旧セッション（billable）をここで is_billable=true に確定しておくと、
+    //   直後の当月上限カウントに正しく反映され、リロード時に上限を1件超過するのを防げる。
+    //   /end が非 in_progress を冪等スキップするため、ここで課金を確定しないと未課金・上限未カウントで取り残される。
+    const cancelNowIso = new Date().toISOString()
+    const { data: orphanInterviews } = await supabase
+      .from('interviews')
+      .select('id, started_at')
+      .eq('applicant_id', applicantId)
+      .eq('status', 'in_progress')
+    for (const orphan of orphanInterviews ?? []) {
+      const startedMs = orphan.started_at ? new Date(orphan.started_at).getTime() : NaN
+      const dur = Number.isFinite(startedMs)
+        ? Math.max(0, Math.floor((new Date(cancelNowIso).getTime() - startedMs) / 1000))
+        : 0
+      await supabase
+        .from('interviews')
+        .update({ status: 'cancelled', ended_at: cancelNowIso, duration_seconds: dur, is_billable: dur > 600 })
+        .eq('id', orphan.id)
+        .eq('status', 'in_progress')
+    }
+
     // 修正2: 月間面接上限の確認（既存ヘルパーで実効上限を取得し、当月の課金対象件数と比較）。
-    //  当月件数の定義は admin 企業一覧と同一（is_billable=true ＆ created_at >= 当月初日）。
+    //  当月件数の定義は admin 企業一覧と同一（is_billable=true ＆ created_at >= 当月初日）。上の孤児finalize後にカウントする。
     const applied = await applyNextMonthLimit({
       id: company.id,
       monthly_interview_limit: company.monthly_interview_limit ?? null,
@@ -121,27 +143,6 @@ export async function POST(
       if ((monthlyCount ?? 0) >= effectiveLimit) {
         return apiError('FORBIDDEN', '今月の面接実施数が上限に達しているため、開始できません')
       }
-    }
-
-    // 再入場/リロードの in_progress 孤児を finalize（cancelled）する。最新の1件だけ in_progress に保つ。
-    // ここで課金を確定しないと、/end が非 in_progress を冪等スキップするため、10分超の旧セッションが
-    // 未課金・上限未カウントのまま取り残される。よってサーバ保存の started_at から duration を算出し is_billable を確定する。
-    const cancelNowIso = new Date().toISOString()
-    const { data: orphanInterviews } = await supabase
-      .from('interviews')
-      .select('id, started_at')
-      .eq('applicant_id', applicantId)
-      .eq('status', 'in_progress')
-    for (const orphan of orphanInterviews ?? []) {
-      const startedMs = orphan.started_at ? new Date(orphan.started_at).getTime() : NaN
-      const dur = Number.isFinite(startedMs)
-        ? Math.max(0, Math.floor((new Date(cancelNowIso).getTime() - startedMs) / 1000))
-        : 0
-      await supabase
-        .from('interviews')
-        .update({ status: 'cancelled', ended_at: cancelNowIso, duration_seconds: dur, is_billable: dur > 600 })
-        .eq('id', orphan.id)
-        .eq('status', 'in_progress')
     }
 
     // 新しい面接を開始

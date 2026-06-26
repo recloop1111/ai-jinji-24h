@@ -112,14 +112,30 @@ export async function POST(
       })
     }
 
-    // applicants.status をサーバ確定（anon では更新できないためここで確定する）
-    const applicantStatus = finalStatus === 'completed' ? '完了' : '途中離脱'
-    const applicantUpdate: Record<string, unknown> = {
-      status: applicantStatus,
-      updated_at: new Date().toISOString(),
+    // 新セッション保持の race ガード: この面接より後に started_at がある in_progress
+    //（＝並行 /start が作った新しい面接セッション）が存在する場合は、applicant の terminal 確定
+    //（status='完了'/'途中離脱'・result='不採用'）をスキップする。最終確定は新セッションの /end に委ね、
+    // 進行中の応募者を誤って 途中離脱/不採用 にして stale な結果を残さないようにする。
+    const { data: newerInProgress } = await supabase
+      .from('interviews')
+      .select('id')
+      .eq('applicant_id', applicantId)
+      .eq('status', 'in_progress')
+      .neq('id', interviewId)
+      .gt('started_at', interview.started_at)
+      .limit(1)
+      .maybeSingle()
+
+    if (!newerInProgress) {
+      // applicants.status をサーバ確定（anon では更新できないためここで確定する）
+      const applicantStatus = finalStatus === 'completed' ? '完了' : '途中離脱'
+      const applicantUpdate: Record<string, unknown> = {
+        status: applicantStatus,
+        updated_at: new Date().toISOString(),
+      }
+      if (applicantStatus === '途中離脱') applicantUpdate.result = '不採用'
+      await supabase.from('applicants').update(applicantUpdate).eq('id', applicantId)
     }
-    if (applicantStatus === '途中離脱') applicantUpdate.result = '不採用'
-    await supabase.from('applicants').update(applicantUpdate).eq('id', applicantId)
 
     // 同一 applicant の「この面接より前に開始された」他の in_progress 孤児だけを finalize（cancelled）。
     // ※ ブランケット更新だと、リロード等で並行する /start が挿入した「後から始まった新しい in_progress」まで

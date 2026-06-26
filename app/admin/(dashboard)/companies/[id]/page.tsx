@@ -591,9 +591,8 @@ export default function CompanyDetailPage() {
               <div>
                 <label className="block text-xs font-medium text-gray-400 mb-1">翌月の月間上限予約（人・空欄で予約なし）</label>
                 <input
-                  type="number"
-                  min={5}
-                  step={1}
+                  type="text"
+                  inputMode="numeric"
                   value={csNextLimit}
                   onChange={(e) => setCsNextLimit(normalizeDigits(e.target.value))}
                   placeholder="未予約"
