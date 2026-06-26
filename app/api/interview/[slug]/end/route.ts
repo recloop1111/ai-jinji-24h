@@ -121,13 +121,30 @@ export async function POST(
     if (applicantStatus === '途中離脱') applicantUpdate.result = '不採用'
     await supabase.from('applicants').update(applicantUpdate).eq('id', applicantId)
 
-    // 同一 applicant の他の in_progress 孤児を cancelled 化
-    await supabase
+    // 同一 applicant の「この面接より前に開始された」他の in_progress 孤児だけを finalize（cancelled）。
+    // ※ ブランケット更新だと、リロード等で並行する /start が挿入した「後から始まった新しい in_progress」まで
+    //   巻き込み、ended_at < started_at / duration_seconds=null の不整合行を生む（新セッションを即殺してしまう）。
+    //   started_at で「この面接以前」に限定し、後発の新面接は触らない。
+    //   巻き込む正当な孤児は started_at からサーバ算出した duration で is_billable を確定する（/start の孤児finalizeと同方式）。
+    const cleanupNowIso = new Date().toISOString()
+    const { data: olderOrphans } = await supabase
       .from('interviews')
-      .update({ status: 'cancelled', ended_at: new Date().toISOString() })
+      .select('id, started_at')
       .eq('applicant_id', applicantId)
       .eq('status', 'in_progress')
       .neq('id', interviewId)
+      .lte('started_at', interview.started_at)
+    for (const orphan of olderOrphans ?? []) {
+      const startedMs = orphan.started_at ? new Date(orphan.started_at).getTime() : NaN
+      const dur = Number.isFinite(startedMs)
+        ? Math.max(0, Math.floor((new Date(cleanupNowIso).getTime() - startedMs) / 1000))
+        : 0
+      await supabase
+        .from('interviews')
+        .update({ status: 'cancelled', ended_at: cleanupNowIso, duration_seconds: dur, is_billable: dur > 600 })
+        .eq('id', orphan.id)
+        .eq('status', 'in_progress')
+    }
 
     return successJson({ interview_id: interviewId, final_status: finalStatus })
   } catch {
