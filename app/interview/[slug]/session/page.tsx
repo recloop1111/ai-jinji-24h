@@ -343,7 +343,8 @@ export default function SessionPage() {
     )
     timers.push(
       setTimeout(() => {
-        handleEndInterview('全質問完了')
+        // 自動完了は全問回答済み。古いクロージャの answeredQuestions(0) ではなく確定値を渡す。
+        handleEndInterview('全質問完了', total)
       }, total * QUESTION_INTERVAL_MS + CLOSING_HOLD_MS),
     )
     return () => {
@@ -442,7 +443,11 @@ export default function SessionPage() {
     }
   }, [interviewId, applicantId, elapsedSeconds, totalQuestions, answeredQuestions, isEnding, slug, blockingError])
 
-  async function handleEndInterview(endReason: '全質問完了' | '時間切れ' | '自主終了' = '自主終了') {
+  // answeredOverride: 自動完了時など、最新の回答数をクロージャの古い値ではなく明示的に渡すための上書き。
+  async function handleEndInterview(
+    endReason: '全質問完了' | '時間切れ' | '自主終了' = '自主終了',
+    answeredOverride?: number,
+  ) {
     // ref で同期的に二重 /end を弾く（自動完了・手動終了・時間切れが競合しても1回だけ送る）。
     if (endTriggeredRef.current) return
     endTriggeredRef.current = true
@@ -456,8 +461,10 @@ export default function SessionPage() {
     // 面接終了: interviewsテーブルをUPDATE
     if (interviewId && applicantId) {
       try {
+        // 送信する回答数（自動完了は確定値を渡す。古いクロージャ値で 0 を送らないため）。
+        const answeredForPayload = answeredOverride ?? answeredQuestions
         // 全質問完了かどうかを判定（回答済み質問数が全質問数以上の場合）
-        const isAllQuestionsAnswered = answeredQuestions >= totalQuestions && totalQuestions > 0
+        const isAllQuestionsAnswered = answeredForPayload >= totalQuestions && totalQuestions > 0
         const finalEndReason = endReason === '全質問完了' || (endReason === '時間切れ' && isAllQuestionsAnswered)
           ? '全質問完了'
           : endReason === '時間切れ'
@@ -479,7 +486,7 @@ export default function SessionPage() {
             end_reason: finalEndReason,
             duration_seconds: elapsedSeconds,
             total_questions: totalQuestions,
-            answered_questions: answeredQuestions,
+            answered_questions: answeredForPayload,
           }),
         }).catch(() => {})
 
