@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Pause as PauseIcon, AlertTriangle as AlertIcon, ChevronDown as ChevronDownIcon, ChevronUp as ChevronUpIcon, Eye as EyeIcon, EyeOff as EyeOffIcon } from 'lucide-react'
+import PasswordInput from '@/components/shared/PasswordInput'
 
 // 固定FAQ（停止フローのヘルプ。実データ取得は不要）
 const FAQ_ITEMS = [
@@ -489,16 +490,16 @@ export default function SuspensionPage() {
             </div>
             <div className="mt-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">管理者設定用パスワード（必須）</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={emergencyModal.password}
-                onChange={(e) => {
-                  const v = e.target.value
+                onChange={(v) => {
                   setEmergencyError('')
                   setEmergencyModal((prev) => ({ ...prev, password: v }))
                 }}
                 placeholder="管理者設定用パスワードを入力"
+                autoComplete="off"
                 className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                iconClassName="text-gray-400 hover:text-gray-600"
               />
             </div>
             {emergencyError && <p className="mt-2 text-sm text-red-600">{emergencyError}</p>}
