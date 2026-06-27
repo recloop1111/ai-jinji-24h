@@ -18,9 +18,10 @@ const nextConfig: NextConfig = {
   // 実行時 require させる（serverless で .afm が同梱漏れし fs エラーになる既知問題の対策）。
   serverExternalPackages: ['pdfkit'],
   // serverless function に日本語フォント(TTF)を確実に同梱する（outputFileTracing が
-  // 静的アセットを辿らないため明示）。PoC 用 debug ルートを対象に追加。
+  // 静的アセットを辿らないため明示）。請求書PDF生成の client/admin invoice ルートが対象。
   outputFileTracingIncludes: {
-    '/api/internal/debug/pdf-test': ['./assets/fonts/IPAexGothic.ttf'],
+    '/api/client/billing/[billing_record_id]/invoice': ['./assets/fonts/IPAexGothic.ttf'],
+    '/api/admin/billing/records/[billing_record_id]/invoice': ['./assets/fonts/IPAexGothic.ttf'],
   },
   async headers() {
     return [

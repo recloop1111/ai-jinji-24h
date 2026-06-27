@@ -37,15 +37,16 @@ export default function BillingPage() {
   const [monthlyInterviewLimit, setMonthlyInterviewLimit] = useState(0)
   const [pricePerInterview, setPricePerInterview] = useState<number>(PRICE_PER_INTERVIEW)
   const [invoices, setInvoices] = useState<Invoice[]>([])
-  const [downloadToast, setDownloadToast] = useState(false)
+  const [toastMsg, setToastMsg] = useState('')
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!companyId) {
-      if (!companyIdLoading) setLoading(false)
-      return
-    }
-
     async function fetchBillingData() {
+      // companyId 未確定時はローディング解除のみ（解決待ちなら spinner 継続）
+      if (!companyId) {
+        if (!companyIdLoading) setLoading(false)
+        return
+      }
       setLoading(true)
       try {
         // 企業情報
@@ -102,10 +103,38 @@ export default function BillingPage() {
     fetchBillingData()
   }, [companyId, companyIdLoading, supabase])
 
-  const handleInvoiceDownload = () => {
-    // TODO: Stripe APIから請求書PDFを取得してダウンロード
-    setDownloadToast(true)
-    setTimeout(() => setDownloadToast(false), 2000)
+  const showToast = (msg: string) => {
+    setToastMsg(msg)
+    setTimeout(() => setToastMsg(''), 2500)
+  }
+
+  // 請求書PDFをサーバ生成APIから取得し blob でダウンロード（自社の billing_record のみ）
+  const handleInvoiceDownload = async (id: string) => {
+    if (downloadingId) return
+    setDownloadingId(id)
+    try {
+      const res = await fetch(`/api/client/billing/${id}/invoice`)
+      if (!res.ok) {
+        showToast(res.status === 422 ? 'この請求は請求書を発行できません' : '請求書の取得に失敗しました')
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      // ファイル名はレスポンスの Content-Disposition 優先、無ければ id ベース
+      const cd = res.headers.get('Content-Disposition') ?? ''
+      const m = cd.match(/filename="([^"]+)"/)
+      a.download = m ? m[1] : `invoice-${id.slice(0, 8)}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      showToast('請求書の取得に失敗しました')
+    } finally {
+      setDownloadingId(null)
+    }
   }
 
   if (loading) {
@@ -184,14 +213,19 @@ export default function BillingPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={handleInvoiceDownload}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
-                        >
-                          <DownloadIcon className="w-4 h-4" />
-                          請求書DL
-                        </button>
+                        {inv.status === 'pending' || inv.status === 'paid' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleInvoiceDownload(inv.id)}
+                            disabled={downloadingId === inv.id}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            <DownloadIcon className="w-4 h-4" />
+                            {downloadingId === inv.id ? '生成中...' : '請求書DL'}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
                       </td>
                     </tr>
                   )
@@ -207,10 +241,10 @@ export default function BillingPage() {
         )}
       </div>
 
-      {/* ダウンロードトースト */}
-      {downloadToast && (
-        <div className="fixed bottom-6 right-6 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium z-50">
-          請求書ダウンロード機能は今後実装予定です
+      {/* トースト（ダウンロード結果） */}
+      {toastMsg && (
+        <div className="fixed bottom-6 right-6 bg-slate-800 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium z-50">
+          {toastMsg}
         </div>
       )}
     </div>

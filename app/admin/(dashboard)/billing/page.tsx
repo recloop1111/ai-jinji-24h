@@ -263,6 +263,35 @@ export default function BillingPage() {
     }
   }
 
+  // 請求書PDFをサーバ生成APIから取得し blob でダウンロード（admin・全社）
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null)
+  const handleInvoiceDownload = async (id: string) => {
+    if (downloadingInvoiceId) return
+    setDownloadingInvoiceId(id)
+    try {
+      const res = await fetch(`/api/admin/billing/records/${id}/invoice`)
+      if (!res.ok) {
+        showToast(res.status === 422 ? 'この請求は請求書を発行できません' : '請求書の取得に失敗しました')
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const cd = res.headers.get('Content-Disposition') ?? ''
+      const m = cd.match(/filename="([^"]+)"/)
+      a.download = m ? m[1] : `invoice-${id.slice(0, 8)}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      showToast('請求書の取得に失敗しました')
+    } finally {
+      setDownloadingInvoiceId(null)
+    }
+  }
+
   return (
     <>
       <div className="space-y-6 min-w-0 max-w-[100vw] pb-10">
@@ -724,12 +753,12 @@ export default function BillingPage() {
                             )}
                             <button
                               type="button"
-                              disabled
-                              title="次フェーズで実装"
-                              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-white/[0.03] text-gray-500 cursor-not-allowed"
+                              onClick={() => handleInvoiceDownload(r.id)}
+                              disabled={downloadingInvoiceId === r.id}
+                              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-white/[0.05] text-gray-200 hover:bg-white/[0.08] disabled:opacity-50"
                             >
                               <FileText className="w-3.5 h-3.5" />
-                              請求書PDF
+                              {downloadingInvoiceId === r.id ? '生成中...' : '請求書PDF'}
                             </button>
                           </div>
                         </td>
@@ -740,7 +769,6 @@ export default function BillingPage() {
               </tbody>
             </table>
           </div>
-          <p className="text-[11px] text-gray-500 mt-3">※ 請求書PDFダウンロードは次フェーズで実装予定です。</p>
         </div>
       </div>
 
