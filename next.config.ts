@@ -14,6 +14,14 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // pdfkit を webpack バンドルから外し、内部の .afm メトリクスを node_modules から
+  // 実行時 require させる（serverless で .afm が同梱漏れし fs エラーになる既知問題の対策）。
+  serverExternalPackages: ['pdfkit'],
+  // serverless function に日本語フォント(TTF)を確実に同梱する（outputFileTracing が
+  // 静的アセットを辿らないため明示）。PoC 用 debug ルートを対象に追加。
+  outputFileTracingIncludes: {
+    '/api/internal/debug/pdf-test': ['./assets/fonts/IPAexGothic.ttf'],
+  },
   async headers() {
     return [
       {
