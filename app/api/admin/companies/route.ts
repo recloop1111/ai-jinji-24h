@@ -68,25 +68,32 @@ export async function GET(request: NextRequest) {
     const monthStart = jstCurrentMonthStartIso()
     const companyIds = (companies ?? []).map((c: { id: string }) => c.id)
 
-    let monthlyCounts: Record<string, number> = {}
+    const monthlyCounts: Record<string, number> = {}
     if (companyIds.length > 0) {
-      const { data: interviewData, error: countError } = await supabase
-        .from('interviews')
-        .select('company_id')
-        .in('company_id', companyIds)
-        .eq('is_billable', true)
-        .gte('created_at', monthStart)
+      // PostgREST の1ページ上限（通常1000行）で当月利用数が過少表示されないよう
+      // range() で全件ページングして件数を積み上げる。
+      const PAGE_SIZE = 1000
+      for (let from = 0; ; from += PAGE_SIZE) {
+        const { data: interviewData, error: countError } = await supabase
+          .from('interviews')
+          .select('company_id')
+          .in('company_id', companyIds)
+          .eq('is_billable', true)
+          .gte('created_at', monthStart)
+          .order('id', { ascending: true })
+          .range(from, from + PAGE_SIZE - 1)
 
-      // 集計失敗を 0 件として隠蔽せず、companies クエリ失敗時と同じくエラーを返す
-      // （?? 0 だと全企業が当月0件として 200 で返り利用数が過少報告になるため）。
-      if (countError) {
-        return apiError('INTERNAL_ERROR', '当月面接数の取得に失敗しました')
+        // 集計失敗を 0 件として隠蔽せず、companies クエリ失敗時と同じくエラーを返す
+        // （?? 0 だと全企業が当月0件として 200 で返り利用数が過少報告になるため）。
+        if (countError) {
+          return apiError('INTERNAL_ERROR', '当月面接数の取得に失敗しました')
+        }
+        if (!interviewData || interviewData.length === 0) break
+        for (const row of interviewData as { company_id: string }[]) {
+          monthlyCounts[row.company_id] = (monthlyCounts[row.company_id] ?? 0) + 1
+        }
+        if (interviewData.length < PAGE_SIZE) break
       }
-
-      monthlyCounts = (interviewData ?? []).reduce((acc: Record<string, number>, row: { company_id: string }) => {
-        acc[row.company_id] = (acc[row.company_id] ?? 0) + 1
-        return acc
-      }, {})
     }
 
     const items = (companies ?? []).map((c: CompanyListRow) => ({

@@ -59,9 +59,14 @@ export default function BillingPage() {
         setMonthlyInterviewLimit(company?.monthly_interview_limit ?? 10)
         setPricePerInterview(company?.price_per_interview ?? PRICE_PER_INTERVIEW)
 
-        // 当月の billable 面接数
-        const now = new Date()
-        const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+        // 当月の billable 面接数。境界は plan/start/admin と同じ JST 基準に統一する
+        // （date-only 文字列だと DB側=UTC 解釈となり、JST月初0:00〜8:59 の面接が欠ける）。
+        // lib/companies/applyNextMonthLimit の jstCurrentMonthStartIso と同一ロジック
+        // （同モジュールは service-role を import するため client からは直接 import 不可）。
+        const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000)
+        const monthStart = new Date(
+          Date.UTC(jstNow.getUTCFullYear(), jstNow.getUTCMonth(), 1) - 9 * 60 * 60 * 1000,
+        ).toISOString()
 
         const { count } = await supabase
           .from('interviews')

@@ -72,10 +72,31 @@ export async function GET() {
     // 過去12ヶ月の確定請求（月次グラフ・年間累計・未入金・当月ステータス算出に使用）。
     // 実DBは billing_records（invoices テーブルは存在しない）。downstream 互換のため
     // { company_id, period(YYYY-MM), amount(amount_jpy/税抜), status } へ正規化する。
-    const { data: recordData } = await supabase
-      .from('billing_records')
-      .select('company_id, billing_month, amount_jpy, payment_status, created_at')
-      .gte('billing_month', `${oldestPeriod}-01`)
+    // 12ヶ月×企業数が PostgREST の1ページ上限（通常1000行）を超えても欠落しないよう
+    // range() で全件ページング取得する。
+    type BillingRecordRow = {
+      company_id: string
+      billing_month: string | null
+      amount_jpy: number | null
+      payment_status: string | null
+      created_at: string | null
+    }
+    const recordData: BillingRecordRow[] = []
+    const RECORDS_PAGE_SIZE = 1000
+    for (let from = 0; ; from += RECORDS_PAGE_SIZE) {
+      const { data: page, error: recError } = await supabase
+        .from('billing_records')
+        .select('company_id, billing_month, amount_jpy, payment_status, created_at')
+        .gte('billing_month', `${oldestPeriod}-01`)
+        .order('id', { ascending: true })
+        .range(from, from + RECORDS_PAGE_SIZE - 1)
+      if (recError) {
+        return apiError('INTERNAL_ERROR', '請求履歴の取得に失敗しました')
+      }
+      if (!page || page.length === 0) break
+      recordData.push(...(page as BillingRecordRow[]))
+      if (page.length < RECORDS_PAGE_SIZE) break
+    }
 
     // payment_status を既存ロジックが期待する paid/billed/overdue へ正規化。
     // overdue は DB値ではなく created_at + 翌月末ルールから導出するため、records ルートと同じ
@@ -87,13 +108,7 @@ export async function GET() {
       if (eff === 'overdue') return 'overdue'
       return 'billed' // pending/failed/refunded/null/その他 → 発行済み未入金相当
     }
-    const invoices = (recordData ?? []).map((r: {
-      company_id: string
-      billing_month: string | null
-      amount_jpy: number | null
-      payment_status: string | null
-      created_at: string | null
-    }) => ({
+    const invoices = recordData.map((r) => ({
       company_id: r.company_id,
       period: r.billing_month ? String(r.billing_month).slice(0, 7) : '',
       amount: typeof r.amount_jpy === 'number' ? r.amount_jpy : 0,
