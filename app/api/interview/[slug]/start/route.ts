@@ -119,8 +119,9 @@ export async function POST(
         .eq('status', 'in_progress')
     }
 
-    // 修正2: 月間面接上限の確認（既存ヘルパーで実効上限を取得し、当月の課金対象件数と比較）。
-    //  当月件数の定義は admin 企業一覧と同一（is_billable=true ＆ created_at >= 当月初日）。上の孤児finalize後にカウントする。
+    // 修正2: 月間面接上限の確認（既存ヘルパーで実効上限を取得し、当月の使用枠と比較）。
+    //  使用枠 = 当月 is_billable=true（確定課金）＋ 当月 status='in_progress'（進行中の予約）。
+    //  上の孤児finalize後にカウントする（この applicant 自身の旧 in_progress は cancelled 済み）。
     const applied = await applyNextMonthLimit({
       id: company.id,
       monthly_interview_limit: company.monthly_interview_limit ?? null,
@@ -131,7 +132,8 @@ export async function POST(
     if (typeof effectiveLimit === 'number' && effectiveLimit > 0) {
       // 月初は JST 基準（applyNextMonthLimit の昇格と同一基準）。サーバTZ(UTC)依存にしない。
       const monthStart = jstCurrentMonthStartIso()
-      const { count: monthlyCount, error: countError } = await supabase
+      // (a) 確定課金済み（is_billable=true）
+      const { count: billableCount, error: countError } = await supabase
         .from('interviews')
         .select('id', { count: 'exact', head: true })
         .eq('company_id', company.id)
@@ -140,7 +142,23 @@ export async function POST(
       // 上限カウントの失敗は fail-closed（0件扱いで素通りさせない）。
       // ※ 集計失敗を「使用0」とみなすと上限超過でも開始できてしまうため、非OKで止める。
       if (countError) return apiError('INTERNAL_ERROR', '面接実施数の確認に失敗しました')
-      if ((monthlyCount ?? 0) >= effectiveLimit) {
+
+      // (b) 同時実行レース緩和（案1）: 当月の進行中(in_progress)も枠を一時占有させる。
+      //   ここで数えるのは「他 applicant が同時進行中」のセッション（自分の in_progress は finalize 済み）。
+      //   is_billable=true 行は in_progress ではないため (a) と重複しない。
+      //   10分未満離脱などで後から cancelled+is_billable=false になれば次回以降カウントから外れ枠が戻る。
+      //   ※ DBロック無しのため完全同時の2連打は残存し得る。原子的予約（案2: 条件付きUPDATE/
+      //     行ロック/一意制約）は DB 変更を伴うため P1 #1 の DB 承認フェーズで別途検討する。
+      const { count: inProgressCount, error: inProgressError } = await supabase
+        .from('interviews')
+        .select('id', { count: 'exact', head: true })
+        .eq('company_id', company.id)
+        .eq('status', 'in_progress')
+        .gte('created_at', monthStart)
+      if (inProgressError) return apiError('INTERNAL_ERROR', '面接実施数の確認に失敗しました')
+
+      const usedCount = (billableCount ?? 0) + (inProgressCount ?? 0)
+      if (usedCount >= effectiveLimit) {
         return apiError('FORBIDDEN', '今月の面接実施数が上限に達しているため、開始できません')
       }
     }
