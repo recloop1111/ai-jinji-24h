@@ -2,6 +2,29 @@
 
 import { useState, useEffect } from 'react'
 import { Search, FileText, ArrowUp } from 'lucide-react'
+import PasswordInput from '@/components/shared/PasswordInput'
+
+type BillingRecord = {
+  id: string
+  company_id: string
+  company_name: string
+  billing_month: string
+  interview_count: number
+  amount_jpy: number
+  tax_jpy: number
+  total_jpy: number
+  payment_status: string
+  effective_status: string
+  created_at: string | null
+  paid_at: string | null
+  due_date: string | null
+}
+
+const RECORD_STATUS_LABEL: Record<string, { label: string; className: string }> = {
+  pending: { label: '未入金', className: 'text-amber-400' },
+  overdue: { label: '支払期限超過', className: 'text-red-400' },
+  paid: { label: '入金済み', className: 'text-emerald-400' },
+}
 
 type BillingRow = {
   company_id: string
@@ -146,6 +169,96 @@ export default function BillingPage() {
     setToastMessage(msg)
     setToastVisible(true)
     setTimeout(() => setToastVisible(false), 2000)
+  }
+
+  // === 確定請求一覧（billing_records） ===
+  const [records, setRecords] = useState<BillingRecord[]>([])
+  const [recordsLoading, setRecordsLoading] = useState(true)
+  const [recordsError, setRecordsError] = useState('')
+  const [recMonthFilter, setRecMonthFilter] = useState('') // 'YYYY-MM' or ''
+  const [recStatusFilter, setRecStatusFilter] = useState('all') // all/pending/paid/overdue
+  const [recReloadKey, setRecReloadKey] = useState(0) // 入金変更後の再取得トリガ
+  // 入金ステータス変更モーダル
+  const [markTarget, setMarkTarget] = useState<{ record: BillingRecord; next: 'paid' | 'pending' } | null>(null)
+  const [markPassword, setMarkPassword] = useState('')
+  const [markError, setMarkError] = useState('')
+  const [markSubmitting, setMarkSubmitting] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    const loadRecords = async () => {
+      try {
+        const qs = new URLSearchParams()
+        if (recMonthFilter) qs.set('billing_month', recMonthFilter)
+        if (recStatusFilter !== 'all') qs.set('status', recStatusFilter)
+        const res = await fetch(`/api/admin/billing/records${qs.toString() ? `?${qs.toString()}` : ''}`)
+        if (cancelled) return
+        if (!res.ok) {
+          setRecordsError('確定請求の取得に失敗しました')
+          setRecords([])
+          return
+        }
+        const json = await res.json()
+        if (cancelled) return
+        const list = json?.data?.records ?? json?.records ?? []
+        setRecordsError('')
+        setRecords(Array.isArray(list) ? (list as BillingRecord[]) : [])
+      } catch {
+        if (!cancelled) {
+          setRecordsError('確定請求の取得に失敗しました')
+          setRecords([])
+        }
+      } finally {
+        if (!cancelled) setRecordsLoading(false)
+      }
+    }
+    loadRecords()
+    return () => {
+      cancelled = true
+    }
+  }, [recMonthFilter, recStatusFilter, recReloadKey])
+
+  const openMark = (record: BillingRecord, next: 'paid' | 'pending') => {
+    setMarkTarget({ record, next })
+    setMarkPassword('')
+    setMarkError('')
+  }
+
+  const closeMark = () => {
+    if (markSubmitting) return
+    setMarkTarget(null)
+    setMarkPassword('')
+    setMarkError('')
+  }
+
+  const submitMark = async () => {
+    if (!markTarget) return
+    if (!markPassword) {
+      setMarkError('運営管理設定変更用パスワードを入力してください')
+      return
+    }
+    setMarkSubmitting(true)
+    setMarkError('')
+    try {
+      const res = await fetch(`/api/admin/billing/records/${markTarget.record.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_status: markTarget.next, setting_password: markPassword }),
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) {
+        setMarkError(json?.error?.message ?? '更新に失敗しました')
+        return
+      }
+      setMarkTarget(null)
+      setMarkPassword('')
+      showToast(markTarget.next === 'paid' ? '入金済みに更新しました' : '未入金に戻しました')
+      setRecReloadKey((k) => k + 1)
+    } catch {
+      setMarkError('更新に失敗しました')
+    } finally {
+      setMarkSubmitting(false)
+    }
   }
 
   return (
@@ -516,7 +629,166 @@ export default function BillingPage() {
             </div>
           )}
         </div>
+
+        {/* セクション7: 確定請求一覧（billing_records・銀行振込） */}
+        <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-5 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-5">
+            <div>
+              <h2 className="text-lg font-bold text-white">確定請求一覧</h2>
+              <p className="text-xs text-gray-400 mt-1">月次バッチで確定した請求（銀行振込）。入金状況を管理します。</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="month"
+                value={recMonthFilter}
+                onChange={(e) => setRecMonthFilter(e.target.value)}
+                className="bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200"
+              />
+              <select
+                value={recStatusFilter}
+                onChange={(e) => setRecStatusFilter(e.target.value)}
+                className="bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200"
+              >
+                <option value="all">すべて</option>
+                <option value="pending">未入金</option>
+                <option value="overdue">支払期限超過</option>
+                <option value="paid">入金済み</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[920px] text-sm">
+              <thead>
+                <tr className="text-left text-gray-400 border-b border-white/[0.06]">
+                  <th className="py-2 pr-4 font-medium">請求月</th>
+                  <th className="py-2 pr-4 font-medium">企業名</th>
+                  <th className="py-2 pr-4 font-medium text-right">件数</th>
+                  <th className="py-2 pr-4 font-medium text-right">税抜</th>
+                  <th className="py-2 pr-4 font-medium text-right">消費税</th>
+                  <th className="py-2 pr-4 font-medium text-right">合計</th>
+                  <th className="py-2 pr-4 font-medium">支払期限</th>
+                  <th className="py-2 pr-4 font-medium">ステータス</th>
+                  <th className="py-2 pr-4 font-medium">入金日</th>
+                  <th className="py-2 pr-4 font-medium text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recordsLoading ? (
+                  <tr>
+                    <td colSpan={10} className="py-8 text-center text-gray-400">読み込み中...</td>
+                  </tr>
+                ) : recordsError ? (
+                  <tr>
+                    <td colSpan={10} className="py-8 text-center text-red-400">{recordsError}</td>
+                  </tr>
+                ) : records.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="py-8 text-center text-gray-400">確定済みの請求がありません</td>
+                  </tr>
+                ) : (
+                  records.map((r) => {
+                    const badge = RECORD_STATUS_LABEL[r.effective_status] ?? RECORD_STATUS_LABEL.pending
+                    const isPaid = r.payment_status === 'paid'
+                    return (
+                      <tr key={r.id} className="border-b border-white/[0.04] text-gray-200">
+                        <td className="py-3 pr-4">{r.billing_month}</td>
+                        <td className="py-3 pr-4">{r.company_name || '—'}</td>
+                        <td className="py-3 pr-4 text-right">{r.interview_count}</td>
+                        <td className="py-3 pr-4 text-right">{formatYen(r.amount_jpy)}</td>
+                        <td className="py-3 pr-4 text-right">{formatYen(r.tax_jpy)}</td>
+                        <td className="py-3 pr-4 text-right font-medium">{formatYen(r.total_jpy)}</td>
+                        <td className="py-3 pr-4">{r.due_date ?? '—'}</td>
+                        <td className={`py-3 pr-4 ${badge.className}`}>{badge.label}</td>
+                        <td className="py-3 pr-4 text-gray-400">{r.paid_at ? r.paid_at.slice(0, 10) : '—'}</td>
+                        <td className="py-3 pr-4">
+                          <div className="flex items-center justify-end gap-2">
+                            {isPaid ? (
+                              <button
+                                type="button"
+                                onClick={() => openMark(r, 'pending')}
+                                className="text-xs px-3 py-1.5 rounded-lg bg-white/[0.05] text-gray-300 hover:bg-white/[0.08]"
+                              >
+                                未入金に戻す
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => openMark(r, 'paid')}
+                                className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600/80 text-white hover:bg-emerald-600"
+                              >
+                                入金済みにする
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled
+                              title="次フェーズで実装"
+                              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-white/[0.03] text-gray-500 cursor-not-allowed"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              請求書PDF
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] text-gray-500 mt-3">※ 請求書PDFダウンロードは次フェーズで実装予定です。</p>
+        </div>
       </div>
+
+      {/* 入金ステータス変更モーダル（運営管理設定変更用パスワード必須） */}
+      {markTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-[#16181d] border border-white/[0.08] rounded-2xl p-6">
+            <h3 className="text-base font-bold text-white">
+              {markTarget.next === 'paid' ? '入金済みに変更' : '未入金に戻す'}
+            </h3>
+            <p className="text-sm text-gray-400 mt-2">
+              {markTarget.record.company_name || '—'}（{markTarget.record.billing_month}・{formatYen(markTarget.record.total_jpy)}）を
+              {markTarget.next === 'paid' ? '「入金済み」' : '「未入金」'}に変更します。
+            </p>
+            <div className="mt-4">
+              <label className="block text-xs text-gray-400 mb-1.5">運営管理設定変更用パスワード</label>
+              <PasswordInput
+                value={markPassword}
+                onChange={setMarkPassword}
+                placeholder="パスワードを入力"
+                autoComplete="off"
+                className="w-full bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200"
+                iconClassName="text-gray-400 hover:text-gray-200"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !markSubmitting) submitMark()
+                }}
+              />
+            </div>
+            {markError && <p className="text-xs text-red-400 mt-2">{markError}</p>}
+            <div className="flex items-center justify-end gap-2 mt-5">
+              <button
+                type="button"
+                onClick={closeMark}
+                disabled={markSubmitting}
+                className="text-sm px-4 py-2 rounded-lg bg-white/[0.05] text-gray-300 hover:bg-white/[0.08] disabled:opacity-50"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={submitMark}
+                disabled={markSubmitting}
+                className="text-sm px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50"
+              >
+                {markSubmitting ? '更新中...' : '変更する'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* トースト */}
       {toastVisible && (
