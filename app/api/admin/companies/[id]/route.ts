@@ -97,7 +97,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { error: authError } = await getAdminUser()
+    const { data: admin, error: authError } = await getAdminUser()
     if (authError) return authError
 
     const { id } = await params
@@ -248,6 +248,27 @@ export async function PATCH(
 
     if (error || !company) {
       return apiError('INTERNAL_ERROR', '企業情報の更新に失敗しました')
+    }
+
+    // 企業を稼働再開（active / is_suspended=false）に戻す操作のとき、同じ company_id の
+    // 未処理（status='pending'）の停止申請を終端化する。これをしないと client 側が pending を拾い
+    // 「停止申請中」を表示し続け、運営=active / 企業=申請中 の不整合になる（temporary/emergency 両対象）。
+    // 停止操作（is_suspended=true）には影響させない。失敗時は不整合が残るため apiError を返す（冪等リトライ可）。
+    const reactivating = updates.is_suspended === false || updates.status === 'active'
+    if (reactivating) {
+      const { error: reqError } = await supabase
+        .from('suspension_requests')
+        .update({
+          status: 'rejected',
+          reviewed_by: admin.userId,
+          reviewed_at: new Date().toISOString(),
+          review_comment: '企業の稼働再開（active化）に伴い自動終了',
+        })
+        .eq('company_id', id)
+        .eq('status', 'pending')
+      if (reqError) {
+        return apiError('INTERNAL_ERROR', '停止申請の終端化に失敗しました')
+      }
     }
 
     // GET と同様にホワイトリストで返す（company_setting_password_hash / auth_user_id 等の機微列を返さない）。
