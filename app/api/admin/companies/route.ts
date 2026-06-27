@@ -3,9 +3,28 @@ import crypto from 'crypto'
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { jstCurrentMonthStartIso } from '@/lib/companies/applyNextMonthLimit'
 
 const VALID_STATUSES = ['all', 'active', 'suspended'] as const
 const MAX_PER_PAGE = 100
+
+// GET 企業一覧の select 列に対応する行型（map コールバックの any 解消用）
+type CompanyListRow = {
+  id: string
+  name: string | null
+  email: string | null
+  plan: string | null
+  industry: string | null
+  is_suspended: boolean | null
+  is_active: boolean | null
+  status: string | null
+  monthly_interview_limit: number | null
+  monthly_interview_count: number | null
+  contact_person: string | null
+  contact_email: string | null
+  contract_start_date: string | null
+  created_at: string | null
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -44,8 +63,9 @@ export async function GET(request: NextRequest) {
       return apiError('INTERNAL_ERROR', '企業一覧の取得に失敗しました')
     }
 
-    // 各企業の当月面接数を取得
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
+    // 各企業の当月面接数を取得。当月境界は billing/上限判定と同じ JST 基準に統一
+    // （サーバローカルTZ=Vercel UTC だと月初 0:00〜8:59 JST で課金/上限とズレるため）。
+    const monthStart = jstCurrentMonthStartIso()
     const companyIds = (companies ?? []).map((c: { id: string }) => c.id)
 
     let monthlyCounts: Record<string, number> = {}
@@ -63,13 +83,15 @@ export async function GET(request: NextRequest) {
       }, {})
     }
 
-    const items = (companies ?? []).map((c: any) => ({
+    const items = (companies ?? []).map((c: CompanyListRow) => ({
       id: c.id,
       name: c.name,
       industry: c.industry || '未設定',
       plan: c.plan || 'pay_per_use',
       status: c.is_suspended ? 'suspended' : c.is_active === false ? 'cancelled' : (c.status || 'active'),
-      interviewsThisMonth: monthlyCounts[c.id] ?? (c.monthly_interview_count || 0),
+      // 当月の is_billable 実数を正とする。0件企業で legacy monthly_interview_count
+      // （古い非0値）にフォールバックすると課金/上限と食い違うため 0 デフォルト。
+      interviewsThisMonth: monthlyCounts[c.id] ?? 0,
       interviewLimit: c.monthly_interview_limit || 0,
       contractStart: c.contract_start_date || '',
       contactName: c.contact_person || '',
