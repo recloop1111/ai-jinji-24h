@@ -1,17 +1,19 @@
 import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClientServerClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 import { hashSettingPassword, verifySettingPassword, isValidSettingPassword } from '@/lib/security/setting-password'
 
 // 企業設定変更用パスワード（ログインPWとは別）の保存・検証基盤。
 // 保存先: companies.company_setting_password_hash（自社のみ）。
 
 async function fetchCompanyHash(companyId: string): Promise<{ hash: string | null; notFound: boolean }> {
-  const supabase = await createClientServerClient()
+  // company_setting_password_hash は authenticated から読ませない（phase2h 列ホワイトリスト前提）ため
+  // hash の読み取りは service-role（RLS/列権限 bypass）。companyId は呼び出し元で認証由来＝自社限定。
+  const supabase = createServiceRoleClient()
   const { data, error } = await supabase
     .from('companies')
-    .select('*')
+    .select('company_setting_password_hash')
     .eq('id', companyId)
     .single()
   if (error || !data) return { hash: null, notFound: true }

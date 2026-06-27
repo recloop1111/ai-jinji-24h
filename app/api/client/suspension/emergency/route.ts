@@ -1,6 +1,6 @@
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClientServerClient } from '@/lib/supabase/server'
+import { createClientServerClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { verifySettingPassword } from '@/lib/security/setting-password'
 
 export async function POST(request: Request) {
@@ -14,8 +14,11 @@ export async function POST(request: Request) {
 
     const supabase = await createClientServerClient()
 
-    // 管理者設定用パスワード（ログインPWとは別）をサーバ側で検証
-    const { data: company, error: compError } = await supabase
+    // 管理者設定用パスワード（ログインPWとは別）をサーバ側で検証。
+    // company_setting_password_hash は authenticated から読ませない（phase2h 列ホワイトリスト前提）ため
+    // hash の読み取りのみ service-role（RLS/列権限 bypass）で行う。
+    const serviceClient = createServiceRoleClient()
+    const { data: company, error: compError } = await serviceClient
       .from('companies')
       .select('company_setting_password_hash')
       .eq('id', user.companyId)

@@ -20,10 +20,11 @@ export async function GET() {
 
     const supabase = await createClientServerClient()
 
-    // 企業情報（migration 適用前後どちらでも壊れないよう select('*')）
+    // 企業情報は必要な安全列のみ明示 select（select('*') をやめ、hash/auth_user_id/stripe_* 等の
+    // 機微列を authenticated で読まない。phase2h 列ホワイトリスト前提）。
     const { data: company, error: compError } = await supabase
       .from('companies')
-      .select('*')
+      .select('id, monthly_interview_limit, next_month_interview_limit, next_month_limit_effective_month, price_per_interview')
       .eq('id', user.companyId)
       .single()
 
@@ -115,12 +116,13 @@ export async function PATCH(request: NextRequest) {
       })
     }
 
-    const supabase = await createClientServerClient()
-
-    // 自社のみ（companyId は認証から取得。body の company_id は信用しない）
-    const { data: company, error: compError } = await supabase
+    // 自社のみ（companyId は認証から取得。body の company_id は信用しない）。
+    // company_setting_password_hash を検証用に読むため service-role（RLS/列権限 bypass）。
+    // companyId スコープは認証由来のため自社限定は維持。書き込みも同 client で行う。
+    const serviceSupabase = createServiceRoleClient()
+    const { data: company, error: compError } = await serviceSupabase
       .from('companies')
-      .select('*')
+      .select('id, company_setting_password_hash, monthly_interview_limit, next_month_interview_limit, next_month_limit_effective_month')
       .eq('id', user.companyId)
       .single()
 
@@ -149,7 +151,6 @@ export async function PATCH(request: NextRequest) {
     // 翌月上限予約のみ更新（今月の monthly_interview_limit は変更しない）。
     // 書き込みは service-role で行う（companies の機微列は authenticated 直接UPDATEを RLS/列権限で禁止するため）。
     // 認証は getClientUser、対象企業は session 由来の user.companyId のみ（body の company_id は信用しない）。
-    const serviceSupabase = createServiceRoleClient()
     const { error: updateError } = await serviceSupabase
       .from('companies')
       .update({
