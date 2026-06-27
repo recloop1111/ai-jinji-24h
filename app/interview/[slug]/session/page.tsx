@@ -19,6 +19,12 @@ const LANGUAGES = [
   { code: 'pt', label: 'Português' },
 ]
 
+// モック面接のオートプログレッション設定（音声/Realtime/ラリーUIは未実装）。
+// 1問あたりの提示間隔と、最終質問後に締めメッセージを見せてから完了させるまでの待機。
+const QUESTION_INTERVAL_MS = 8000
+const CLOSING_HOLD_MS = 4000
+const CLOSING_MESSAGE = 'すべての質問が完了しました。面接を終了します。'
+
 export default function SessionPage() {
   const params = useParams()
   const router = useRouter()
@@ -44,6 +50,10 @@ export default function SessionPage() {
   const [blockingError, setBlockingError] = useState<string | null>(null)
   const [questionList, setQuestionList] = useState<string[]>([])
   const snapshotSaved = useRef(false)
+  // 二重 /end 防止（自動完了・手動終了・時間切れの競合を同期的に弾く）
+  const endTriggeredRef = useRef(false)
+  // モック質問プログレッションを1セッションにつき1回だけ起動させるガード
+  const progressionStartedRef = useRef(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   // blockingError の最新値を camera 取得の非同期処理から参照するための ref（クロージャの陳腐化対策）
@@ -294,19 +304,54 @@ export default function SessionPage() {
       return
     }
 
+    // 一度きりの answeredQuestions+1 は撤去（下のオートプログレッションが進行を管理し二重カウントを防ぐ）。
     const t1 = setTimeout(() => {
       fetchQuestions()
     }, 3000)
-    const t2 = setTimeout(() => {
-      setAiSpeechText('')
-      // 質問が表示されたら回答済みカウントを増やす（デモ用）
-      setAnsweredQuestions((prev) => Math.min(prev + 1, totalQuestions))
-    }, 10000)
     return () => {
       clearTimeout(t1)
-      clearTimeout(t2)
     }
-  }, [jobId, companyId, totalQuestions, interviewId, slug])
+  }, [jobId, companyId, interviewId, slug])
+
+  // モック面接のオートプログレッション＋完了配線。
+  // 質問を QUESTION_INTERVAL_MS ごとに1問ずつ提示して answeredQuestions を進め、
+  // 最後まで到達したら締めメッセージを表示し handleEndInterview('全質問完了') を1回だけ呼ぶ。
+  // → /end に final_status='completed' / end_reason='全質問完了' が渡り applicant は「完了」になる。
+  // ※ 音声/OpenAI Realtime/EBCA/複雑な質問ラリーUIは未実装（モックの自動進行のみ）。
+  useEffect(() => {
+    if (!interviewId || blockingError) return
+    if (questionList.length === 0) return
+    if (progressionStartedRef.current) return
+    progressionStartedRef.current = true
+
+    const total = questionList.length
+    const timers: NodeJS.Timeout[] = []
+    // 各質問を順に提示し回答済み数を進める（モック）
+    for (let i = 0; i < total; i++) {
+      timers.push(
+        setTimeout(() => {
+          setAiSpeechText(questionList[i])
+          setAnsweredQuestions(i + 1)
+        }, i * QUESTION_INTERVAL_MS),
+      )
+    }
+    // 最終質問の後: 締めメッセージ → 全質問完了で終了
+    timers.push(
+      setTimeout(() => {
+        setAiSpeechText(CLOSING_MESSAGE)
+      }, total * QUESTION_INTERVAL_MS),
+    )
+    timers.push(
+      setTimeout(() => {
+        handleEndInterview('全質問完了')
+      }, total * QUESTION_INTERVAL_MS + CLOSING_HOLD_MS),
+    )
+    return () => {
+      timers.forEach((t) => clearTimeout(t))
+    }
+    // handleEndInterview は他 effect と同様に依存に含めない（毎レンダー再生成・ref で二重起動防止済み）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interviewId, blockingError, questionList])
 
   // interviewIdとquestionListが揃ったら questions_snapshot を1回だけ保存（token付き service-role API）
   useEffect(() => {
@@ -398,7 +443,10 @@ export default function SessionPage() {
   }, [interviewId, applicantId, elapsedSeconds, totalQuestions, answeredQuestions, isEnding, slug, blockingError])
 
   async function handleEndInterview(endReason: '全質問完了' | '時間切れ' | '自主終了' = '自主終了') {
-    if (isEnding) return // 重複実行を防止
+    // ref で同期的に二重 /end を弾く（自動完了・手動終了・時間切れが競合しても1回だけ送る）。
+    if (endTriggeredRef.current) return
+    endTriggeredRef.current = true
+    if (isEnding) return // 重複実行を防止（UI状態）
     setIsEnding(true)
 
     if (streamRef.current) {
