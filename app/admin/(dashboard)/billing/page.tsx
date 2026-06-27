@@ -119,6 +119,7 @@ export default function BillingPage() {
   const [monthlySales, setMonthlySales] = useState<number[]>(Array(12).fill(0))
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [summaryReloadKey, setSummaryReloadKey] = useState(0) // 入金変更後の summary 再取得トリガ
 
   useEffect(() => {
     let cancelled = false
@@ -146,7 +147,7 @@ export default function BillingPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [summaryReloadKey])
 
   const filteredData = billingData.filter((item) => {
     const matchesSearch = searchQuery === '' || item.name.includes(searchQuery)
@@ -254,6 +255,7 @@ export default function BillingPage() {
       setMarkPassword('')
       showToast(markTarget.next === 'paid' ? '入金済みに更新しました' : '未入金に戻しました')
       setRecReloadKey((k) => k + 1)
+      setSummaryReloadKey((k) => k + 1) // サマリー/企業別課金行も最新化
     } catch {
       setMarkError('更新に失敗しました')
     } finally {
