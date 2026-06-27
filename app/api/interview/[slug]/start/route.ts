@@ -143,18 +143,26 @@ export async function POST(
       // ※ 集計失敗を「使用0」とみなすと上限超過でも開始できてしまうため、非OKで止める。
       if (countError) return apiError('INTERNAL_ERROR', '面接実施数の確認に失敗しました')
 
-      // (b) 同時実行レース緩和（案1）: 当月の進行中(in_progress)も枠を一時占有させる。
+      // (b) 同時実行レース緩和（案1）: 当月の「新鮮な」進行中(in_progress)も枠を一時占有させる。
       //   ここで数えるのは「他 applicant が同時進行中」のセッション（自分の in_progress は finalize 済み）。
       //   is_billable=true 行は in_progress ではないため (a) と重複しない。
       //   10分未満離脱などで後から cancelled+is_billable=false になれば次回以降カウントから外れ枠が戻る。
+      //   ※ 鮮度フィルタ: ネットワーク断/ブラウザ強制終了で /end を送れず in_progress のまま残る
+      //     放棄セッションが月末まで枠を恒久占有し、他 applicant が上限未達でも 403 になるのを防ぐため、
+      //     started_at が TTL(60分)以内のものだけを枠として数える（古い in_progress はカウントから除外。
+      //     ここで更新/cancelled 化はしない＝読み取り側のみ・副作用なし）。
+      //     放棄セッションの将来 finalize による課金は別件（abort/孤児課金）で扱う。
       //   ※ DBロック無しのため完全同時の2連打は残存し得る。原子的予約（案2: 条件付きUPDATE/
       //     行ロック/一意制約）は DB 変更を伴うため P1 #1 の DB 承認フェーズで別途検討する。
+      const INPROGRESS_FRESH_MS = 60 * 60 * 1000 // 60分。これより古い in_progress は放棄とみなし枠から除外
+      const freshSinceIso = new Date(Date.now() - INPROGRESS_FRESH_MS).toISOString()
       const { count: inProgressCount, error: inProgressError } = await supabase
         .from('interviews')
         .select('id', { count: 'exact', head: true })
         .eq('company_id', company.id)
         .eq('status', 'in_progress')
         .gte('created_at', monthStart)
+        .gte('started_at', freshSinceIso)
       if (inProgressError) return apiError('INTERNAL_ERROR', '面接実施数の確認に失敗しました')
 
       const usedCount = (billableCount ?? 0) + (inProgressCount ?? 0)
