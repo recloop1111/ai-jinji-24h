@@ -70,12 +70,18 @@ export async function GET(request: NextRequest) {
 
     let monthlyCounts: Record<string, number> = {}
     if (companyIds.length > 0) {
-      const { data: interviewData } = await supabase
+      const { data: interviewData, error: countError } = await supabase
         .from('interviews')
         .select('company_id')
         .in('company_id', companyIds)
         .eq('is_billable', true)
         .gte('created_at', monthStart)
+
+      // 集計失敗を 0 件として隠蔽せず、companies クエリ失敗時と同じくエラーを返す
+      // （?? 0 だと全企業が当月0件として 200 で返り利用数が過少報告になるため）。
+      if (countError) {
+        return apiError('INTERNAL_ERROR', '当月面接数の取得に失敗しました')
+      }
 
       monthlyCounts = (interviewData ?? []).reduce((acc: Record<string, number>, row: { company_id: string }) => {
         acc[row.company_id] = (acc[row.company_id] ?? 0) + 1
