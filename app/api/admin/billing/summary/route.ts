@@ -2,6 +2,7 @@ import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { jstCurrentMonthStartIso, jstFirstOfNextMonthDate } from '@/lib/companies/applyNextMonthLimit'
+import { effectiveStatus } from '@/lib/billing/dueDate'
 import { PRICE_PER_INTERVIEW } from '@/types/database'
 
 // 当月見込み + 請求サマリーを返す（service role / RLS非依存）
@@ -67,26 +68,30 @@ export async function GET() {
     // { company_id, period(YYYY-MM), amount(amount_jpy/税抜), status } へ正規化する。
     const { data: recordData } = await supabase
       .from('billing_records')
-      .select('company_id, billing_month, amount_jpy, payment_status')
+      .select('company_id, billing_month, amount_jpy, payment_status, created_at')
       .gte('billing_month', `${oldestPeriod}-01`)
 
-    // payment_status を既存ロジックが期待する paid/billed/overdue へ保守的に正規化。
-    // 値集合は未確認かつ billing_records は現状0件。writer（Stripe請求バッチ）実装時に要再確認。
-    const normalizeStatus = (s: string | null): string => {
-      if (s === 'paid') return 'paid'
-      if (s === 'overdue') return 'overdue'
-      return 'billed' // billed/unpaid/pending/open/null/その他 → 発行済み未入金相当
+    // payment_status を既存ロジックが期待する paid/billed/overdue へ正規化。
+    // overdue は DB値ではなく created_at + 翌月末ルールから導出するため、records ルートと同じ
+    // effectiveStatus（lib/billing/dueDate）を使う（pending かつ期限超過 → overdue）。
+    // 値集合は未確認かつ billing_records は現状0件。writer（請求バッチ）実装時に要再確認。
+    const normalizeStatus = (s: string | null, createdAt: string | null): string => {
+      const eff = effectiveStatus(createdAt, s)
+      if (eff === 'paid') return 'paid'
+      if (eff === 'overdue') return 'overdue'
+      return 'billed' // pending/failed/refunded/null/その他 → 発行済み未入金相当
     }
     const invoices = (recordData ?? []).map((r: {
       company_id: string
       billing_month: string | null
       amount_jpy: number | null
       payment_status: string | null
+      created_at: string | null
     }) => ({
       company_id: r.company_id,
       period: r.billing_month ? String(r.billing_month).slice(0, 7) : '',
       amount: typeof r.amount_jpy === 'number' ? r.amount_jpy : 0,
-      status: normalizeStatus(r.payment_status),
+      status: normalizeStatus(r.payment_status, r.created_at),
     }))
 
     // 当月 period の請求ステータス（company_id -> status）
