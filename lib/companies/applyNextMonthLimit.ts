@@ -72,6 +72,30 @@ export function jstFirstOfNextMonthDate(now: number = Date.now()): string {
   return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-01`
 }
 
+/**
+ * JST「前月」の範囲を返す（月次請求の確定対象月）。
+ * - startIso: 前月 JST 月初 00:00 を UTC インスタント（ISO）で
+ * - endIso  : 当月 JST 月初 00:00 を UTC インスタント（ISO）で（＝前月の上限・排他境界。jstCurrentMonthStartIso と一致）
+ * - billingMonth: 前月1日（YYYY-MM-01・date列用）
+ * jstCurrentMonthStartIso / jstFirstOfNextMonthDate と同じ JST 基準（Date.now()+9h）で導出し境界をズレさせない。
+ * interviews.created_at（UTC timestamptz）との比較で `created_at >= startIso AND created_at < endIso` の半開区間に使う。
+ */
+export function jstPreviousMonthRange(now: number = Date.now()): {
+  startIso: string
+  endIso: string
+  billingMonth: string
+} {
+  const jstNow = new Date(now + 9 * 60 * 60 * 1000)
+  const y = jstNow.getUTCFullYear()
+  const m = jstNow.getUTCMonth() // 0-indexed（JST基準の当月）
+  // JST の (y, m-1, 1) 00:00 / (y, m, 1) 00:00 を UTC インスタントに直すと 9時間前。Date.UTC が年跨ぎも処理。
+  const startIso = new Date(Date.UTC(y, m - 1, 1) - 9 * 60 * 60 * 1000).toISOString()
+  const endIso = new Date(Date.UTC(y, m, 1) - 9 * 60 * 60 * 1000).toISOString()
+  const pm = new Date(Date.UTC(y, m - 1, 1))
+  const billingMonth = `${pm.getUTCFullYear()}-${String(pm.getUTCMonth() + 1).padStart(2, '0')}-01`
+  return { startIso, endIso, billingMonth }
+}
+
 export async function applyNextMonthLimit(company: NextMonthLimitInput): Promise<NextMonthLimitResult> {
   const nextLimit = company.next_month_interview_limit
   const effMonth = company.next_month_limit_effective_month
