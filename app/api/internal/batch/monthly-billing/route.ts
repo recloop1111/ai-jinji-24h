@@ -34,12 +34,22 @@ export async function POST(request: NextRequest) {
     // 確定対象＝JST 前月（半開区間 [startIso, endIso) で created_at を絞る）。billing_month は前月1日。
     const { startIso, endIso, billingMonth } = jstPreviousMonthRange()
 
-    // 対象企業（確定に必要な列のみ）
-    const { data: companies, error: compError } = await supabase
-      .from('companies')
-      .select('id, plan, price_per_interview')
-    if (compError) {
-      return apiError('INTERNAL_ERROR', '企業情報の取得に失敗しました')
+    // 対象企業（確定に必要な列のみ）。PostgREST の1ページ上限（通常1000行）で
+    // 後続テナントが請求漏れしないよう range() で全件ページング取得する。
+    const PAGE_SIZE = 1000
+    const companies: { id: string; plan: string | null; price_per_interview: number | null }[] = []
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data: page, error: compError } = await supabase
+        .from('companies')
+        .select('id, plan, price_per_interview')
+        .order('id', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1)
+      if (compError) {
+        return apiError('INTERNAL_ERROR', '企業情報の取得に失敗しました')
+      }
+      if (!page || page.length === 0) break
+      companies.push(...page)
+      if (page.length < PAGE_SIZE) break
     }
 
     let created = 0
@@ -47,7 +57,7 @@ export async function POST(request: NextRequest) {
     let skipped = 0
     let errors = 0
 
-    for (const company of companies ?? []) {
+    for (const company of companies) {
       try {
         // 前月の課金対象（is_billable=true）件数
         const { count, error: countError } = await supabase
@@ -136,7 +146,7 @@ export async function POST(request: NextRequest) {
 
     return successJson({
       billing_month: billingMonth,
-      processed_companies: (companies ?? []).length,
+      processed_companies: companies.length,
       created,
       updated,
       skipped,

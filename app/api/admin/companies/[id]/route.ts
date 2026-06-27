@@ -32,8 +32,9 @@ export async function GET(
       return apiError('NOT_FOUND', '企業が見つかりません')
     }
 
-    // 当月の面接実績数
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
+    // 当月の面接実績数。境界は billing/上限判定と同じ JST 基準に統一
+    // （サーバローカルTZ=Vercel UTC だと JST月初0:00〜8:59 で前月を含むズレが出るため）。
+    const monthStart = jstCurrentMonthStartIso()
     const { count: monthlyCount } = await supabase
       .from('interviews')
       .select('id', { count: 'exact', head: true })
@@ -196,10 +197,10 @@ export async function PATCH(
       'logo_url', 'avatar_url',
     ]
 
-    const updates: Record<string, any> = {}
+    const updates: Record<string, unknown> = {}
     for (const key of allowedFields) {
       if (key in body) {
-        updates[key] = body[key]
+        updates[key] = (body as Record<string, unknown>)[key]
       }
     }
 

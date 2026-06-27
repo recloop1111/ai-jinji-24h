@@ -44,23 +44,29 @@ export async function GET() {
     const companyList = companies ?? []
     const companyIds = companyList.map((c: { id: string }) => c.id)
 
-    // 当月の billable 面接数（企業ごと）
-    let monthlyCounts: Record<string, number> = {}
+    // 当月の billable 面接数（企業ごと）。PostgREST の1ページ上限（通常1000行）で
+    // 過少集計しないよう range() で全件ページングして件数を積み上げる。
+    const monthlyCounts: Record<string, number> = {}
     if (companyIds.length > 0) {
-      const { data: interviewData } = await supabase
-        .from('interviews')
-        .select('company_id')
-        .in('company_id', companyIds)
-        .eq('is_billable', true)
-        .gte('created_at', monthStartIso)
-
-      monthlyCounts = (interviewData ?? []).reduce(
-        (acc: Record<string, number>, row: { company_id: string }) => {
-          acc[row.company_id] = (acc[row.company_id] ?? 0) + 1
-          return acc
-        },
-        {},
-      )
+      const PAGE_SIZE = 1000
+      for (let from = 0; ; from += PAGE_SIZE) {
+        const { data: interviewData, error: countError } = await supabase
+          .from('interviews')
+          .select('company_id')
+          .in('company_id', companyIds)
+          .eq('is_billable', true)
+          .gte('created_at', monthStartIso)
+          .order('id', { ascending: true })
+          .range(from, from + PAGE_SIZE - 1)
+        if (countError) {
+          return apiError('INTERNAL_ERROR', '当月面接数の取得に失敗しました')
+        }
+        if (!interviewData || interviewData.length === 0) break
+        for (const row of interviewData as { company_id: string }[]) {
+          monthlyCounts[row.company_id] = (monthlyCounts[row.company_id] ?? 0) + 1
+        }
+        if (interviewData.length < PAGE_SIZE) break
+      }
     }
 
     // 過去12ヶ月の確定請求（月次グラフ・年間累計・未入金・当月ステータス算出に使用）。
