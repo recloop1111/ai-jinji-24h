@@ -56,7 +56,20 @@ export async function GET(
       .eq('company_id', record.company_id)
       .maybeSingle()
 
-    const input = toInvoiceInput(record, company, profile ?? null, record.invoice_snapshot ?? null)
+    // 発行者/振込先/支払案内文 = invoice_snapshot 優先 → billing_issuer_settings(DB) → config fallback。
+    const { data: issuerSettings } = await supabase
+      .from('billing_issuer_settings')
+      .select('issuer_name, postal_code, address, building, tel, registration_number, bank_name, branch_name, account_type, account_number, account_holder, payment_note')
+      .eq('id', 'default')
+      .maybeSingle()
+
+    const input = toInvoiceInput(
+      record,
+      company,
+      profile ?? null,
+      record.invoice_snapshot ?? null,
+      issuerSettings ?? null,
+    )
     const pdf = await buildInvoicePdf(input)
 
     return new Response(new Uint8Array(pdf), {

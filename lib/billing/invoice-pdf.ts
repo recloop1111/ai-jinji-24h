@@ -1,7 +1,17 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import PDFDocument from 'pdfkit'
-import { BILLING_ISSUER, BILLING_BANK, BILLING_TERMS } from '@/lib/config/billing'
+// taxRate / numberPrefix はロジック定数のため config のまま。発行者/振込先/payment_note は
+// billing_issuer_settings(DB)→config の resolver 経由で受け取る（issuer-settings.ts）。
+import { BILLING_TERMS } from '@/lib/config/billing'
+import {
+  resolveIssuer,
+  resolveBank,
+  resolvePaymentNote,
+  type InvoiceIssuer,
+  type InvoiceBank,
+  type BillingIssuerSettingsDbRow,
+} from '@/lib/billing/issuer-settings'
 import { jstDueDate } from '@/lib/billing/dueDate'
 
 // 請求書PDFのビルダー（client/admin の invoice API が共有する純関数）。
@@ -27,6 +37,9 @@ export type InvoiceInput = {
   dueDate: string | null // 支払期限（JST YYYY-MM-DD）
   billingMonth: string // 請求対象月（YYYY年MM月）
   billTo: InvoiceBillTo
+  issuer: InvoiceIssuer // 発行者（snapshot→DB→config で解決済み）
+  bank: InvoiceBank // 振込先（同上）
+  paymentNote: string // 支払案内文/備考（同上）
   interviewCount: number
   unitPrice: number // 表示用（amount_jpy / interview_count）
   subtotal: number // amount_jpy（税抜・確定値）
@@ -45,10 +58,14 @@ export type BillToProfileRow = {
   phone: string | null
 } | null
 
-// billing_records.invoice_snapshot（確定時に凍結する請求先・発行者・振込先）。
-// 本フェーズの writer は未実装のため通常 null。bill_to があれば最優先で使用する。
+// billing_records.invoice_snapshot（確定時に凍結する請求先・発行者・振込先・支払案内文）。
+// snapshot の各部があれば最優先で使用する（確定済み請求書の不変性）。
+// ※ snapshot を書き込む writer（monthly-billing）は別フェーズ。現状は通常 null。
 export type InvoiceSnapshot = {
   bill_to?: Partial<InvoiceBillTo> | null
+  issuer?: Partial<InvoiceIssuer> | null
+  bank?: Partial<InvoiceBank> | null
+  payment_note?: string | null
 } | null
 
 // 請求先（宛名）の解決優先順位:
@@ -126,6 +143,7 @@ export function toInvoiceInput(
   company: { name: string | null; contact_person: string | null },
   profile: BillToProfileRow = null,
   snapshot: InvoiceSnapshot = null,
+  issuerSettings: BillingIssuerSettingsDbRow = null,
 ): InvoiceInput {
   const ym = record.billing_month ? String(record.billing_month).slice(0, 7) : '' // YYYY-MM
   const [y, m] = ym.split('-')
@@ -140,6 +158,10 @@ export function toInvoiceInput(
     dueDate: jstDueDate(record.created_at),
     billingMonth: billingMonthLabel,
     billTo: resolveBillTo(company, profile, snapshot),
+    // 発行者/振込先/支払案内文: snapshot（凍結）→ billing_issuer_settings(DB) → config fallback。
+    issuer: resolveIssuer(issuerSettings, snapshot?.issuer),
+    bank: resolveBank(issuerSettings, snapshot?.bank),
+    paymentNote: resolvePaymentNote(issuerSettings, snapshot?.payment_note),
     interviewCount: count,
     unitPrice,
     subtotal,
@@ -191,23 +213,24 @@ export function buildInvoicePdf(input: InvoiceInput): Promise<Buffer> {
       if (bt.phone) doc.text(`TEL: ${bt.phone}`, left, doc.y, { width: billToW })
       const billToBottom = doc.y
 
-      // 発行者（右ブロック）。BILLING_ISSUER（config）から。発行者のDB化は本フェーズ対象外。
+      // 発行者（右ブロック）。billing_issuer_settings(DB)→config で解決済みの input.issuer。
+      const issuer = input.issuer
       const issuerTop = billToY
       const issuerX = left + contentWidth / 2
       const issuerW = contentWidth / 2
       doc.fontSize(10)
-      doc.text(BILLING_ISSUER.companyName, issuerX, issuerTop, { width: issuerW, align: 'right' })
-      doc.text(`〒${BILLING_ISSUER.postalCode}`, issuerX, doc.y, { width: issuerW, align: 'right' })
+      doc.text(issuer.name, issuerX, issuerTop, { width: issuerW, align: 'right' })
+      doc.text(`〒${issuer.postalCode}`, issuerX, doc.y, { width: issuerW, align: 'right' })
       doc.text(
-        `${BILLING_ISSUER.address}${BILLING_ISSUER.building ? ' ' + BILLING_ISSUER.building : ''}`,
+        `${issuer.address}${issuer.building ? ' ' + issuer.building : ''}`,
         issuerX,
         doc.y,
         { width: issuerW, align: 'right' },
       )
-      doc.text(`TEL: ${BILLING_ISSUER.tel}`, issuerX, doc.y, { width: issuerW, align: 'right' })
+      doc.text(`TEL: ${issuer.tel}`, issuerX, doc.y, { width: issuerW, align: 'right' })
       // 登録番号は設定されている場合のみ表示（インボイス未登録時に「未登録」等を出さない）。
-      if (BILLING_ISSUER.registrationNumber) {
-        doc.text(`登録番号: ${BILLING_ISSUER.registrationNumber}`, issuerX, doc.y, {
+      if (issuer.registrationNumber) {
+        doc.text(`登録番号: ${issuer.registrationNumber}`, issuerX, doc.y, {
           width: issuerW,
           align: 'right',
         })
@@ -262,16 +285,17 @@ export function buildInvoicePdf(input: InvoiceInput): Promise<Buffer> {
       doc.fontSize(12).text(`合計（税込）: ${yen(input.total)}`, sumX, doc.y, { width: sumW, align: 'right' })
       doc.moveDown(2)
 
-      // 振込先
+      // 振込先（billing_issuer_settings(DB)→config で解決済みの input.bank）
+      const bank = input.bank
       doc.fontSize(11).text('お振込先', left, doc.y)
       doc.fontSize(10)
-      doc.text(`${BILLING_BANK.bankName} ${BILLING_BANK.branchName}`)
-      doc.text(`${BILLING_BANK.accountType} ${BILLING_BANK.accountNumber}`)
-      doc.text(`口座名義: ${BILLING_BANK.accountHolder}`)
+      doc.text(`${bank.bankName} ${bank.branchName}`)
+      doc.text(`${bank.accountType} ${bank.accountNumber}`)
+      doc.text(`口座名義: ${bank.accountHolder}`)
       doc.moveDown(1)
 
-      // 備考
-      doc.fontSize(9).fillColor('#444').text(BILLING_TERMS.paymentNote, left, doc.y, { width: contentWidth })
+      // 備考（支払案内文・解決済みの input.paymentNote）
+      doc.fontSize(9).fillColor('#444').text(input.paymentNote, left, doc.y, { width: contentWidth })
 
       doc.end()
     } catch (err) {
