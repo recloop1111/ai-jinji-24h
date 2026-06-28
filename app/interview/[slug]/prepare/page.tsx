@@ -7,7 +7,7 @@ import { Volume2, User, Video, AlertCircle, Check } from 'lucide-react'
 // 取得できない場合のダミーデータ
 const dummyCompany = {
   id: 'dummy-company-id',
-  name: '株式会社サンプル',
+  name: 'テスト株式会社',
   logo_url: null,
   is_suspended: false,
 }
