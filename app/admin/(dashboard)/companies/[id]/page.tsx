@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { ArrowLeft, Link as LinkIcon, User, Info, X } from 'lucide-react'
 import JobManager from '@/components/shared/JobManager'
 import QuestionEditor from '@/components/shared/QuestionEditor'
@@ -33,14 +33,42 @@ const EVALUATION_AXES = [
 
 const TABS = ['基本情報', 'ブランド設定', 'アバター設定', '質問設定', '評価設定', '求人管理', '利用状況', 'セキュリティ'] as const
 
+// タブ状態を URL query(?tab=<slug>) に保持して、応募者一覧などへ遷移→戻った時に元タブへ復帰させる。
+const TAB_SLUGS: Record<(typeof TABS)[number], string> = {
+  '基本情報': 'basic',
+  'ブランド設定': 'brand',
+  'アバター設定': 'avatar',
+  '質問設定': 'questions',
+  '評価設定': 'evaluation',
+  '求人管理': 'jobs',
+  '利用状況': 'usage',
+  'セキュリティ': 'security',
+}
+const SLUG_TO_TAB: Record<string, (typeof TABS)[number]> = Object.fromEntries(
+  Object.entries(TAB_SLUGS).map(([tab, slug]) => [slug, tab as (typeof TABS)[number]]),
+)
+
 export default function CompanyDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const companyId = params.id as string
   const [company, setCompany] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
-  const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>('基本情報')
+  // 初期タブは URL の ?tab=<slug> から復元（不正/未指定なら基本情報）
+  const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>(
+    () => SLUG_TO_TAB[searchParams.get('tab') ?? ''] ?? '基本情報',
+  )
+
+  // タブ選択は URL(?tab=)も更新する（履歴を増やさず replace）。別ページへ push して戻った時に元タブへ復帰する。
+  const selectTab = (tab: (typeof TABS)[number]) => {
+    setActiveTab(tab)
+    const sp = new URLSearchParams(searchParams.toString())
+    sp.set('tab', TAB_SLUGS[tab])
+    router.replace(`${pathname}?${sp.toString()}`, { scroll: false })
+  }
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
 
@@ -429,7 +457,7 @@ export default function CompanyDetailPage() {
             <button
               key={tab}
               type="button"
-              onClick={() => setActiveTab(tab)}
+              onClick={() => selectTab(tab)}
               className={`shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
                 activeTab === tab
                   ? 'bg-white/10 text-white'
@@ -928,7 +956,7 @@ export default function CompanyDetailPage() {
         {/* タブ4: 質問設定 */}
         {activeTab === '質問設定' && (
           <div className={`${CARD_BASE} p-6`}>
-            <QuestionEditor companyId={companyId} theme="dark" onNavigateToJobs={() => setActiveTab('求人管理')} />
+            <QuestionEditor companyId={companyId} theme="dark" onNavigateToJobs={() => selectTab('求人管理')} />
           </div>
         )}
 
@@ -985,7 +1013,7 @@ export default function CompanyDetailPage() {
         {/* タブ6: 求人管理 */}
         {activeTab === '求人管理' && (
           <div className={`${CARD_BASE} p-6`}>
-            <JobManager companyId={companyId} theme="dark" onNavigateToQuestions={() => setActiveTab('質問設定')} />
+            <JobManager companyId={companyId} theme="dark" onNavigateToQuestions={() => selectTab('質問設定')} />
           </div>
         )}
 
