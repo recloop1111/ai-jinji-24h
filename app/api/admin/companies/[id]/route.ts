@@ -78,7 +78,7 @@ export async function GET(
         status: company.status,
         created_at: company.created_at,
         logo_url: company.logo_url,
-        avatar_url: company.avatar_url,
+        avatar_config: company.avatar_config,
         // サーバ算出/上書き値
         monthly_interview_limit: applied.monthly_interview_limit,
         next_month_interview_limit: applied.next_month_interview_limit,
@@ -194,7 +194,7 @@ export async function PATCH(
       'industry', 'monthly_interview_limit', 'plan', 'price_per_interview',
       'next_month_interview_limit', 'next_month_limit_effective_month',
       'is_suspended', 'status',
-      'logo_url', 'avatar_url',
+      'logo_url', 'avatar_config',
     ]
 
     const updates: Record<string, unknown> = {}
@@ -293,7 +293,7 @@ export async function PATCH(
         status: company.status,
         created_at: company.created_at,
         logo_url: company.logo_url,
-        avatar_url: company.avatar_url,
+        avatar_config: company.avatar_config,
       },
     })
   } catch {

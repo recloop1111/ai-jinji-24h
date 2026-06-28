@@ -112,6 +112,13 @@ export default function CompanyDetailPage() {
           setCsMonthlyLimit(String(data.monthly_interview_limit ?? 5))
           setCsNextLimit(data.next_month_interview_limit != null ? String(data.next_month_interview_limit) : '')
           setCsStatus(data.is_suspended ? 'suspended' : 'active')
+          // アバター設定（companies.avatar_config jsonb）から復元（保存値がリロードで残るように）
+          const ac = (data.avatar_config ?? null) as { name?: string; voice?: string; tone?: string } | null
+          if (ac) {
+            if (typeof ac.name === 'string' && ac.name) setAvatarName(ac.name)
+            if (ac.voice === 'alloy' || ac.voice === 'nova' || ac.voice === 'echo') setVoiceType(ac.voice)
+            if (typeof ac.tone === 'string' && ac.tone) setToneTemplate(ac.tone)
+          }
         }
       } catch {
         // fetch failed
@@ -351,18 +358,17 @@ export default function CompanyDetailPage() {
   }
 
   async function saveAvatarSettings() {
-    const result = await patchCompany({ avatar_url: avatarPreview })
+    // 保存先は companies.avatar_config（jsonb）。画像は R2/Storage 導入まで保存せず UI プレビューのみ。
+    const result = await patchCompany({
+      avatar_config: { name: avatarName, voice: voiceType, tone: toneTemplate },
+    })
     showToast(result.ok ? 'アバター設定を保存しました' : (result.error || '保存に失敗しました'))
   }
 
-  async function deleteAvatarImage() {
-    const result = await patchCompany({ avatar_url: null })
-    if (result.ok) {
-      setAvatarPreview(null)
-      showToast('アバター画像を削除しました')
-    } else {
-      showToast(result.error || '削除に失敗しました')
-    }
+  function deleteAvatarImage() {
+    // 画像は未保存（一時プレビュー扱い）。削除はローカルのプレビュー解除のみ。
+    setAvatarPreview(null)
+    showToast('アバター画像を削除しました')
   }
 
   if (loading) {
