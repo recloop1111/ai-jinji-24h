@@ -22,13 +22,15 @@ function firstOfNextMonth(): string {
   return `${n.getUTCFullYear()}-${String(n.getUTCMonth() + 1).padStart(2, '0')}-01`
 }
 
-const EVALUATION_AXES = [
-  { name: 'コミュニケーション力', weight: 20 },
-  { name: '論理的思考力', weight: 20 },
-  { name: '業界適性・経験値', weight: 15 },
-  { name: '主体性・意欲', weight: 20 },
-  { name: '組織適合性（チームフィット）', weight: 15 },
-  { name: 'ストレス耐性', weight: 10 },
+// EBCA（Evidence-based Competency Analysis）の評価6軸（読み取り専用・表示用）。
+// 質問ごとの固定重み設定は行わず、AIが回答内容・根拠・一貫性から総合評価する方針。
+const EBCA_AXES = [
+  { name: 'コミュニケーション', desc: '相手に伝わる説明・対話の的確さ' },
+  { name: '論理的思考', desc: '筋道立てた説明・一貫性' },
+  { name: '主体性', desc: '自ら考え行動する姿勢・当事者意識' },
+  { name: '志望度', desc: '志望理由の具体性・熱意' },
+  { name: 'ストレス耐性', desc: '困難局面での落ち着き・対処' },
+  { name: '誠実性', desc: '回答の正直さ・一貫した態度' },
 ]
 
 const TABS = ['基本情報', 'ブランド設定', 'アバター設定', '質問設定', '評価設定', '求人管理', '利用状況', 'セキュリティ'] as const
@@ -118,10 +120,6 @@ export default function CompanyDetailPage() {
   const avatarFileRef = useRef<HTMLInputElement>(null)
   const [voiceType, setVoiceType] = useState<'alloy' | 'nova' | 'echo'>('alloy')
   const [toneTemplate, setToneTemplate] = useState('です・ます調（丁寧）')
-
-  // 評価設定 state
-  const [axes, setAxes] = useState(EVALUATION_AXES.map((a) => ({ ...a })))
-  const totalWeight = axes.reduce((sum, a) => sum + a.weight, 0)
 
   useEffect(() => {
     async function fetchCompany() {
@@ -963,50 +961,26 @@ export default function CompanyDetailPage() {
         {/* タブ5: 評価設定 */}
         {activeTab === '評価設定' && (
           <div className={`${CARD_BASE} p-6`}>
-            <h2 className="text-base font-semibold text-white mb-1">評価軸設定</h2>
-            <p className="text-sm text-gray-400 mb-6">各評価軸の名称と重み（合計100%）を設定してください</p>
-            <div className="space-y-0">
-              {axes.map((ax, i) => (
-                <div key={i} className="flex items-center gap-4 py-3 border-b border-white/[0.04]">
-                  <span className="text-sm text-gray-500 w-6 shrink-0">{i + 1}.</span>
-                  <input
-                    type="text"
-                    value={ax.name}
-                    onChange={(e) => {
-                      const next = [...axes]
-                      next[i] = { ...next[i], name: e.target.value }
-                      setAxes(next)
-                    }}
-                    className="bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-3 py-2 text-sm w-56 focus:border-blue-500/50 outline-none"
-                  />
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      value={ax.weight}
-                      onChange={(e) => {
-                        const next = [...axes]
-                        next[i] = { ...next[i], weight: Number(e.target.value) || 0 }
-                        setAxes(next)
-                      }}
-                      min={0}
-                      max={100}
-                      className="bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-3 py-2 text-sm w-20 text-center focus:border-blue-500/50 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                    <span className="text-sm text-gray-400">%</span>
+            <h2 className="text-base font-semibold text-white mb-1">評価設定</h2>
+            <p className="text-sm text-gray-400 mb-4">
+              評価は <span className="text-gray-200">EBCA（エビデンスベース・コンピテンシー分析）</span> 方式です。
+              質問ごとに固定の重みを設定するのではなく、AIが面接全体の回答内容・根拠・具体性・一貫性をもとに
+              下記6軸を総合的に評価します。
+            </p>
+            <div className="rounded-xl border border-white/[0.06] divide-y divide-white/[0.04]">
+              {EBCA_AXES.map((ax, i) => (
+                <div key={i} className="flex items-start gap-4 px-4 py-3">
+                  <span className="text-sm text-gray-500 w-6 shrink-0 mt-0.5">{i + 1}.</span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white">{ax.name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{ax.desc}</p>
                   </div>
                 </div>
               ))}
             </div>
-            <p className={`mt-4 text-sm ${totalWeight === 100 ? 'text-gray-400' : 'text-red-400'}`}>
-              合計: {totalWeight}%{totalWeight !== 100 && '（100%にしてください）'}
+            <p className="mt-4 text-xs text-gray-500">
+              ※ 評価軸の重みづけ設定は現フェーズでは提供していません（AIによる総合評価のため）。
             </p>
-            <button
-              type="button"
-              onClick={() => showToast('評価設定を保存しました')}
-              className="mt-6 bg-gradient-to-r from-blue-600 to-blue-600 hover:from-blue-500 hover:to-blue-500 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-all shadow-[0_4px_16px_rgba(59,130,246,0.3)]"
-            >
-              保存する
-            </button>
           </div>
         )}
 
