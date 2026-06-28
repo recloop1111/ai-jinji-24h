@@ -10,7 +10,7 @@ export const BILLING_ISSUER = {
   tel: '00-0000-0000',
   email: 'billing@example.com',
   representative: '', // 任意（代表者名）
-  // 適格請求書発行事業者 登録番号（T+13桁）。空のときは PDF に「未登録」と明示する。
+  // 登録番号（T+13桁）。空のときは PDF に登録番号行を出さない（現状インボイス未登録）。
   registrationNumber: '',
 } as const
 

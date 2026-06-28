@@ -122,12 +122,13 @@ export function buildInvoicePdf(input: InvoiceInput): Promise<Buffer> {
         { width: issuerW, align: 'right' },
       )
       doc.text(`TEL: ${BILLING_ISSUER.tel}`, issuerX, doc.y, { width: issuerW, align: 'right' })
-      doc.text(
-        `登録番号: ${BILLING_ISSUER.registrationNumber || '未登録'}`,
-        issuerX,
-        doc.y,
-        { width: issuerW, align: 'right' },
-      )
+      // 登録番号は設定されている場合のみ表示（インボイス未登録時に「未登録」等を出さない）。
+      if (BILLING_ISSUER.registrationNumber) {
+        doc.text(`登録番号: ${BILLING_ISSUER.registrationNumber}`, issuerX, doc.y, {
+          width: issuerW,
+          align: 'right',
+        })
+      }
 
       doc.moveDown(2)
 
