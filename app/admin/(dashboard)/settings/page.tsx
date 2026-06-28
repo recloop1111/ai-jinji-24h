@@ -40,6 +40,26 @@ function InputLabel({ children }: { children: React.ReactNode }) {
 }
 
 const CARD = 'bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4'
+const INPUT = 'w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50'
+
+// 請求書設定（billing_issuer_settings）のフォーム項目。発行者/振込先/文言。
+// DBカラム key と表示ラベル。値は GET /api/admin/billing-settings から（未設定時は config が placeholder）。
+const ISSUER_FIELDS: { key: string; label: string }[] = [
+  { key: 'issuer_name', label: '発行者名' },
+  { key: 'postal_code', label: '郵便番号' },
+  { key: 'address', label: '住所' },
+  { key: 'building', label: '建物名（任意）' },
+  { key: 'tel', label: '電話番号' },
+  { key: 'registration_number', label: '登録番号（空欄可）' },
+]
+const BANK_FIELDS: { key: string; label: string }[] = [
+  { key: 'bank_name', label: '銀行名' },
+  { key: 'branch_name', label: '支店名' },
+  { key: 'account_type', label: '口座種別' },
+  { key: 'account_number', label: '口座番号' },
+  { key: 'account_holder', label: '口座名義' },
+]
+const ALL_ISSUER_KEYS = [...ISSUER_FIELDS, ...BANK_FIELDS].map((f) => f.key).concat('payment_note')
 
 // 接続/実装状態（read-only・実ヘルスチェックではない＝「設定状態」）
 const CONNECTION_STATUS: { name: string; status: string; tone: 'ok' | 'pending' }[] = [
@@ -60,7 +80,7 @@ const ROADMAP_ITEMS: { name: string; note: string }[] = [
   { name: '失敗ジョブ・再試行（録画 / レポート）', note: '今後実装予定（現在は設定できません）' },
 ]
 
-type TabId = 'policy' | 'connection' | 'security' | 'email' | 'roadmap'
+type TabId = 'policy' | 'connection' | 'security' | 'billing' | 'email' | 'roadmap'
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('policy')
@@ -78,6 +98,15 @@ export default function SettingsPage() {
   // メールテンプレート（実データ: email_templates・読み取り専用）
   const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([])
   const [emailTemplatesLoading, setEmailTemplatesLoading] = useState(true)
+
+  // 請求書設定（発行者/振込先/支払案内文・billing_issuer_settings・運営のみ）
+  const [billingForm, setBillingForm] = useState<Record<string, string>>({})
+  const [billingFallback, setBillingFallback] = useState<Record<string, string>>({})
+  const [billingPwConfigured, setBillingPwConfigured] = useState<boolean | null>(null)
+  const [billingLoading, setBillingLoading] = useState(true)
+  const [billingSaving, setBillingSaving] = useState(false)
+  const [billingPw, setBillingPw] = useState('')
+  const [billingError, setBillingError] = useState('')
 
   const showToast = (msg: string) => {
     setToastMessage(msg)
@@ -122,6 +151,58 @@ export default function SettingsPage() {
     })()
     return () => { cancelled = true }
   }, [])
+
+  // 請求書設定を取得（運営のみ。client には公開しない API）
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/billing-settings')
+        const json = await res.json().catch(() => ({}))
+        if (cancelled) return
+        if (res.ok) {
+          const s = (json?.settings ?? {}) as Record<string, string | null>
+          const next: Record<string, string> = {}
+          for (const k of ALL_ISSUER_KEYS) next[k] = s?.[k] ?? ''
+          setBillingForm(next)
+          setBillingFallback((json?.fallback ?? {}) as Record<string, string>)
+          setBillingPwConfigured(!!json?.settingPasswordConfigured)
+        }
+      } catch {
+        // 取得失敗時は空のまま（保存は可能）
+      } finally {
+        if (!cancelled) setBillingLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const handleSaveBillingSettings = async () => {
+    setBillingError('')
+    if (!billingPw) {
+      setBillingError('運営管理設定変更用パスワードを入力してください')
+      return
+    }
+    setBillingSaving(true)
+    try {
+      const res = await fetch('/api/admin/billing-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...billingForm, adminSettingPassword: billingPw }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setBillingError(json?.error?.message ?? '保存に失敗しました')
+        return
+      }
+      setBillingPw('')
+      showToast('請求書設定を保存しました')
+    } catch {
+      setBillingError('保存に失敗しました')
+    } finally {
+      setBillingSaving(false)
+    }
+  }
 
   const handleAdminSettingPasswordSubmit = async () => {
     setAdminSettingPwError('')
@@ -174,6 +255,7 @@ export default function SettingsPage() {
     { id: 'policy', label: '運用ポリシー' },
     { id: 'connection', label: '接続状態' },
     { id: 'security', label: 'セキュリティ' },
+    { id: 'billing', label: '請求書設定' },
     { id: 'email', label: 'メール' },
     { id: 'roadmap', label: '今後実装予定' },
   ]
@@ -335,6 +417,103 @@ export default function SettingsPage() {
               <p className="text-xs text-gray-500 mt-4">
                 IPブロック・アカウントロック等のセキュリティ運用は「セキュリティ」画面（/admin/security）で管理します。
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* タブ: 請求書設定（発行者/振込先/支払案内文・運営のみ・client非公開） */}
+        {activeTab === 'billing' && (
+          <div className="space-y-4">
+            <div className={CARD}>
+              <h2 className="text-lg font-semibold text-white mb-1">請求書の発行者・振込先設定</h2>
+              <p className="text-xs text-gray-500 mb-4">
+                請求書PDFに記載する発行者情報・振込先・支払案内文です。運営のみ編集できます（企業側には表示されません）。
+                未入力の項目は既定値（lib/config/billing.ts）が使われます。保存には運営管理設定変更用パスワードが必要です。
+              </p>
+
+              {billingLoading ? (
+                <p className="text-sm text-gray-500 py-6 text-center">読み込み中...</p>
+              ) : (
+                <div className="space-y-6">
+                  {/* 発行者 */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-300 mb-3">発行者情報</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+                      {ISSUER_FIELDS.map((f) => (
+                        <div key={f.key}>
+                          <InputLabel>{f.label}</InputLabel>
+                          <input
+                            type="text"
+                            value={billingForm[f.key] ?? ''}
+                            onChange={(e) => setBillingForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                            placeholder={billingFallback[f.key] || ''}
+                            className={INPUT}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 振込先 */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-300 mb-3">振込先情報</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+                      {BANK_FIELDS.map((f) => (
+                        <div key={f.key}>
+                          <InputLabel>{f.label}</InputLabel>
+                          <input
+                            type="text"
+                            value={billingForm[f.key] ?? ''}
+                            onChange={(e) => setBillingForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                            placeholder={billingFallback[f.key] || ''}
+                            className={INPUT}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 支払案内文/備考 */}
+                  <div className="max-w-2xl">
+                    <InputLabel>支払案内文 / 備考</InputLabel>
+                    <textarea
+                      value={billingForm['payment_note'] ?? ''}
+                      onChange={(e) => setBillingForm((prev) => ({ ...prev, payment_note: e.target.value }))}
+                      placeholder={billingFallback['payment_note'] || ''}
+                      rows={3}
+                      className={INPUT}
+                    />
+                  </div>
+
+                  {/* 設定パスワード＋保存 */}
+                  <div className="max-w-md space-y-3 border-t border-white/[0.06] pt-5">
+                    {billingPwConfigured === false && (
+                      <p className="text-xs text-amber-400">
+                        運営管理設定変更用パスワードが未設定です。「セキュリティ」タブで設定してから保存してください。
+                      </p>
+                    )}
+                    <div>
+                      <InputLabel>運営管理設定変更用パスワード</InputLabel>
+                      <PasswordInput
+                        value={billingPw}
+                        onChange={setBillingPw}
+                        className={INPUT}
+                        placeholder="保存するには入力してください"
+                        iconClassName="text-gray-400 hover:text-gray-200"
+                      />
+                    </div>
+                    {billingError && <p className="text-sm text-red-400">{billingError}</p>}
+                    <button
+                      type="button"
+                      onClick={handleSaveBillingSettings}
+                      disabled={billingSaving || billingPwConfigured === false}
+                      className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors disabled:opacity-60"
+                    >
+                      {billingSaving ? '保存中...' : '保存する'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
