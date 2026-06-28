@@ -400,9 +400,9 @@ export default function CompanyDetailPage() {
 
   // 請求先情報（company_billing_profiles）の代行確認/編集
   const BILLING_FIELDS = [
-    ['billing_name', '請求先正式名称'], ['department', '部署'], ['contact_name', '担当者名'],
-    ['contact_email', '担当者メール'], ['postal_code', '郵便番号'], ['address', '住所'],
-    ['building', '建物名'], ['phone', '電話番号'], ['note', '備考'],
+    ['billing_name', '請求先正式名称'], ['department', '請求先部署'], ['contact_name', '請求担当者名'],
+    ['contact_email', '請求担当者メール'], ['postal_code', '郵便番号'], ['address', '住所'],
+    ['building', '建物名'], ['phone', '請求先電話番号'], ['note', '備考'],
   ] as const
   const [billingProfile, setBillingProfile] = useState<Record<string, string>>({})
   const [billingFallback, setBillingFallback] = useState({ billing_name: '' })

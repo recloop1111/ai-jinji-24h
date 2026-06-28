@@ -498,13 +498,13 @@ function SettingsContent() {
                 )}
                 {([
                   ['billing_name', '請求先正式名称', 'text', '株式会社〇〇'],
-                  ['department', '部署', 'text', '経理部'],
-                  ['contact_name', '担当者名', 'text', '山田 太郎'],
-                  ['contact_email', '担当者メール', 'email', 'keiri@example.com'],
+                  ['department', '請求先部署', 'text', '経理部'],
+                  ['contact_name', '請求担当者名', 'text', '山田 太郎'],
+                  ['contact_email', '請求担当者メール', 'email', 'keiri@example.com'],
                   ['postal_code', '郵便番号', 'text', '100-0001'],
                   ['address', '住所', 'text', '東京都千代田区…'],
                   ['building', '建物名', 'text', '〇〇ビル 5F'],
-                  ['phone', '電話番号', 'tel', '03-1234-5678'],
+                  ['phone', '請求先電話番号', 'tel', '03-1234-5678'],
                 ] as const).map(([key, label, type, ph]) => (
                   <div key={key}>
                     <label className="block text-sm font-medium text-slate-700 mb-2">{label}</label>
