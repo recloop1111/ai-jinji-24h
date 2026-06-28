@@ -10,7 +10,24 @@ import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/Turnsti
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
-type TabType = 'general' | 'notifications' | 'security'
+type TabType = 'general' | 'billing' | 'notifications' | 'security'
+
+type BillingProfileForm = {
+  billing_name: string
+  department: string
+  contact_name: string
+  contact_email: string
+  postal_code: string
+  address: string
+  building: string
+  phone: string
+  note: string
+}
+
+const EMPTY_BILLING_PROFILE: BillingProfileForm = {
+  billing_name: '', department: '', contact_name: '', contact_email: '',
+  postal_code: '', address: '', building: '', phone: '', note: '',
+}
 
 type CompanyForm = {
   name: string
@@ -38,6 +55,13 @@ function SettingsContent() {
     phone: '',
   })
   const [interviewUrl, setInterviewUrl] = useState('')
+
+  // 請求先情報タブ（company_billing_profiles）
+  const [billingProfile, setBillingProfile] = useState<BillingProfileForm>(EMPTY_BILLING_PROFILE)
+  const [billingFallback, setBillingFallback] = useState({ billing_name: '', contact_name: '', contact_email: '' })
+  const [billingHasProfile, setBillingHasProfile] = useState(false)
+  const [billingLoading, setBillingLoading] = useState(true)
+  const [billingSaving, setBillingSaving] = useState(false)
 
   // 通知タブ
   const [emailNotifications, setEmailNotifications] = useState(true)
@@ -195,6 +219,53 @@ function SettingsContent() {
     showToastMessage('企業情報を保存しました')
   }
 
+  // 請求先情報の読み込み（cookie 認証・companyId 不要）
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/client/billing-profile')
+        if (cancelled) return
+        if (res.ok) {
+          const json = await res.json()
+          const data = json?.data ?? json
+          if (data?.profile) {
+            setBillingProfile({ ...EMPTY_BILLING_PROFILE, ...Object.fromEntries(Object.entries(data.profile).map(([k, v]) => [k, v ?? ''])) })
+            setBillingHasProfile(true)
+          }
+          if (data?.fallback) setBillingFallback(data.fallback)
+        }
+      } catch {
+        // デフォルト値のまま
+      } finally {
+        if (!cancelled) setBillingLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const handleSaveBillingProfile = async () => {
+    setBillingSaving(true)
+    try {
+      const res = await fetch('/api/client/billing-profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(billingProfile),
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => null)
+        showToastMessage(json?.error?.message ?? '保存に失敗しました')
+        return
+      }
+      setBillingHasProfile(true)
+      showToastMessage('請求先情報を保存しました')
+    } catch {
+      showToastMessage('保存に失敗しました')
+    } finally {
+      setBillingSaving(false)
+    }
+  }
+
   const handleLoginPasswordChange = async () => {
     setLoginPasswordError('')
     if (loginNewPassword !== loginConfirmPassword) {
@@ -250,6 +321,7 @@ function SettingsContent() {
 
   const tabs = [
     { id: 'general' as TabType, label: '一般' },
+    { id: 'billing' as TabType, label: '請求先情報' },
     { id: 'notifications' as TabType, label: '通知' },
     { id: 'security' as TabType, label: 'セキュリティ' },
   ]
@@ -401,6 +473,71 @@ function SettingsContent() {
               </button>
             </div>
             <p className="text-xs text-slate-500 mt-1">このURLを応募者に共有してください</p>
+          </div>
+        </div>
+      )}
+
+      {/* 請求先情報タブ */}
+      {activeTab === 'billing' && (
+        <div className="space-y-6">
+          <div className={cardClass}>
+            <h2 className="text-base font-semibold text-slate-900 mb-1">請求先情報</h2>
+            <p className="text-xs text-slate-500 mb-4">
+              請求書の宛名・送付先として使用します。未入力の場合は会社名・担当者で代替表示されます。
+            </p>
+            {billingLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <span className="inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {!billingHasProfile && (
+                  <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    未登録です。現在は会社名「{billingFallback.billing_name || '—'}」で請求書に表示されます。
+                  </p>
+                )}
+                {([
+                  ['billing_name', '請求先正式名称', 'text', '株式会社〇〇'],
+                  ['department', '請求先部署', 'text', '経理部'],
+                  ['contact_name', '請求担当者名', 'text', '山田 太郎'],
+                  ['contact_email', '請求担当者メール', 'email', 'keiri@example.com'],
+                  ['postal_code', '郵便番号', 'text', '100-0001'],
+                  ['address', '住所', 'text', '東京都千代田区…'],
+                  ['building', '建物名', 'text', '〇〇ビル 5F'],
+                  ['phone', '請求先電話番号', 'tel', '03-1234-5678'],
+                ] as const).map(([key, label, type, ph]) => (
+                  <div key={key}>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">{label}</label>
+                    <input
+                      type={type}
+                      value={billingProfile[key]}
+                      onChange={(e) => setBillingProfile((p) => ({ ...p, [key]: e.target.value }))}
+                      className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder={ph}
+                    />
+                  </div>
+                ))}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">備考</label>
+                  <textarea
+                    value={billingProfile.note}
+                    onChange={(e) => setBillingProfile((p) => ({ ...p, note: e.target.value }))}
+                    rows={2}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="請求書に関する補足（任意）"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveBillingProfile}
+                  disabled={billingSaving}
+                  className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm disabled:opacity-70"
+                >
+                  <SaveIcon className="w-4 h-4" />
+                  {billingSaving ? '保存中...' : '保存'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -27,7 +27,7 @@ export async function GET(
 
     const { data: record, error: recError } = await supabase
       .from('billing_records')
-      .select('id, company_id, billing_month, interview_count, amount_jpy, tax_jpy, total_jpy, payment_status, created_at')
+      .select('id, company_id, billing_month, interview_count, amount_jpy, tax_jpy, total_jpy, payment_status, created_at, invoice_snapshot')
       .eq('id', billing_record_id)
       .maybeSingle()
     if (recError) return apiError('INTERNAL_ERROR', '請求情報の取得に失敗しました')
@@ -49,7 +49,14 @@ export async function GET(
       .maybeSingle()
     if (compError || !company) return apiError('INTERNAL_ERROR', '企業情報の取得に失敗しました')
 
-    const input = toInvoiceInput(record, company)
+    // 請求先（宛名）= invoice_snapshot 優先 → company_billing_profiles → companies fallback。
+    const { data: profile } = await supabase
+      .from('company_billing_profiles')
+      .select('billing_name, department, contact_name, postal_code, address, building, phone')
+      .eq('company_id', record.company_id)
+      .maybeSingle()
+
+    const input = toInvoiceInput(record, company, profile ?? null, record.invoice_snapshot ?? null)
     const pdf = await buildInvoicePdf(input)
 
     return new Response(new Uint8Array(pdf), {

@@ -33,7 +33,7 @@ const EBCA_AXES = [
   { name: '誠実性', desc: '回答の正直さ・一貫した態度' },
 ]
 
-const TABS = ['基本情報', 'ブランド設定', 'アバター設定', '質問設定', '評価設定', '求人管理', '利用状況', 'セキュリティ'] as const
+const TABS = ['基本情報', 'ブランド設定', 'アバター設定', '質問設定', '評価設定', '求人管理', '利用状況', '請求先情報', 'セキュリティ'] as const
 
 // タブ状態を URL query(?tab=<slug>) に保持して、応募者一覧などへ遷移→戻った時に元タブへ復帰させる。
 const TAB_SLUGS: Record<(typeof TABS)[number], string> = {
@@ -44,6 +44,7 @@ const TAB_SLUGS: Record<(typeof TABS)[number], string> = {
   '評価設定': 'evaluation',
   '求人管理': 'jobs',
   '利用状況': 'usage',
+  '請求先情報': 'billing',
   'セキュリティ': 'security',
 }
 const SLUG_TO_TAB: Record<string, (typeof TABS)[number]> = Object.fromEntries(
@@ -395,6 +396,67 @@ export default function CompanyDetailPage() {
     // 画像は未保存（一時プレビュー扱い）。削除はローカルのプレビュー解除のみ。
     setAvatarPreview(null)
     showToast('アバター画像を削除しました')
+  }
+
+  // 請求先情報（company_billing_profiles）の代行確認/編集
+  const BILLING_FIELDS = [
+    ['billing_name', '請求先正式名称'], ['department', '請求先部署'], ['contact_name', '請求担当者名'],
+    ['contact_email', '請求担当者メール'], ['postal_code', '郵便番号'], ['address', '住所'],
+    ['building', '建物名'], ['phone', '請求先電話番号'], ['note', '備考'],
+  ] as const
+  const [billingProfile, setBillingProfile] = useState<Record<string, string>>({})
+  const [billingFallback, setBillingFallback] = useState({ billing_name: '' })
+  const [billingHasProfile, setBillingHasProfile] = useState(false)
+  const [billingLoading, setBillingLoading] = useState(true)
+  const [billingSaving, setBillingSaving] = useState(false)
+
+  useEffect(() => {
+    if (!companyId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/admin/companies/${companyId}/billing-profile`)
+        if (cancelled) return
+        if (res.ok) {
+          const json = await res.json()
+          const data = json?.data ?? json
+          if (data?.profile) {
+            setBillingProfile(Object.fromEntries(BILLING_FIELDS.map(([k]) => [k, data.profile[k] ?? ''])))
+            setBillingHasProfile(true)
+          }
+          if (data?.fallback) setBillingFallback({ billing_name: data.fallback.billing_name ?? '' })
+        }
+      } catch {
+        // デフォルトのまま
+      } finally {
+        if (!cancelled) setBillingLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId])
+
+  const handleSaveBillingProfile = async () => {
+    if (!companyId) return
+    setBillingSaving(true)
+    try {
+      const res = await fetch(`/api/admin/companies/${companyId}/billing-profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(billingProfile),
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => null)
+        showToast(json?.error?.message ?? '保存に失敗しました')
+        return
+      }
+      setBillingHasProfile(true)
+      showToast('請求先情報を保存しました')
+    } catch {
+      showToast('保存に失敗しました')
+    } finally {
+      setBillingSaving(false)
+    }
   }
 
   if (loading) {
@@ -1029,6 +1091,55 @@ export default function CompanyDetailPage() {
                 この企業の応募者一覧を見る →
               </button>
             </div>
+          </div>
+        )}
+
+        {/* タブ: 請求先情報（代行確認/編集） */}
+        {activeTab === '請求先情報' && (
+          <div className={`${CARD_BASE} p-6`}>
+            <h2 className="text-base font-semibold text-white mb-1">請求先情報（代行編集）</h2>
+            <p className="text-sm text-gray-400 mb-4">
+              この企業の請求書宛名・送付先。未登録の場合は会社名・担当者で代替表示されます。
+            </p>
+            {billingLoading ? (
+              <p className="text-sm text-gray-400 py-6">読み込み中...</p>
+            ) : (
+              <div className="space-y-4 max-w-2xl">
+                {!billingHasProfile && (
+                  <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                    未登録です。現在は会社名「{billingFallback.billing_name || '—'}」で請求書に表示されます。
+                  </p>
+                )}
+                {BILLING_FIELDS.filter(([k]) => k !== 'note').map(([key, label]) => (
+                  <div key={key}>
+                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">{label}</label>
+                    <input
+                      type="text"
+                      value={billingProfile[key] ?? ''}
+                      onChange={(e) => setBillingProfile((p) => ({ ...p, [key]: e.target.value }))}
+                      className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-3 py-2 text-sm focus:border-blue-500/50 outline-none"
+                    />
+                  </div>
+                ))}
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">備考</label>
+                  <textarea
+                    value={billingProfile.note ?? ''}
+                    onChange={(e) => setBillingProfile((p) => ({ ...p, note: e.target.value }))}
+                    rows={2}
+                    className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-3 py-2 text-sm focus:border-blue-500/50 outline-none"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveBillingProfile}
+                  disabled={billingSaving}
+                  className="bg-gradient-to-r from-blue-600 to-blue-600 hover:from-blue-500 hover:to-blue-500 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-all disabled:opacity-50"
+                >
+                  {billingSaving ? '保存中...' : '保存する'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
