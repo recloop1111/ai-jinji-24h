@@ -1,8 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import PasswordInput from '@/components/shared/PasswordInput'
+import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget'
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
 export default function AdminLoginPage() {
   const router = useRouter()
@@ -10,54 +13,34 @@ export default function AdminLoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState('')
+  const turnstileRef = useRef<TurnstileHandle>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
-      const supabase = createClient()
-      const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, captchaToken }),
       })
-      if (signInError) {
-        setError(signInError.message)
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        setError(data?.error?.message || 'ログインに失敗しました')
+        // token は単回使用のため、失敗後はウィジェットを reset して再取得
+        setCaptchaToken('')
+        turnstileRef.current?.reset()
         setLoading(false)
         return
       }
-      const user = authData.user
-      if (!user) {
-        setError('認証に失敗しました')
-        setLoading(false)
-        return
-      }
-
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-
-      if (profileError || !profile) {
-        await supabase.auth.signOut()
-        setError('管理者権限がありません')
-        setLoading(false)
-        return
-      }
-
-      const role = profile.role as string
-      if (role !== 'admin' && role !== 'super_admin') {
-        await supabase.auth.signOut()
-        setError('管理者権限がありません')
-        setLoading(false)
-        return
-      }
-
       router.push('/admin/dashboard')
       router.refresh()
     } catch {
       setError('ログインに失敗しました')
+      setCaptchaToken('')
+      turnstileRef.current?.reset()
       setLoading(false)
     }
   }
@@ -91,17 +74,27 @@ export default function AdminLoginPage() {
               <label htmlFor="admin-password" className="block text-sm font-medium text-slate-300 mb-1">
                 パスワード
               </label>
-              <input
+              <PasswordInput
                 id="admin-password"
-                type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={setPassword}
                 required
                 autoComplete="current-password"
                 className="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="••••••••"
+                iconClassName="text-slate-400 hover:text-slate-200"
               />
             </div>
+            {TURNSTILE_SITE_KEY && (
+              <TurnstileWidget
+                ref={turnstileRef}
+                siteKey={TURNSTILE_SITE_KEY}
+                action="admin_login"
+                theme="dark"
+                onVerify={setCaptchaToken}
+                onExpire={() => setCaptchaToken('')}
+              />
+            )}
             {error && (
               <p className="text-sm text-red-400" role="alert">
                 {error}
@@ -109,7 +102,7 @@ export default function AdminLoginPage() {
             )}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (!!TURNSTILE_SITE_KEY && !captchaToken)}
               className="w-full py-3 px-4 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading ? (

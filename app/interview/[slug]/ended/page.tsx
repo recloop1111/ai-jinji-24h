@@ -1,20 +1,18 @@
 'use client'
 
-import { useParams, useRouter } from 'next/navigation'
+import { useState } from 'react'
 import { X } from 'lucide-react'
 
 export default function EndedPage() {
-  const params = useParams()
-  const router = useRouter()
-  const slug = params.slug as string
+  // 応募者公開フロー専用。/ や /client/login など企業管理側へは絶対に遷移しない。
+  const [showCloseHint, setShowCloseHint] = useState(false)
 
   const handleClose = () => {
-    // ウィンドウを閉じるか、トップページに遷移
-    if (window.opener) {
+    if (typeof window !== 'undefined' && window.opener) {
       window.close()
     } else {
-      // トップページに遷移（または適切なページ）
-      window.location.href = '/'
+      // 親ウィンドウが無い場合は遷移せず、タブを閉じる案内を表示する（企業管理画面へは飛ばさない）
+      setShowCloseHint(true)
     }
   }
 
@@ -30,15 +28,21 @@ export default function EndedPage() {
             ご参加ありがとうございました。
           </p>
         </div>
-        
-        <div className="mt-8">
-          <button
-            onClick={handleClose}
-            className="w-full px-6 py-3 bg-slate-800 text-white font-medium rounded-xl hover:bg-slate-900 transition-colors"
-          >
-            閉じる
-          </button>
-        </div>
+
+        {showCloseHint ? (
+          <p className="mt-8 text-slate-600 text-sm leading-relaxed">
+            面接は終了しました。このタブを閉じてください。
+          </p>
+        ) : (
+          <div className="mt-8">
+            <button
+              onClick={handleClose}
+              className="w-full px-6 py-3 bg-slate-800 text-white font-medium rounded-xl hover:bg-slate-900 transition-colors"
+            >
+              閉じる
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

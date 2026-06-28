@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Pause as PauseIcon, AlertTriangle as AlertIcon, ChevronDown as ChevronDownIcon, ChevronUp as ChevronUpIcon, Eye as EyeIcon, EyeOff as EyeOffIcon } from 'lucide-react'
+import PasswordInput from '@/components/shared/PasswordInput'
 
-// TODO: 実データに差替え
+// 固定FAQ（停止フローのヘルプ。実データ取得は不要）
 const FAQ_ITEMS = [
   {
     id: 1,
@@ -13,23 +14,28 @@ const FAQ_ITEMS = [
   {
     id: 2,
     question: '一時停止を取り消した場合、追加費用は発生しますか？',
-    answer: 'いいえ、取り消しに追加費用は発生しません。取り消し後は通常通りのプラン料金でサービスをご利用いただけます。',
+    answer: 'いいえ、取り消しに追加費用は発生しません。取り消し後は通常通りサービスをご利用いただけます。',
   },
   {
     id: 3,
     question: '停止後に再開するにはどうすればいいですか？',
-    answer: '運営チームまでメールまたは管理画面のお問い合わせフォームからご連絡ください。通常1〜2営業日以内に再開手続きを行います。',
+    answer: '運営チームまでメールまたは管理画面のお問い合わせフォームからご連絡ください。運営側で再開手続き（契約再開）を行います。',
   },
   {
     id: 4,
-    question: 'プランの変更と停止はどちらが先に適用されますか？',
-    answer: 'プラン変更申請と停止申請を同時に行った場合、停止申請が優先されます。プラン変更は停止が解除された後に改めて申請してください。',
+    question: '停止中の実施済み面接の請求はどうなりますか？',
+    answer: '停止申請前に実施済みの面接分は従量課金の請求対象となります（単価は契約に準じます）。停止後に新たに面接が実施されることはありません。',
+  },
+  {
+    id: 5,
+    question: '停止申請に管理者設定用パスワードは必要ですか？',
+    answer: '一時停止・緊急停止のいずれの申請にも、ログインパスワードとは別の「管理者設定用パスワード」が必要です。未設定の場合は申請できないため、運営担当者へお問い合わせください。',
   },
 ]
 
 
 export default function SuspensionPage() {
-  const [currentStatus, setCurrentStatus] = useState<'active' | 'pending_suspension' | 'suspended'>('active')
+  const [currentStatus, setCurrentStatus] = useState<'active' | 'pending_suspension' | 'emergency_pending' | 'suspended'>('active')
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
   const [suspensionModal, setSuspensionModal] = useState({ isOpen: false })
@@ -38,13 +44,44 @@ export default function SuspensionPage() {
   const [adminAuthError, setAdminAuthError] = useState('')
   const [showAdminPassword, setShowAdminPassword] = useState(false)
   const [cancelModal, setCancelModal] = useState({ isOpen: false })
-  const [emergencyModal, setEmergencyModal] = useState({ isOpen: false, reason: '' })
+  const [emergencyModal, setEmergencyModal] = useState({ isOpen: false, reason: '', password: '' })
+  const [emergencyError, setEmergencyError] = useState('')
   const [faqOpen, setFaqOpen] = useState<Record<number, boolean>>({})
+  const [submitting, setSubmitting] = useState(false)
 
-  // TODO: 実データに差替え
-  const applyDate = '2026-02-15'
-  const scheduledDate = '2026-03-15'
-  const daysRemaining = 28
+  // 申請日時・予定停止日（通常停止申請の成功時に設定）
+  const applyDate = ''
+  const [scheduledDate, setScheduledDate] = useState('')
+  const daysRemaining: number | null = null
+
+  // 初期ステータス取得（GET /api/client/suspension で復元。停止判定の正は companies.is_suspended）
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/client/suspension')
+        if (!res.ok) return
+        const json = await res.json().catch(() => ({}))
+        if (cancelled) return
+        if (json?.is_suspended === true) {
+          // is_suspended が最優先
+          setCurrentStatus('suspended')
+        } else if (json?.request?.status === 'pending') {
+          if (json.request.request_type === 'emergency') {
+            setCurrentStatus('emergency_pending')
+          } else {
+            setCurrentStatus('pending_suspension')
+            if (json.request.scheduled_stop_at) {
+              setScheduledDate(new Date(json.request.scheduled_stop_at).toLocaleDateString('ja-JP'))
+            }
+          }
+        }
+      } catch {
+        // 取得失敗時は既定の 'active' のまま
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   const showToast = (msg: string) => {
     setToastMessage(msg)
@@ -63,29 +100,86 @@ export default function SuspensionPage() {
     setAdminAuthError('')
   }
 
-  const handleAdminAuthConfirm = () => {
+  const handleAdminAuthConfirm = async () => {
     if (!adminPassword.trim()) {
       setAdminAuthError('パスワードを入力してください')
       return
     }
-    // TODO: Phase 4 - Supabaseで管理者認証・一時停止処理
-    setCurrentStatus('pending_suspension')
-    setAdminAuthModalOpen(false)
-    setAdminPassword('')
-    setAdminAuthError('')
-    showToast('一時停止を申請しました')
+    if (submitting) return
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/client/suspension/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // 管理者設定用パスワードをサーバ検証用に送信（モーダル入力値・保存しない）
+        body: JSON.stringify({ type: 'normal', settingPassword: adminPassword }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        // 失敗時はモーダルを閉じず、認証エラーとして表示
+        setAdminAuthError(json?.error?.message ?? '一時停止の申請に失敗しました')
+        return
+      }
+      if (json?.scheduled_stop_at) {
+        setScheduledDate(new Date(json.scheduled_stop_at).toLocaleDateString('ja-JP'))
+      }
+      setCurrentStatus('pending_suspension')
+      setAdminAuthModalOpen(false)
+      setAdminPassword('')
+      setAdminAuthError('')
+      showToast('一時停止を申請しました')
+    } catch {
+      showToast('一時停止の申請に失敗しました')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  const handleCancelConfirm = () => {
-    setCurrentStatus('active')
-    showToast('申請を取り消しました')
-    setCancelModal({ isOpen: false })
+  const handleCancelConfirm = async () => {
+    if (submitting) return
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/client/suspension/cancel', { method: 'POST' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        showToast(json?.error?.message ?? '申請の取り消しに失敗しました')
+        return
+      }
+      setCurrentStatus('active')
+      setScheduledDate('')
+      showToast('申請を取り消しました')
+      setCancelModal({ isOpen: false })
+    } catch {
+      showToast('申請の取り消しに失敗しました')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  const handleEmergencyConfirm = () => {
-    showToast('緊急停止申請を送信しました。運営チームが確認次第ご連絡いたします。')
-    setEmergencyModal({ isOpen: false, reason: '' })
-    // TODO: Supabaseに保存, // TODO: 運営に通知
+  const handleEmergencyConfirm = async () => {
+    if (submitting) return
+    setEmergencyError('')
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/client/suspension/emergency', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // 理由＋管理者設定用パスワード（モーダル入力値・保存しない）をサーバ検証用に送信
+        body: JSON.stringify({ reason: emergencyModal.reason, settingPassword: emergencyModal.password }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        // 失敗時はモーダルを閉じず、モーダル内にエラー表示
+        setEmergencyError(json?.error?.message ?? '緊急停止申請の送信に失敗しました')
+        return
+      }
+      showToast('緊急停止申請を送信しました。運営チームが確認次第ご連絡いたします。')
+      setEmergencyModal({ isOpen: false, reason: '', password: '' })
+    } catch {
+      setEmergencyError('緊急停止申請の送信に失敗しました')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const getStatusLabel = () => {
@@ -94,6 +188,8 @@ export default function SuspensionPage() {
         return '稼働中'
       case 'pending_suspension':
         return '一時停止申請済み'
+      case 'emergency_pending':
+        return '緊急停止申請中（承認待ち）'
       case 'suspended':
         return '停止中'
       default:
@@ -107,6 +203,8 @@ export default function SuspensionPage() {
         return 'text-emerald-700'
       case 'pending_suspension':
         return 'text-amber-700'
+      case 'emergency_pending':
+        return 'text-red-700'
       case 'suspended':
         return 'text-gray-600'
       default:
@@ -120,6 +218,8 @@ export default function SuspensionPage() {
         return 'bg-emerald-500'
       case 'pending_suspension':
         return 'bg-amber-500'
+      case 'emergency_pending':
+        return 'bg-red-500'
       case 'suspended':
         return 'bg-gray-500'
       default:
@@ -138,18 +238,12 @@ export default function SuspensionPage() {
 
         {/* セクション2: 現在のステータスカード */}
         <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <span className={`w-3 h-3 rounded-full shrink-0 ${getStatusDotColor()}`} />
-              <span className={`font-semibold ${getStatusColor()}`}>
-                現在のステータス: {getStatusLabel()}
-              </span>
-            </div>
-            <p className="text-sm text-gray-500">
-              スタンダード | 契約開始日: 2025-04-01
-            </p>
+          <div className="flex items-center gap-2">
+            <span className={`w-3 h-3 rounded-full shrink-0 ${getStatusDotColor()}`} />
+            <span className={`font-semibold ${getStatusColor()}`}>
+              現在のステータス: {getStatusLabel()}
+            </span>
           </div>
-          {/* TODO: 実データに差替え */}
         </div>
 
         {/* セクション3: 一時停止申請カード */}
@@ -172,9 +266,9 @@ export default function SuspensionPage() {
               </p>
               <div className="bg-amber-50 border border-amber-100 rounded-lg p-4 mb-4">
                 <ul className="text-sm text-amber-800 space-y-1 list-disc list-inside">
-                  <li>停止中も月額費用は停止予定日まで発生します</li>
+                  <li>停止中は面接URLの受付を停止します</li>
+                  <li>実施済み面接分は請求対象となります</li>
                   <li>停止後の再開は運営へのお問い合わせが必要です</li>
-                  <li>停止中は応募者が面接URLにアクセスできなくなります</li>
                 </ul>
               </div>
               <button
@@ -190,11 +284,13 @@ export default function SuspensionPage() {
           {currentStatus === 'pending_suspension' && (
             <>
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
-                <p className="text-sm text-gray-700">申請日: {applyDate}</p>
-                <p className="text-sm text-gray-700 font-semibold mt-1">停止予定日: {scheduledDate}</p>
-                <p className="text-sm text-amber-600 mt-1">残り{daysRemaining}日で停止されます</p>
+                {applyDate
+                  ? <p className="text-sm text-gray-700">申請日: {applyDate}</p>
+                  : <p className="text-sm text-gray-700">申請を受け付けました。詳細は運営よりご連絡します。</p>
+                }
+                {scheduledDate && <p className="text-sm text-gray-700 font-semibold mt-1">停止予定日: {scheduledDate}</p>}
+                {daysRemaining !== null && <p className="text-sm text-amber-600 mt-1">残り{daysRemaining}日で停止されます</p>}
               </div>
-              {/* TODO: 実データに差替え */}
               <button
                 type="button"
                 onClick={() => setCancelModal({ isOpen: true })}
@@ -227,7 +323,7 @@ export default function SuspensionPage() {
           </div>
           <button
             type="button"
-            onClick={() => setEmergencyModal({ isOpen: true, reason: '' })}
+            onClick={() => { setEmergencyError(''); setEmergencyModal({ isOpen: true, reason: '', password: '' }) }}
             className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors"
           >
             緊急停止を申請する
@@ -260,7 +356,6 @@ export default function SuspensionPage() {
               </div>
             ))}
           </div>
-          {/* TODO: 実データに差替え */}
         </div>
       </div>
 
@@ -298,7 +393,7 @@ export default function SuspensionPage() {
           <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold text-gray-900">管理者認証</h3>
             <p className="text-sm text-gray-600 mt-2">
-              一時停止の申請には管理者用パスワードが必要です。
+              一時停止の申請には管理者設定用パスワード（ログインパスワードとは別）が必要です。
             </p>
             <div className="mt-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">パスワード</label>
@@ -310,7 +405,7 @@ export default function SuspensionPage() {
                     setAdminPassword(e.target.value)
                     setAdminAuthError('')
                   }}
-                  placeholder="管理者用パスワードを入力"
+                  placeholder="管理者設定用パスワードを入力"
                   className="w-full px-4 py-2.5 pr-10 border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
                 />
                 <button
@@ -393,18 +488,33 @@ export default function SuspensionPage() {
                 className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
               />
             </div>
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">管理者設定用パスワード（必須）</label>
+              <PasswordInput
+                value={emergencyModal.password}
+                onChange={(v) => {
+                  setEmergencyError('')
+                  setEmergencyModal((prev) => ({ ...prev, password: v }))
+                }}
+                placeholder="管理者設定用パスワードを入力"
+                autoComplete="off"
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                iconClassName="text-gray-400 hover:text-gray-600"
+              />
+            </div>
+            {emergencyError && <p className="mt-2 text-sm text-red-600">{emergencyError}</p>}
             <div className="flex gap-3 mt-6">
               <button
                 type="button"
                 onClick={handleEmergencyConfirm}
-                disabled={!emergencyModal.reason.trim()}
+                disabled={submitting || !emergencyModal.reason.trim() || !emergencyModal.password.trim()}
                 className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
               >
                 申請する
               </button>
               <button
                 type="button"
-                onClick={() => setEmergencyModal({ isOpen: false, reason: '' })}
+                onClick={() => { setEmergencyError(''); setEmergencyModal({ isOpen: false, reason: '', password: '' }) }}
                 className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
               >
                 キャンセル

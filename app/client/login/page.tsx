@@ -1,9 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import PasswordInput from '@/components/shared/PasswordInput'
+import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget'
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
 export default function ClientLoginPage() {
   const router = useRouter()
@@ -11,16 +13,25 @@ export default function ClientLoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState('')
+  const turnstileRef = useRef<TurnstileHandle>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
-      const supabase = createClient()
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
-      if (signInError) {
-        setError(signInError.message)
+      const res = await fetch('/api/client/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, captchaToken }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        setError(data?.error?.message || 'ログインに失敗しました')
+        // token は単回使用のため、失敗後はウィジェットを reset して再取得
+        setCaptchaToken('')
+        turnstileRef.current?.reset()
         setLoading(false)
         return
       }
@@ -28,6 +39,8 @@ export default function ClientLoginPage() {
       router.refresh()
     } catch {
       setError('ログインに失敗しました')
+      setCaptchaToken('')
+      turnstileRef.current?.reset()
       setLoading(false)
     }
   }
@@ -61,17 +74,26 @@ export default function ClientLoginPage() {
               <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1">
                 パスワード
               </label>
-              <input
+              <PasswordInput
                 id="password"
-                type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={setPassword}
                 required
                 autoComplete="current-password"
                 className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="••••••••"
               />
             </div>
+            {TURNSTILE_SITE_KEY && (
+              <TurnstileWidget
+                ref={turnstileRef}
+                siteKey={TURNSTILE_SITE_KEY}
+                action="client_login"
+                theme="light"
+                onVerify={setCaptchaToken}
+                onExpire={() => setCaptchaToken('')}
+              />
+            )}
             {error && (
               <p className="text-sm text-red-600" role="alert">
                 {error}
@@ -79,7 +101,7 @@ export default function ClientLoginPage() {
             )}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (!!TURNSTILE_SITE_KEY && !captchaToken)}
               className="w-full py-3 px-4 rounded-xl font-semibold text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading ? (
@@ -93,21 +115,9 @@ export default function ClientLoginPage() {
             </button>
           </form>
 
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-200" />
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-slate-500">または</span>
-            </div>
-          </div>
-
-          <Link
-            href="/client/dashboard?demo=true"
-            className="block w-full py-3 px-4 rounded-xl font-medium text-center text-blue-600 border-2 border-blue-500 bg-white hover:bg-blue-50 transition-colors"
-          >
-            デモを体験する
-          </Link>
+          <p className="mt-4 text-xs text-slate-500 text-center leading-relaxed">
+            ログイン情報をお忘れの場合は、導入時にご案内した運営担当者までお問い合わせください。
+          </p>
         </div>
       </div>
     </div>

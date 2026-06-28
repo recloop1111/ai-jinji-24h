@@ -1,48 +1,94 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Search, FileText, ArrowUp } from 'lucide-react'
+import PasswordInput from '@/components/shared/PasswordInput'
 
-// TODO: 実データに差替え
-const BILLING_DATA = [
-  { id: 1, company: '株式会社ABC', industry: 'IT・通信', plan: 'プロ', monthlyFee: 120000, interviewsUsed: 45, interviewLimit: 50, status: 'paid', nextBillingDate: '2026-03-01' },
-  { id: 2, company: '株式会社テックフロンティア', industry: 'IT・通信', plan: 'スタンダード', monthlyFee: 80000, interviewsUsed: 28, interviewLimit: 30, status: 'billed', nextBillingDate: '2026-03-01' },
-  { id: 3, company: '山田商事株式会社', industry: '商社・卸売', plan: 'ライト', monthlyFee: 40000, interviewsUsed: 8, interviewLimit: 10, status: 'unbilled', nextBillingDate: '2026-03-15' },
-  { id: 4, company: '株式会社グローバルHR', industry: '人材サービス', plan: 'カスタム', monthlyFee: 300000, interviewsUsed: 120, interviewLimit: 200, status: 'paid', nextBillingDate: '2026-03-01' },
-  { id: 5, company: '株式会社スタートアップラボ', industry: 'IT・通信', plan: 'ライト', monthlyFee: 40000, interviewsUsed: 5, interviewLimit: 10, status: 'overdue', nextBillingDate: '2026-02-15' },
-  { id: 6, company: '株式会社サンライズ', industry: '飲食・フード', plan: 'スタンダード', monthlyFee: 80000, interviewsUsed: 22, interviewLimit: 30, status: 'billed', nextBillingDate: '2026-03-01' },
-  { id: 7, company: '東京メディカル株式会社', industry: '医療・福祉', plan: 'プロ', monthlyFee: 120000, interviewsUsed: 38, interviewLimit: 50, status: 'unbilled', nextBillingDate: '2026-03-10' },
-  { id: 8, company: '株式会社エデュケーション・プラス', industry: '教育・学習', plan: 'スタンダード', monthlyFee: 80000, interviewsUsed: 15, interviewLimit: 30, status: 'overdue', nextBillingDate: '2026-02-10' },
-]
+type BillingRecord = {
+  id: string
+  company_id: string
+  company_name: string
+  billing_month: string
+  interview_count: number
+  amount_jpy: number
+  tax_jpy: number
+  total_jpy: number
+  payment_status: string
+  effective_status: string
+  created_at: string | null
+  paid_at: string | null
+  due_date: string | null
+}
 
-// TODO: 実データに差替え（月次売上・万円）
-const MONTHLY_SALES = [180, 195, 200, 210, 220, 215, 230, 240, 235, 245, 250, 246]
-const MONTH_LABELS = ['3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '1月', '2月']
+const RECORD_STATUS_LABEL: Record<string, { label: string; className: string }> = {
+  pending: { label: '未入金', className: 'text-amber-400' },
+  overdue: { label: '支払期限超過', className: 'text-red-400' },
+  paid: { label: '入金済み', className: 'text-emerald-400' },
+}
 
-// TODO: 実データに差替え（サマリー数値）
-const SUMMARY = {
-  monthlyRevenue: 2460000,
-  revenueGrowth: 8.2,
-  unbilledAmount: 380000,
-  unbilledCount: 3,
-  unpaidAmount: 150000,
-  unpaidCount: 2,
-  overdueCount: 1,
-  yearlyRevenue: 24800000,
-  yearlyTarget: 30000000,
-  achievementRate: 82.7,
+type BillingRow = {
+  company_id: string
+  name: string
+  industry: string
+  plan: string
+  price_per_interview: number
+  interviews_used: number
+  monthly_interview_limit: number
+  current_amount: number
+  status: string
+  next_billing_date: string
+}
+
+type BillingSummary = {
+  monthly_revenue: number
+  unbilled_amount: number
+  unbilled_count: number
+  unpaid_amount: number
+  unpaid_count: number
+  overdue_count: number
+  yearly_revenue: number
+  yearly_target: number
+  achievement_rate: number
+}
+
+const EMPTY_SUMMARY: BillingSummary = {
+  monthly_revenue: 0,
+  unbilled_amount: 0,
+  unbilled_count: 0,
+  unpaid_amount: 0,
+  unpaid_count: 0,
+  overdue_count: 0,
+  yearly_revenue: 0,
+  yearly_target: 0,
+  achievement_rate: 0,
+}
+
+// 直近12ヶ月の月ラベル（現在JST月を末尾）。summary API の monthly_sales は同じローリング順
+//（古い→新しい・末尾が当月）で返るため、固定ラベルではなく当月基準で生成して値とズレないようにする。
+function getMonthLabels(): string[] {
+  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000) // UTC+9（JST）
+  const y = jst.getUTCFullYear()
+  const m = jst.getUTCMonth()
+  const labels: string[] = []
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(Date.UTC(y, m - i, 1))
+    labels.push(`${d.getUTCMonth() + 1}月`)
+  }
+  return labels
 }
 
 const ITEMS_PER_PAGE = 8
 
 function getPlanBadgeClass(plan: string): string {
   const map: Record<string, string> = {
-    'ライト': 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
-    'スタンダード': 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-    'プロ': 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
-    'カスタム': 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
+    'pay_per_use': 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
+    'custom': 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
   }
   return map[plan] ?? 'bg-gray-500/10 text-gray-400 border border-gray-500/20'
+}
+
+function getPlanLabel(plan: string): string {
+  return plan === 'pay_per_use' ? '従量課金' : plan === 'custom' ? 'カスタム' : plan
 }
 
 function getBillingStatusConfig(status: string): { dotClass: string; textClass: string; label: string } {
@@ -68,12 +114,46 @@ export default function BillingPage() {
   const [toastMessage, setToastMessage] = useState('')
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
 
-  const filteredData = BILLING_DATA.filter((item) => {
-    const matchesSearch = searchQuery === '' || item.company.includes(searchQuery)
+  const [billingData, setBillingData] = useState<BillingRow[]>([])
+  const [summary, setSummary] = useState<BillingSummary>(EMPTY_SUMMARY)
+  const [monthlySales, setMonthlySales] = useState<number[]>(Array(12).fill(0))
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [summaryReloadKey, setSummaryReloadKey] = useState(0) // 入金変更後の summary 再取得トリガ
+
+  useEffect(() => {
+    let cancelled = false
+    const loadBilling = async () => {
+      try {
+        const res = await fetch('/api/admin/billing/summary')
+        if (!res.ok) {
+          if (!cancelled) setError('請求データの取得に失敗しました')
+          return
+        }
+        const json = await res.json()
+        if (cancelled) return
+        setBillingData(Array.isArray(json?.rows) ? (json.rows as BillingRow[]) : [])
+        setSummary(json?.summary ? (json.summary as BillingSummary) : EMPTY_SUMMARY)
+        setMonthlySales(
+          Array.isArray(json?.monthly_sales) ? (json.monthly_sales as number[]) : Array(12).fill(0),
+        )
+      } catch {
+        if (!cancelled) setError('請求データの取得に失敗しました')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    loadBilling()
+    return () => {
+      cancelled = true
+    }
+  }, [summaryReloadKey])
+
+  const filteredData = billingData.filter((item) => {
+    const matchesSearch = searchQuery === '' || item.name.includes(searchQuery)
     const matchesStatus = statusFilter === 'all' || item.status === statusFilter
     const matchesPlan = planFilter === 'all' || item.plan === planFilter
     return matchesSearch && matchesStatus && matchesPlan
-    // TODO: periodFilter による日付フィルタリングは実データ接続時に実装
   })
 
   const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE)
@@ -82,12 +162,134 @@ export default function BillingPage() {
     currentPage * ITEMS_PER_PAGE
   )
 
-  const maxSales = Math.max(...MONTHLY_SALES)
+  const maxSales = Math.max(...monthlySales)
+
+  const emptyMessage = loading ? '読み込み中...' : error ? error : '該当するデータがありません'
 
   const showToast = (msg: string) => {
     setToastMessage(msg)
     setToastVisible(true)
     setTimeout(() => setToastVisible(false), 2000)
+  }
+
+  // === 確定請求一覧（billing_records） ===
+  const [records, setRecords] = useState<BillingRecord[]>([])
+  const [recordsLoading, setRecordsLoading] = useState(true)
+  const [recordsError, setRecordsError] = useState('')
+  const [recMonthFilter, setRecMonthFilter] = useState('') // 'YYYY-MM' or ''
+  const [recStatusFilter, setRecStatusFilter] = useState('all') // all/pending/paid/overdue
+  const [recReloadKey, setRecReloadKey] = useState(0) // 入金変更後の再取得トリガ
+  // 入金ステータス変更モーダル
+  const [markTarget, setMarkTarget] = useState<{ record: BillingRecord; next: 'paid' | 'pending' } | null>(null)
+  const [markPassword, setMarkPassword] = useState('')
+  const [markError, setMarkError] = useState('')
+  const [markSubmitting, setMarkSubmitting] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    const loadRecords = async () => {
+      try {
+        const qs = new URLSearchParams()
+        if (recMonthFilter) qs.set('billing_month', recMonthFilter)
+        if (recStatusFilter !== 'all') qs.set('status', recStatusFilter)
+        const res = await fetch(`/api/admin/billing/records${qs.toString() ? `?${qs.toString()}` : ''}`)
+        if (cancelled) return
+        if (!res.ok) {
+          setRecordsError('確定請求の取得に失敗しました')
+          setRecords([])
+          return
+        }
+        const json = await res.json()
+        if (cancelled) return
+        const list = json?.data?.records ?? json?.records ?? []
+        setRecordsError('')
+        setRecords(Array.isArray(list) ? (list as BillingRecord[]) : [])
+      } catch {
+        if (!cancelled) {
+          setRecordsError('確定請求の取得に失敗しました')
+          setRecords([])
+        }
+      } finally {
+        if (!cancelled) setRecordsLoading(false)
+      }
+    }
+    loadRecords()
+    return () => {
+      cancelled = true
+    }
+  }, [recMonthFilter, recStatusFilter, recReloadKey])
+
+  const openMark = (record: BillingRecord, next: 'paid' | 'pending') => {
+    setMarkTarget({ record, next })
+    setMarkPassword('')
+    setMarkError('')
+  }
+
+  const closeMark = () => {
+    if (markSubmitting) return
+    setMarkTarget(null)
+    setMarkPassword('')
+    setMarkError('')
+  }
+
+  const submitMark = async () => {
+    if (!markTarget) return
+    if (!markPassword) {
+      setMarkError('運営管理設定変更用パスワードを入力してください')
+      return
+    }
+    setMarkSubmitting(true)
+    setMarkError('')
+    try {
+      const res = await fetch(`/api/admin/billing/records/${markTarget.record.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_status: markTarget.next, setting_password: markPassword }),
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) {
+        setMarkError(json?.error?.message ?? '更新に失敗しました')
+        return
+      }
+      setMarkTarget(null)
+      setMarkPassword('')
+      showToast(markTarget.next === 'paid' ? '入金済みに更新しました' : '未入金に戻しました')
+      setRecReloadKey((k) => k + 1)
+      setSummaryReloadKey((k) => k + 1) // サマリー/企業別課金行も最新化
+    } catch {
+      setMarkError('更新に失敗しました')
+    } finally {
+      setMarkSubmitting(false)
+    }
+  }
+
+  // 請求書PDFをサーバ生成APIから取得し blob でダウンロード（admin・全社）
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null)
+  const handleInvoiceDownload = async (id: string) => {
+    if (downloadingInvoiceId) return
+    setDownloadingInvoiceId(id)
+    try {
+      const res = await fetch(`/api/admin/billing/records/${id}/invoice`)
+      if (!res.ok) {
+        showToast(res.status === 422 ? 'この請求は請求書を発行できません' : '請求書の取得に失敗しました')
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const cd = res.headers.get('Content-Disposition') ?? ''
+      const m = cd.match(/filename="([^"]+)"/)
+      a.download = m ? m[1] : `invoice-${id.slice(0, 8)}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      showToast('請求書の取得に失敗しました')
+    } finally {
+      setDownloadingInvoiceId(null)
+    }
   }
 
   return (
@@ -112,34 +314,34 @@ export default function BillingPage() {
         {/* セクション2: サマリーカード4枚 */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
-            <p className="text-3xl font-bold text-white">{formatYen(SUMMARY.monthlyRevenue)}</p>
-            <p className="text-sm text-gray-400 mt-0.5">今月の売上</p>
-            <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1">
+            <p className="text-3xl font-bold text-white">{formatYen(summary.monthly_revenue)}</p>
+            <p className="text-sm text-gray-400 mt-0.5">今月の売上見込み</p>
+            <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
               <ArrowUp className="w-3 h-3" />
-              前月比 +{SUMMARY.revenueGrowth}%
+              当月利用ベース（税別・月末締め）
             </p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
-            <p className="text-3xl font-bold text-white">{formatYen(SUMMARY.unbilledAmount)}</p>
+            <p className="text-3xl font-bold text-white">{formatYen(summary.unbilled_amount)}</p>
             <p className="text-sm text-gray-400 mt-0.5">未請求額</p>
-            <p className="text-xs text-gray-500 mt-1">{SUMMARY.unbilledCount}社分</p>
+            <p className="text-xs text-gray-500 mt-1">{summary.unbilled_count}社分</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
-            <p className="text-3xl font-bold text-white">{formatYen(SUMMARY.unpaidAmount)}</p>
+            <p className="text-3xl font-bold text-white">{formatYen(summary.unpaid_amount)}</p>
             <p className="text-sm text-gray-400 mt-0.5">未入金額</p>
-            <p className="text-xs text-red-400 mt-1">{SUMMARY.unpaidCount}社・期限超過{SUMMARY.overdueCount}社</p>
+            <p className="text-xs text-red-400 mt-1">{summary.unpaid_count}社・期限超過{summary.overdue_count}社</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
-            <p className="text-3xl font-bold text-white">{formatYen(SUMMARY.yearlyRevenue)}</p>
+            <p className="text-3xl font-bold text-white">{formatYen(summary.yearly_revenue)}</p>
             <p className="text-sm text-gray-400 mt-0.5">年間累計売上</p>
-            <p className="text-xs text-gray-500 mt-1">達成率 {SUMMARY.achievementRate}%</p>
+            <p className="text-xs text-gray-500 mt-1">達成率 {summary.achievement_rate}%</p>
             <div className="mt-2 w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
               <div
                 className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                style={{ width: `${SUMMARY.achievementRate}%` }}
+                style={{ width: `${summary.achievement_rate}%` }}
               />
             </div>
-            <p className="text-xs text-gray-500 mt-1">目標 {formatYen(SUMMARY.yearlyTarget)}</p>
+            <p className="text-xs text-gray-500 mt-1">目標 {formatYen(summary.yearly_target)}</p>
           </div>
         </div>
 
@@ -163,7 +365,7 @@ export default function BillingPage() {
                   <div className="flex-1 border-t border-white/[0.06]" />
                 </div>
                 <div className="absolute inset-0 flex items-end justify-around gap-1 pb-0">
-                  {MONTHLY_SALES.map((val, i) => {
+                  {monthlySales.map((val, i) => {
                     const heightPct = maxSales > 0 ? (val / maxSales) * 100 : 0
                     const amount = val * 10000
                     return (
@@ -190,7 +392,7 @@ export default function BillingPage() {
                 </div>
               </div>
               <div className="flex justify-around gap-1 mt-2">
-                {MONTH_LABELS.map((label, i) => (
+                {getMonthLabels().map((label, i) => (
                   <span key={i} className="flex-1 min-w-0 text-center text-xs text-gray-500 truncate">
                     {label}
                   </span>
@@ -239,10 +441,8 @@ export default function BillingPage() {
               className="bg-white/[0.05] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-gray-300 appearance-none cursor-pointer focus:outline-none focus:border-blue-500/50"
             >
               <option value="all">全て</option>
-              <option value="ライト">ライト</option>
-              <option value="スタンダード">スタンダード</option>
-              <option value="プロ">プロ</option>
-              <option value="カスタム">カスタム</option>
+              <option value="pay_per_use">従量課金</option>
+              <option value="custom">カスタム</option>
             </select>
           </div>
         </div>
@@ -255,7 +455,7 @@ export default function BillingPage() {
                 <tr className="bg-white/[0.03] border-b border-white/[0.06]">
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">企業名</th>
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">プラン</th>
-                  <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">月額料金</th>
+                  <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">当月請求額</th>
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">今月利用面接数</th>
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">請求ステータス</th>
                   <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-4 px-5 text-left">次回請求日</th>
@@ -266,30 +466,30 @@ export default function BillingPage() {
                 {paginatedData.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="text-sm text-gray-500 py-16 text-center">
-                      該当するデータがありません
+                      {emptyMessage}
                     </td>
                   </tr>
                 ) : (
                   paginatedData.map((row) => {
                     const statusConfig = getBillingStatusConfig(row.status)
-                    const pct = row.interviewLimit > 0 ? (row.interviewsUsed / row.interviewLimit) * 100 : 0
+                    const pct = row.monthly_interview_limit > 0 ? (row.interviews_used / row.monthly_interview_limit) * 100 : 0
                     return (
-                      <tr key={row.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-all duration-150">
+                      <tr key={row.company_id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-all duration-150">
                         <td className="py-4 px-5">
                           <div>
-                            <p className="text-sm font-medium text-white">{row.company}</p>
+                            <p className="text-sm font-medium text-white">{row.name}</p>
                             <p className="text-xs text-gray-500">{row.industry}</p>
                           </div>
                         </td>
                         <td className="py-4 px-5">
                           <span className={`inline-flex text-xs rounded-lg px-2.5 py-1 ${getPlanBadgeClass(row.plan)}`}>
-                            {row.plan}
+                            {getPlanLabel(row.plan)}
                           </span>
                         </td>
-                        <td className="py-4 px-5 text-sm text-gray-300">{formatYen(row.monthlyFee)}</td>
+                        <td className="py-4 px-5 text-sm text-gray-300">{formatYen(row.current_amount)}</td>
                         <td className="py-4 px-5">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-300">{row.interviewsUsed} / {row.interviewLimit}</span>
+                            <span className="text-sm text-gray-300">{row.interviews_used} / {row.monthly_interview_limit}</span>
                             <div className="w-16 h-1.5 bg-white/[0.06] rounded-full overflow-hidden shrink-0">
                               <div
                                 className="bg-blue-500 h-full rounded-full"
@@ -304,7 +504,7 @@ export default function BillingPage() {
                             <span className="text-sm">{statusConfig.label}</span>
                           </div>
                         </td>
-                        <td className="py-4 px-5 text-sm text-gray-400">{row.nextBillingDate}</td>
+                        <td className="py-4 px-5 text-sm text-gray-400">{row.next_billing_date}</td>
                         <td className="py-4 px-5">
                           <button
                             type="button"
@@ -373,26 +573,26 @@ export default function BillingPage() {
         <div className="lg:hidden space-y-3">
           {paginatedData.length === 0 ? (
             <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-8 text-center text-sm text-gray-500">
-              該当するデータがありません
+              {emptyMessage}
             </div>
           ) : (
             paginatedData.map((row) => {
               const statusConfig = getBillingStatusConfig(row.status)
-              const pct = row.interviewLimit > 0 ? (row.interviewsUsed / row.interviewLimit) * 100 : 0
+              const pct = row.monthly_interview_limit > 0 ? (row.interviews_used / row.monthly_interview_limit) * 100 : 0
               return (
-                <div key={row.id} className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
+                <div key={row.company_id} className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5">
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div>
-                      <p className="text-sm font-medium text-white">{row.company}</p>
+                      <p className="text-sm font-medium text-white">{row.name}</p>
                       <p className="text-xs text-gray-500">{row.industry}</p>
                     </div>
                     <span className={`inline-flex text-xs rounded-lg px-2.5 py-1 shrink-0 ${getPlanBadgeClass(row.plan)}`}>
-                      {row.plan}
+                      {getPlanLabel(row.plan)}
                     </span>
                   </div>
                   <div className="space-y-2 mb-4">
-                    <p className="text-sm text-gray-300">{formatYen(row.monthlyFee)} / 月</p>
-                    <p className="text-sm text-gray-400">面接 {row.interviewsUsed} / {row.interviewLimit}</p>
+                    <p className="text-sm text-gray-300">当月請求額: {formatYen(row.current_amount)}</p>
+                    <p className="text-sm text-gray-400">面接 {row.interviews_used} / {row.monthly_interview_limit}</p>
                     <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
                       <div className="bg-blue-500 h-full rounded-full" style={{ width: `${Math.min(100, pct)}%` }} />
                     </div>
@@ -400,7 +600,7 @@ export default function BillingPage() {
                       <span className={`w-2 h-2 rounded-full ${statusConfig.dotClass}`} />
                       <span className="text-xs">{statusConfig.label}</span>
                     </div>
-                    <p className="text-xs text-gray-500">次回請求: {row.nextBillingDate}</p>
+                    <p className="text-xs text-gray-500">次回請求: {row.next_billing_date}</p>
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -460,7 +660,165 @@ export default function BillingPage() {
             </div>
           )}
         </div>
+
+        {/* セクション7: 確定請求一覧（billing_records・銀行振込） */}
+        <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-5 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-5">
+            <div>
+              <h2 className="text-lg font-bold text-white">確定請求一覧</h2>
+              <p className="text-xs text-gray-400 mt-1">月次バッチで確定した請求（銀行振込）。入金状況を管理します。</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="month"
+                value={recMonthFilter}
+                onChange={(e) => setRecMonthFilter(e.target.value)}
+                className="bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200"
+              />
+              <select
+                value={recStatusFilter}
+                onChange={(e) => setRecStatusFilter(e.target.value)}
+                className="bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200"
+              >
+                <option value="all">すべて</option>
+                <option value="pending">未入金</option>
+                <option value="overdue">支払期限超過</option>
+                <option value="paid">入金済み</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[920px] text-sm">
+              <thead>
+                <tr className="text-left text-gray-400 border-b border-white/[0.06]">
+                  <th className="py-2 pr-4 font-medium">請求月</th>
+                  <th className="py-2 pr-4 font-medium">企業名</th>
+                  <th className="py-2 pr-4 font-medium text-right">件数</th>
+                  <th className="py-2 pr-4 font-medium text-right">税抜</th>
+                  <th className="py-2 pr-4 font-medium text-right">消費税</th>
+                  <th className="py-2 pr-4 font-medium text-right">合計</th>
+                  <th className="py-2 pr-4 font-medium">支払期限</th>
+                  <th className="py-2 pr-4 font-medium">ステータス</th>
+                  <th className="py-2 pr-4 font-medium">入金日</th>
+                  <th className="py-2 pr-4 font-medium text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recordsLoading ? (
+                  <tr>
+                    <td colSpan={10} className="py-8 text-center text-gray-400">読み込み中...</td>
+                  </tr>
+                ) : recordsError ? (
+                  <tr>
+                    <td colSpan={10} className="py-8 text-center text-red-400">{recordsError}</td>
+                  </tr>
+                ) : records.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="py-8 text-center text-gray-400">確定済みの請求がありません</td>
+                  </tr>
+                ) : (
+                  records.map((r) => {
+                    const badge = RECORD_STATUS_LABEL[r.effective_status] ?? RECORD_STATUS_LABEL.pending
+                    const isPaid = r.payment_status === 'paid'
+                    return (
+                      <tr key={r.id} className="border-b border-white/[0.04] text-gray-200">
+                        <td className="py-3 pr-4">{r.billing_month}</td>
+                        <td className="py-3 pr-4">{r.company_name || '—'}</td>
+                        <td className="py-3 pr-4 text-right">{r.interview_count}</td>
+                        <td className="py-3 pr-4 text-right">{formatYen(r.amount_jpy)}</td>
+                        <td className="py-3 pr-4 text-right">{formatYen(r.tax_jpy)}</td>
+                        <td className="py-3 pr-4 text-right font-medium">{formatYen(r.total_jpy)}</td>
+                        <td className="py-3 pr-4">{r.due_date ?? '—'}</td>
+                        <td className={`py-3 pr-4 ${badge.className}`}>{badge.label}</td>
+                        <td className="py-3 pr-4 text-gray-400">{r.paid_at ? r.paid_at.slice(0, 10) : '—'}</td>
+                        <td className="py-3 pr-4">
+                          <div className="flex items-center justify-end gap-2">
+                            {isPaid ? (
+                              <button
+                                type="button"
+                                onClick={() => openMark(r, 'pending')}
+                                className="text-xs px-3 py-1.5 rounded-lg bg-white/[0.05] text-gray-300 hover:bg-white/[0.08]"
+                              >
+                                未入金に戻す
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => openMark(r, 'paid')}
+                                className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600/80 text-white hover:bg-emerald-600"
+                              >
+                                入金済みにする
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleInvoiceDownload(r.id)}
+                              disabled={downloadingInvoiceId === r.id}
+                              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-white/[0.05] text-gray-200 hover:bg-white/[0.08] disabled:opacity-50"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              {downloadingInvoiceId === r.id ? '生成中...' : '請求書PDF'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
+
+      {/* 入金ステータス変更モーダル（運営管理設定変更用パスワード必須） */}
+      {markTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-[#16181d] border border-white/[0.08] rounded-2xl p-6">
+            <h3 className="text-base font-bold text-white">
+              {markTarget.next === 'paid' ? '入金済みに変更' : '未入金に戻す'}
+            </h3>
+            <p className="text-sm text-gray-400 mt-2">
+              {markTarget.record.company_name || '—'}（{markTarget.record.billing_month}・{formatYen(markTarget.record.total_jpy)}）を
+              {markTarget.next === 'paid' ? '「入金済み」' : '「未入金」'}に変更します。
+            </p>
+            <div className="mt-4">
+              <label className="block text-xs text-gray-400 mb-1.5">運営管理設定変更用パスワード</label>
+              <PasswordInput
+                value={markPassword}
+                onChange={setMarkPassword}
+                placeholder="パスワードを入力"
+                autoComplete="off"
+                className="w-full bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200"
+                iconClassName="text-gray-400 hover:text-gray-200"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !markSubmitting) submitMark()
+                }}
+              />
+            </div>
+            {markError && <p className="text-xs text-red-400 mt-2">{markError}</p>}
+            <div className="flex items-center justify-end gap-2 mt-5">
+              <button
+                type="button"
+                onClick={closeMark}
+                disabled={markSubmitting}
+                className="text-sm px-4 py-2 rounded-lg bg-white/[0.05] text-gray-300 hover:bg-white/[0.08] disabled:opacity-50"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={submitMark}
+                disabled={markSubmitting}
+                className="text-sm px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50"
+              >
+                {markSubmitting ? '更新中...' : '変更する'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* トースト */}
       {toastVisible && (

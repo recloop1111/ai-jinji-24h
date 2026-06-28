@@ -1,14 +1,14 @@
-import { type NextRequest } from 'next/server'
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 
-export async function GET(_request: NextRequest) {
+export async function GET() {
   try {
-    const { data: _admin, error: authError } = await getAdminUser()
+    const { error: authError } = await getAdminUser()
     if (authError) return authError
 
-    const supabase = await createClient()
+    // service-role 境界（RLS bypass）。ip_blocks の table 権限 hardening（別 migration）に備える。
+    const supabase = createServiceRoleClient()
 
     const { data: blockedIps, error } = await supabase
       .from('ip_blocks')

@@ -1,113 +1,83 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import PasswordInput from '@/components/shared/PasswordInput'
+import {
+  MAX_INTERVIEW_MINUTES,
+  INTERVIEW_WARNING_MINUTES,
+  MAX_TOTAL_QUESTIONS,
+  MAX_EVALUATION_QUESTIONS,
+  MAX_ICEBREAKER_QUESTIONS,
+  MAX_CLOSING_QUESTIONS,
+  RECORDING_RETENTION_DAYS,
+  DEEP_DIVE_MAX_PER_QUESTION,
+} from '@/lib/config/interview-policy'
 
-// TODO: 実データに差替え
-const EMAIL_TEMPLATES = [
-  { name: '面接案内メール', status: '使用中' },
-  { name: '面接リマインダー', status: '使用中' },
-  { name: '面接完了通知', status: '使用中' },
-  { name: '結果通知メール', status: '未設定' },
-]
-
-// TODO: 実データに差替え
-const API_LOGS = [
-  { date: '2026-02-15 14:32', service: 'OpenAI', action: '面接実行', status: '成功', detail: '1,250 tokens' },
-  { date: '2026-02-15 14:28', service: 'Resend', action: '面接案内メール', status: '成功', detail: '—' },
-  { date: '2026-02-15 13:55', service: 'OpenAI', action: '質問変更判定', status: '成功', detail: '830 tokens' },
-  { date: '2026-02-15 13:40', service: 'OpenAI', action: '面接実行', status: '成功', detail: '1,480 tokens' },
-  { date: '2026-02-15 12:10', service: 'Resend', action: 'リマインダー', status: '失敗', detail: '—' },
-]
-
-// TODO: 実データに差替え
-const EVALUATION_AXES = [
-  { name: 'コミュニケーション', weight: 16.7 },
-  { name: '論理的思考', weight: 16.7 },
-  { name: 'カルチャーフィット', weight: 16.7 },
-  { name: '仕事への意欲', weight: 16.7 },
-  { name: '課題対応力', weight: 16.7 },
-  { name: '成長可能性', weight: 16.5 },
-]
-
-function Toggle({
-  checked,
-  onChange,
-  size = 'md',
-}: {
-  checked: boolean
-  onChange: (v: boolean) => void
-  size?: 'sm' | 'md'
-}) {
-  const isMd = size === 'md'
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={`relative shrink-0 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${
-        checked ? 'bg-blue-600' : 'bg-gray-600'
-      } ${isMd ? 'w-12 h-6' : 'w-11 h-5'}`}
-    >
-      <span
-        className={`absolute top-0.5 block bg-white rounded-full shadow transition-transform duration-200 ${
-          isMd ? 'left-0.5 w-5 h-5' : 'left-0.5 w-4 h-4'
-        } ${checked ? (isMd ? 'translate-x-6' : 'translate-x-5') : 'translate-x-0'}`}
-      />
-    </button>
-  )
+// メールテンプレートは既存API /api/admin/email-templates（email_templates テーブル）から取得
+type EmailTemplate = {
+  id: string
+  company_id: string | null
+  company_name: string
+  template_type: string
+  subject: string
+  body: string
+  updated_at: string
 }
+
+// 評価軸は EBCA（質問非依存・面接全体横断）で固定6軸。各軸0〜20点（合計120点）を100点満点へ換算する。
+// 企業別/カスタム設定は持たない（固定仕様）。
+const EVALUATION_AXES: { name: string; points: number }[] = [
+  { name: 'コミュニケーション力', points: 20 },
+  { name: '論理的思考力', points: 20 },
+  { name: '主体性・行動力', points: 20 },
+  { name: '志望度・意欲', points: 20 },
+  { name: 'ストレス耐性・柔軟性', points: 20 },
+  { name: '誠実性・一貫性', points: 20 },
+]
 
 function InputLabel({ children }: { children: React.ReactNode }) {
   return <label className="block text-sm text-gray-400 mb-1">{children}</label>
 }
 
+const CARD = 'bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4'
+
+// 接続/実装状態（read-only・実ヘルスチェックではない＝「設定状態」）
+const CONNECTION_STATUS: { name: string; status: string; tone: 'ok' | 'pending' }[] = [
+  { name: 'Supabase（DB / 認証）', status: '接続済み', tone: 'ok' },
+  { name: 'OpenAI（リアルタイム音声面接）', status: '未接続', tone: 'pending' },
+  { name: 'Cloudflare R2（録画保存）', status: '未接続', tone: 'pending' },
+  { name: 'Twilio（SMS / OTP）', status: '未接続', tone: 'pending' },
+  { name: 'メール送信（Resend）', status: '未接続', tone: 'pending' },
+  { name: 'レポート生成（EBCA writer）', status: '未実装', tone: 'pending' },
+]
+
+// 今後実装予定（read-only・操作不能）
+const ROADMAP_ITEMS: { name: string; note: string }[] = [
+  { name: '全体メンテナンスモード', note: '今後実装予定（現在は設定できません）' },
+  { name: '新規応募・面接の緊急停止（全社）', note: '今後実装予定（企業単位の停止は企業管理で対応）' },
+  { name: '障害通知（運営向け）', note: '今後実装予定（現在は設定できません）' },
+  { name: '設定変更の監査ログ', note: '今後実装予定（現在は設定できません）' },
+  { name: '失敗ジョブ・再試行（録画 / レポート）', note: '今後実装予定（現在は設定できません）' },
+]
+
+type TabId = 'policy' | 'connection' | 'security' | 'email' | 'roadmap'
+
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'general' | 'email' | 'interview' | 'api' | 'notification'>('general')
+  const [activeTab, setActiveTab] = useState<TabId>('policy')
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
 
-  // TODO: 実データに差替え（一般設定の初期値）
-  const [serviceName, setServiceName] = useState('AI面接官')
-  const [serviceUrl, setServiceUrl] = useState('https://ai-interview.example.com')
-  const [operatorName, setOperatorName] = useState('株式会社AIインタビュー')
-  const [supportEmail, setSupportEmail] = useState('support@ai-interview.example.com')
-  const [planLight, setPlanLight] = useState({ name: 'ライト', fee: '40000', limit: '10' })
-  const [planStandard, setPlanStandard] = useState({ name: 'スタンダード', fee: '80000', limit: '20' })
-  const [planPro, setPlanPro] = useState({ name: 'プロ', fee: '120000', limit: '30' })
-  const [maintenanceMode, setMaintenanceMode] = useState(false)
-  const [maintenanceMessage, setMaintenanceMessage] = useState('現在メンテナンス中です。しばらくお待ちください。')
+  // 運営管理設定変更用パスワード（ログインPWとは別・実保存される実機能）
+  const [adminSettingPwConfigured, setAdminSettingPwConfigured] = useState<boolean | null>(null)
+  const [adminSettingPwCurrent, setAdminSettingPwCurrent] = useState('')
+  const [adminSettingPwNew, setAdminSettingPwNew] = useState('')
+  const [adminSettingPwConfirm, setAdminSettingPwConfirm] = useState('')
+  const [adminSettingPwError, setAdminSettingPwError] = useState('')
+  const [adminSettingPwLoading, setAdminSettingPwLoading] = useState(false)
 
-  // TODO: 実データに差替え（メール設定の初期値）
-  const [resendApiKey, setResendApiKey] = useState('re_xxxx...xxxx')
-  const [fromEmail, setFromEmail] = useState('noreply@ai-interview.example.com')
-  const [fromName, setFromName] = useState('AI面接官')
-
-  // TODO: 実データに差替え（面接設定の初期値）
-  const [defaultDuration, setDefaultDuration] = useState('30')
-  const [defaultQuestionCount, setDefaultQuestionCount] = useState('9')
-  const [openaiApiKey, setOpenaiApiKey] = useState('sk-xxxx...xxxx')
-  const [openaiModel, setOpenaiModel] = useState('GPT-4o')
-  const [voiceModel, setVoiceModel] = useState('alloy')
-  const [interviewTone, setInterviewTone] = useState('セミフォーマル')
-
-  // TODO: 実データに差替え（通知設定の初期値）
-  const [adminNotifyEmail, setAdminNotifyEmail] = useState('admin@ai-interview.example.com')
-  const [adminNotifications, setAdminNotifications] = useState({
-    newCompany: true,
-    changeRequest: true,
-    paymentOverdue: true,
-    interviewError: true,
-    monthlyReport: true,
-    apiError: false,
-  })
-  const [clientNotifications, setClientNotifications] = useState({
-    interviewComplete: true,
-    monthlyReport: true,
-    planWarning: true,
-    invoiceIssued: true,
-    maintenanceNotice: false,
-  })
+  // メールテンプレート（実データ: email_templates・読み取り専用）
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([])
+  const [emailTemplatesLoading, setEmailTemplatesLoading] = useState(true)
 
   const showToast = (msg: string) => {
     setToastMessage(msg)
@@ -115,40 +85,117 @@ export default function SettingsPage() {
     setTimeout(() => setToastVisible(false), 2000)
   }
 
-  const updateAdminNotification = (key: keyof typeof adminNotifications, value: boolean) => {
-    setAdminNotifications((prev) => ({ ...prev, [key]: value }))
+  // 運営管理設定変更用パスワードの設定状況を取得
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/security/setting-password')
+        const json = await res.json().catch(() => ({}))
+        if (cancelled) return
+        setAdminSettingPwConfigured(res.ok ? !!json.configured : false)
+      } catch {
+        if (!cancelled) setAdminSettingPwConfigured(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  // メールテンプレート一覧を取得
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/email-templates')
+        if (!res.ok) {
+          if (!cancelled) setEmailTemplates([])
+          return
+        }
+        const json = await res.json().catch(() => ({}))
+        if (cancelled) return
+        setEmailTemplates(Array.isArray(json?.templates) ? (json.templates as EmailTemplate[]) : [])
+      } catch {
+        if (!cancelled) setEmailTemplates([])
+      } finally {
+        if (!cancelled) setEmailTemplatesLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const handleAdminSettingPasswordSubmit = async () => {
+    setAdminSettingPwError('')
+    if (!adminSettingPwNew || !adminSettingPwConfirm) {
+      setAdminSettingPwError('新しいパスワードを入力してください')
+      return
+    }
+    if (adminSettingPwNew.length < 8) {
+      setAdminSettingPwError('パスワードは8文字以上で設定してください')
+      return
+    }
+    if (adminSettingPwNew !== adminSettingPwConfirm) {
+      setAdminSettingPwError('新しいパスワードと確認用パスワードが一致しません')
+      return
+    }
+    if (adminSettingPwConfigured && !adminSettingPwCurrent) {
+      setAdminSettingPwError('現在の設定変更用パスワードを入力してください')
+      return
+    }
+    const wasConfigured = adminSettingPwConfigured
+    setAdminSettingPwLoading(true)
+    try {
+      const res = await fetch('/api/admin/security/setting-password', {
+        method: wasConfigured ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          wasConfigured
+            ? { currentPassword: adminSettingPwCurrent, newPassword: adminSettingPwNew }
+            : { newPassword: adminSettingPwNew },
+        ),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setAdminSettingPwError(json?.error?.message ?? '保存に失敗しました')
+        return
+      }
+      setAdminSettingPwConfigured(true)
+      setAdminSettingPwCurrent('')
+      setAdminSettingPwNew('')
+      setAdminSettingPwConfirm('')
+      showToast(wasConfigured ? '設定変更用パスワードを変更しました' : '設定変更用パスワードを設定しました')
+    } catch {
+      setAdminSettingPwError('保存に失敗しました')
+    } finally {
+      setAdminSettingPwLoading(false)
+    }
   }
 
-  const updateClientNotification = (key: keyof typeof clientNotifications, value: boolean) => {
-    setClientNotifications((prev) => ({ ...prev, [key]: value }))
-  }
+  const TABS: { id: TabId; label: string }[] = [
+    { id: 'policy', label: '運用ポリシー' },
+    { id: 'connection', label: '接続状態' },
+    { id: 'security', label: 'セキュリティ' },
+    { id: 'email', label: 'メール' },
+    { id: 'roadmap', label: '今後実装予定' },
+  ]
 
   return (
     <>
       <div className="space-y-6 min-w-0 max-w-[100vw] pb-10">
-        {/* セクション1: ヘッダー */}
+        {/* ヘッダー */}
         <div>
           <h1 className="text-2xl font-bold text-white">システム設定</h1>
-          <p className="text-sm text-gray-400 mt-1">プラットフォーム全体の設定管理</p>
+          <p className="text-sm text-gray-400 mt-1">プラットフォーム全体の運用ポリシー・状態（料金・企業別設定・設定パスワード以外の編集機能は持ちません）</p>
         </div>
 
-        {/* セクション2: タブナビゲーション */}
+        {/* タブナビゲーション */}
         <div className="flex gap-1 bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-xl p-1 mb-6 overflow-x-auto">
-          {[
-            { id: 'general' as const, label: '一般設定' },
-            { id: 'email' as const, label: 'メール設定' },
-            { id: 'interview' as const, label: '面接設定' },
-            { id: 'api' as const, label: 'API設定' },
-            { id: 'notification' as const, label: '通知設定' },
-          ].map((tab) => (
+          {TABS.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 text-sm font-medium transition-all duration-200 rounded-lg whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'bg-white/[0.08] text-white'
-                  : 'text-gray-400 hover:text-gray-300'
+              className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap transition-colors ${
+                activeTab === tab.id ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
               }`}
             >
               {tab.label}
@@ -156,634 +203,196 @@ export default function SettingsPage() {
           ))}
         </div>
 
-        {/* タブ1: 一般設定 */}
-        {activeTab === 'general' && (
+        {/* タブ1: 運用ポリシー（固定仕様・read-only） */}
+        {activeTab === 'policy' && (
           <div className="space-y-4">
-            <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">サービス基本情報</h2>
-              <div className="space-y-4">
-                <div>
-                  <InputLabel>サービス名</InputLabel>
-                  <input
-                    type="text"
-                    value={serviceName}
-                    onChange={(e) => setServiceName(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
-                  />
-                </div>
-                <div>
-                  <InputLabel>サービスURL</InputLabel>
-                  <input
-                    type="text"
-                    value={serviceUrl}
-                    onChange={(e) => setServiceUrl(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
-                  />
-                </div>
-                <div>
-                  <InputLabel>運営会社名</InputLabel>
-                  <input
-                    type="text"
-                    value={operatorName}
-                    onChange={(e) => setOperatorName(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
-                  />
-                </div>
-                <div>
-                  <InputLabel>サポートメールアドレス</InputLabel>
-                  <input
-                    type="email"
-                    value={supportEmail}
-                    onChange={(e) => setSupportEmail(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
-                  />
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => showToast('設定を保存しました')}
-                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors"
-              >
-                保存
-              </button>
-              {/* TODO: Supabaseに保存 */}
+            <div className={CARD}>
+              <h2 className="text-lg font-semibold text-white mb-1">面接の運用ポリシー（固定仕様）</h2>
+              <p className="text-xs text-gray-500 mb-4">システム共通の固定値です（編集不可）。値は lib/config/interview-policy で一元管理しています。</p>
+              <dl className="divide-y divide-white/[0.06] text-sm">
+                <div className="flex justify-between py-2.5"><dt className="text-gray-400">面接最大時間</dt><dd className="text-white font-medium">{MAX_INTERVIEW_MINUTES}分</dd></div>
+                <div className="flex justify-between py-2.5"><dt className="text-gray-400">残り時間警告（開始からの経過）</dt><dd className="text-white font-medium">{INTERVIEW_WARNING_MINUTES}分時点</dd></div>
+                <div className="flex justify-between py-2.5"><dt className="text-gray-400">全質問上限（アイスブレイク＋評価＋クロージング）</dt><dd className="text-white font-medium">{MAX_TOTAL_QUESTIONS}問</dd></div>
+                <div className="flex justify-between py-2.5"><dt className="text-gray-400">アイスブレイク上限</dt><dd className="text-white font-medium">{MAX_ICEBREAKER_QUESTIONS}問</dd></div>
+                <div className="flex justify-between py-2.5"><dt className="text-gray-400">評価質問（evaluation）上限</dt><dd className="text-white font-medium">{MAX_EVALUATION_QUESTIONS}問</dd></div>
+                <div className="flex justify-between py-2.5"><dt className="text-gray-400">クロージング上限</dt><dd className="text-white font-medium">{MAX_CLOSING_QUESTIONS}問</dd></div>
+                <div className="flex justify-between py-2.5"><dt className="text-gray-400">録画保存期間</dt><dd className="text-white font-medium">{RECORDING_RETENTION_DAYS}日（適用予定値）</dd></div>
+                <div className="flex justify-between py-2.5"><dt className="text-gray-400">深掘り質問</dt><dd className="text-amber-300 font-medium">最大{DEEP_DIVE_MAX_PER_QUESTION}回/質問（設計仕様・未実装）</dd></div>
+              </dl>
             </div>
 
-            <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">デフォルトプラン設定</h2>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 space-y-3">
-                  <p className="text-sm font-medium text-gray-400">ライト</p>
-                  <div>
-                    <InputLabel>名前</InputLabel>
-                    <input
-                      type="text"
-                      value={planLight.name}
-                      onChange={(e) => setPlanLight((p) => ({ ...p, name: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
+            <div className={CARD}>
+              <h2 className="text-lg font-semibold text-white mb-1">デフォルト評価軸（固定仕様）</h2>
+              <p className="text-xs text-gray-500 mb-4">EBCA（面接全体を横断して6軸でスコア化）。各軸0〜20点・合計120点を100点満点へ換算します。企業別/カスタム設定は持ちません（編集不可）。</p>
+              <dl className="divide-y divide-white/[0.06] text-sm">
+                {EVALUATION_AXES.map((axis) => (
+                  <div key={axis.name} className="flex items-center justify-between py-2">
+                    <dt className="text-gray-300">{axis.name}</dt>
+                    <dd className="text-white font-medium">{axis.points}点</dd>
                   </div>
-                  <div>
-                    <InputLabel>月額（円）</InputLabel>
-                    <input
-                      type="text"
-                      value={planLight.fee}
-                      onChange={(e) => setPlanLight((p) => ({ ...p, fee: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <InputLabel>面接上限</InputLabel>
-                    <input
-                      type="text"
-                      value={planLight.limit}
-                      onChange={(e) => setPlanLight((p) => ({ ...p, limit: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
+                ))}
+                <div className="flex items-center justify-between py-2">
+                  <dt className="text-gray-400">合計</dt>
+                  <dd className="text-white font-medium">120点 → 100点満点へ換算</dd>
                 </div>
-                <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 space-y-3">
-                  <p className="text-sm font-medium text-gray-400">スタンダード</p>
-                  <div>
-                    <InputLabel>名前</InputLabel>
-                    <input
-                      type="text"
-                      value={planStandard.name}
-                      onChange={(e) => setPlanStandard((p) => ({ ...p, name: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <InputLabel>月額（円）</InputLabel>
-                    <input
-                      type="text"
-                      value={planStandard.fee}
-                      onChange={(e) => setPlanStandard((p) => ({ ...p, fee: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <InputLabel>面接上限</InputLabel>
-                    <input
-                      type="text"
-                      value={planStandard.limit}
-                      onChange={(e) => setPlanStandard((p) => ({ ...p, limit: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
-                </div>
-                <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4 space-y-3">
-                  <p className="text-sm font-medium text-gray-400">プロ</p>
-                  <div>
-                    <InputLabel>名前</InputLabel>
-                    <input
-                      type="text"
-                      value={planPro.name}
-                      onChange={(e) => setPlanPro((p) => ({ ...p, name: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <InputLabel>月額（円）</InputLabel>
-                    <input
-                      type="text"
-                      value={planPro.fee}
-                      onChange={(e) => setPlanPro((p) => ({ ...p, fee: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <InputLabel>面接上限</InputLabel>
-                    <input
-                      type="text"
-                      value={planPro.limit}
-                      onChange={(e) => setPlanPro((p) => ({ ...p, limit: e.target.value }))}
-                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-2 text-white text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-              <p className="mt-4 text-sm text-gray-400 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3">
-                31件目以降: ¥3,500/件（従量課金・自動適用）
-              </p>
-              <button
-                type="button"
-                onClick={() => showToast('設定を保存しました')}
-                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
-              >
-                保存
-              </button>
-              {/* TODO: Supabaseに保存 */}
+              </dl>
+              <p className="text-xs text-amber-300/90 mt-4">固定の設計仕様です。レポート生成機能は現在未実装です。</p>
             </div>
 
-            <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">メンテナンスモード</h2>
-              <div className="flex items-center gap-3">
-                <Toggle checked={maintenanceMode} onChange={setMaintenanceMode} />
-                <span className="text-sm text-gray-400">
-                  {maintenanceMode ? 'ON' : 'OFF'}
-                </span>
-              </div>
-              {maintenanceMode && (
-                <div className="mt-4">
-                  <InputLabel>メンテナンスメッセージ</InputLabel>
-                  <textarea
-                    value={maintenanceMessage}
-                    onChange={(e) => setMaintenanceMessage(e.target.value)}
-                    rows={2}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
-                  />
+            <div className={CARD}>
+              <h2 className="text-lg font-semibold text-white mb-1">料金モデル（参考・編集は企業管理／課金管理）</h2>
+              <p className="text-xs text-gray-500 mb-4">料金・月間上限は企業ごとに「企業管理」で設定します。ここは参考表示のみ（編集不可）。</p>
+              <div className="space-y-3 text-sm">
+                <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3">
+                  <p className="text-white font-medium">基本料金: 1面接・1人あたり ¥4,000（税別）</p>
+                  <p className="text-xs text-gray-400 mt-1">プラン: 従量課金（pay_per_use）／ カスタム（custom）</p>
                 </div>
-              )}
-              <p className="text-xs text-amber-400 mt-2">
-                ONにすると企業側・応募者側の全画面にメンテナンス表示されます
-              </p>
-              <button
-                type="button"
-                onClick={() => showToast('設定を保存しました')}
-                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
-              >
-                保存
-              </button>
-              {/* TODO: Supabaseに保存 */}
+                <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3">
+                  <p className="text-gray-300">月間上限人数は企業詳細画面から企業ごとに設定（最低5人）。上限到達後は面接が自動停止。</p>
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        {/* タブ2: メール設定 */}
+        {/* タブ2: 接続状態（read-only・実ヘルスチェックではない） */}
+        {activeTab === 'connection' && (
+          <div className="space-y-4">
+            <div className={CARD}>
+              <h2 className="text-lg font-semibold text-white mb-1">接続状態（設定状態）</h2>
+              <p className="text-xs text-gray-500 mb-4">これは実ヘルスチェックではなく、現在の「設定状態」です。外部APIキーは表示しません（.env 管理）。</p>
+              <dl className="divide-y divide-white/[0.06] text-sm">
+                {CONNECTION_STATUS.map((c) => (
+                  <div key={c.name} className="flex justify-between py-2.5">
+                    <dt className="text-gray-400">{c.name}</dt>
+                    <dd className={c.tone === 'ok' ? 'text-emerald-400 font-medium' : 'text-gray-300 font-medium'}>{c.status}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          </div>
+        )}
+
+        {/* タブ3: セキュリティ（運営管理設定変更用パスワード・実保存される実機能） */}
+        {activeTab === 'security' && (
+          <div className="space-y-4">
+            <div className={CARD}>
+              <h2 className="text-lg font-semibold text-white mb-4">運営管理設定変更用パスワード</h2>
+              <p className="text-sm text-gray-400 mb-3">
+                企業設定・単価・月間上限などの重要設定を変更する際に使用する、ログインパスワードとは別のパスワードです。
+              </p>
+              <p className="text-xs mb-4">
+                {adminSettingPwConfigured === null
+                  ? <span className="text-gray-500">状態を確認中...</span>
+                  : adminSettingPwConfigured
+                    ? <span className="text-emerald-400 font-medium">設定済み</span>
+                    : <span className="text-amber-400 font-medium">未設定</span>}
+              </p>
+              <div className="space-y-4 max-w-md">
+                {adminSettingPwConfigured && (
+                  <div>
+                    <InputLabel>現在の運営管理設定変更用パスワード</InputLabel>
+                    <PasswordInput
+                      value={adminSettingPwCurrent}
+                      onChange={setAdminSettingPwCurrent}
+                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
+                      placeholder="現在の運営管理設定変更用パスワードを入力"
+                      iconClassName="text-gray-400 hover:text-gray-200"
+                    />
+                  </div>
+                )}
+                <div>
+                  <InputLabel>新しい運営管理設定変更用パスワード</InputLabel>
+                  <PasswordInput
+                    value={adminSettingPwNew}
+                    onChange={setAdminSettingPwNew}
+                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
+                    placeholder="新しいパスワードを入力"
+                    iconClassName="text-gray-400 hover:text-gray-200"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">8文字以上で設定してください</p>
+                </div>
+                <div>
+                  <InputLabel>新しい運営管理設定変更用パスワード（確認）</InputLabel>
+                  <PasswordInput
+                    value={adminSettingPwConfirm}
+                    onChange={setAdminSettingPwConfirm}
+                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
+                    placeholder="新しいパスワードを再入力"
+                    iconClassName="text-gray-400 hover:text-gray-200"
+                  />
+                </div>
+                {adminSettingPwError && <p className="text-sm text-red-400">{adminSettingPwError}</p>}
+                <button
+                  type="button"
+                  onClick={handleAdminSettingPasswordSubmit}
+                  disabled={adminSettingPwLoading || adminSettingPwConfigured === null}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors disabled:opacity-60"
+                >
+                  {adminSettingPwLoading ? '保存中...' : adminSettingPwConfigured ? '変更する' : '設定する'}
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-4">
+                IPブロック・アカウントロック等のセキュリティ運用は「セキュリティ」画面（/admin/security）で管理します。
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* タブ4: メール（テンプレート一覧は実データ読み取り。送信元・編集・Resendは未接続/今後実装予定） */}
         {activeTab === 'email' && (
           <div className="space-y-4">
-            <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">メール送信設定（Resend）</h2>
-              <div className="space-y-4">
-                <div>
-                  <InputLabel>APIキー</InputLabel>
-                  <input
-                    type="password"
-                    value={resendApiKey}
-                    onChange={(e) => setResendApiKey(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  />
-                </div>
-                <div>
-                  <InputLabel>送信元メールアドレス</InputLabel>
-                  <input
-                    type="email"
-                    value={fromEmail}
-                    onChange={(e) => setFromEmail(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  />
-                </div>
-                <div>
-                  <InputLabel>送信元表示名</InputLabel>
-                  <input
-                    type="text"
-                    value={fromName}
-                    onChange={(e) => setFromName(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => showToast('メール接続テスト機能は今後実装予定です')}
-                  className="bg-white/[0.06] hover:bg-white/[0.1] text-white text-sm px-4 py-2 rounded-xl"
-                >
-                  接続テスト
-                </button>
-                {/* TODO: Resend API接続テスト */}
-              </div>
-              <button
-                type="button"
-                onClick={() => showToast('設定を保存しました')}
-                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
-              >
-                保存
-              </button>
-              {/* TODO: Supabaseに保存 */}
+            <div className={CARD}>
+              <h2 className="text-lg font-semibold text-white mb-2">メール送信（Resend）</h2>
+              <p className="text-sm text-gray-300">状態: <span className="text-gray-400 font-medium">未接続</span></p>
+              <p className="text-xs text-gray-500 mt-2">送信元アドレス・送信元表示名・APIキーは .env 管理で、画面からの設定は今後実装予定です（現在は設定できません）。</p>
             </div>
 
-            <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">メールテンプレート一覧</h2>
+            <div className={CARD}>
+              <h2 className="text-lg font-semibold text-white mb-4">メールテンプレート一覧（読み取り専用）</h2>
               <div className="space-y-2">
-                {EMAIL_TEMPLATES.map((t, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between bg-white/[0.04] border border-white/[0.06] rounded-xl p-4"
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-white">{t.name}</p>
-                      <p className="text-xs text-gray-500">{t.status}</p>
+                {emailTemplatesLoading ? (
+                  <p className="text-sm text-gray-500 py-6 text-center">読み込み中...</p>
+                ) : emailTemplates.length === 0 ? (
+                  <p className="text-sm text-gray-500 py-6 text-center">メールテンプレートはまだありません</p>
+                ) : (
+                  emailTemplates.map((t) => (
+                    <div key={t.id} className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-4">
+                      <p className="text-sm font-medium text-white truncate">{t.subject || t.template_type}</p>
+                      <p className="text-xs text-gray-500 truncate">
+                        {t.template_type}{t.company_name ? ` ・ ${t.company_name}` : ''}
+                      </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => showToast('テンプレート編集機能は今後実装予定です')}
-                      className="text-sm text-blue-400 hover:text-blue-300"
-                    >
-                      編集
-                    </button>
-                    {/* TODO: テンプレート編集モーダル */}
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
+              <p className="text-xs text-gray-500 mt-3">テンプレートの編集は今後実装予定です（現在は閲覧のみ）。</p>
             </div>
           </div>
         )}
 
-        {/* タブ3: 面接設定 */}
-        {activeTab === 'interview' && (
+        {/* タブ5: 今後実装予定（read-only・操作不能） */}
+        {activeTab === 'roadmap' && (
           <div className="space-y-4">
-            <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">面接基本設定</h2>
-              <div className="space-y-4">
-                <div>
-                  <InputLabel>デフォルト面接時間</InputLabel>
-                  <select
-                    value={defaultDuration}
-                    onChange={(e) => setDefaultDuration(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  >
-                    <option value="15">15分</option>
-                    <option value="20">20分</option>
-                    <option value="30">30分</option>
-                    <option value="40">40分</option>
-                    <option value="60">60分</option>
-                  </select>
-                </div>
-                <div>
-                  <InputLabel>デフォルト質問数</InputLabel>
-                  <select
-                    value={defaultQuestionCount}
-                    onChange={(e) => setDefaultQuestionCount(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  >
-                    <option value="5">5問</option>
-                    <option value="7">7問</option>
-                    <option value="9">9問</option>
-                    <option value="12">12問</option>
-                  </select>
-                </div>
-                <div>
-                  <InputLabel>深掘り最大回数</InputLabel>
-                  <p className="text-sm text-gray-400 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3">
-                    AIが回答の充実度に応じて0〜2回自動判定（v9.0仕様）
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => showToast('設定を保存しました')}
-                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
-              >
-                保存
-              </button>
-              {/* TODO: Supabaseに保存 */}
-            </div>
-
-            <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">AI面接官設定</h2>
-              <div className="space-y-4">
-                <div>
-                  <InputLabel>OpenAI APIキー</InputLabel>
-                  <input
-                    type="password"
-                    value={openaiApiKey}
-                    onChange={(e) => setOpenaiApiKey(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  />
-                </div>
-                <div>
-                  <InputLabel>使用モデル</InputLabel>
-                  <select
-                    value={openaiModel}
-                    onChange={(e) => setOpenaiModel(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  >
-                    <option value="GPT-4o">GPT-4o</option>
-                    <option value="GPT-4o-mini">GPT-4o-mini</option>
-                    <option value="GPT-4-turbo">GPT-4-turbo</option>
-                  </select>
-                </div>
-                <div>
-                  <InputLabel>音声モデル</InputLabel>
-                  <select
-                    value={voiceModel}
-                    onChange={(e) => setVoiceModel(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  >
-                    <option value="alloy">alloy</option>
-                    <option value="echo">echo</option>
-                    <option value="fable">fable</option>
-                    <option value="onyx">onyx</option>
-                    <option value="nova">nova</option>
-                    <option value="shimmer">shimmer</option>
-                  </select>
-                </div>
-                <div>
-                  <InputLabel>面接官のトーン</InputLabel>
-                  <select
-                    value={interviewTone}
-                    onChange={(e) => setInterviewTone(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  >
-                    <option value="フォーマル">フォーマル</option>
-                    <option value="セミフォーマル">セミフォーマル</option>
-                    <option value="カジュアル">カジュアル</option>
-                  </select>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => showToast('API接続テスト機能は今後実装予定です')}
-                  className="bg-white/[0.06] hover:bg-white/[0.1] text-white text-sm px-4 py-2 rounded-xl"
-                >
-                  接続テスト
-                </button>
-                {/* TODO: OpenAI API接続テスト */}
-              </div>
-              <button
-                type="button"
-                onClick={() => showToast('設定を保存しました')}
-                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
-              >
-                保存
-              </button>
-              {/* TODO: Supabaseに保存 */}
-            </div>
-
-            <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">デフォルト評価軸</h2>
-              <div className="space-y-3">
-                {EVALUATION_AXES.map((axis, i) => (
-                  <div key={i} className="flex items-center gap-4">
-                    <span className="text-sm text-gray-300 w-40 shrink-0">{axis.name}</span>
-                    <span className="text-sm text-gray-500">{axis.weight}%</span>
+            <div className={CARD}>
+              <h2 className="text-lg font-semibold text-white mb-1">今後実装予定</h2>
+              <p className="text-xs text-gray-500 mb-4">以下は未実装です。現在は設定できません（表示のみ）。</p>
+              <dl className="divide-y divide-white/[0.06] text-sm">
+                {ROADMAP_ITEMS.map((r) => (
+                  <div key={r.name} className="flex flex-col sm:flex-row sm:justify-between gap-1 py-2.5">
+                    <dt className="text-gray-300">{r.name}</dt>
+                    <dd className="text-amber-300/90 text-xs sm:text-sm">{r.note}</dd>
                   </div>
                 ))}
-              </div>
-              <p className="mt-4 text-sm text-gray-400 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3">
-                全軸均等 16.7%（v9.0で固定、将来的にカスタム対応予定）
-              </p>
-              <button
-                type="button"
-                onClick={() => showToast('設定を保存しました')}
-                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
-              >
-                保存
-              </button>
-              {/* TODO: Supabaseに保存 */}
-            </div>
-          </div>
-        )}
-
-        {/* タブ4: API設定 */}
-        {activeTab === 'api' && (
-          <div className="space-y-4">
-            <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">外部API連携</h2>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[400px]">
-                  <thead>
-                    <tr className="border-b border-white/[0.06]">
-                      <th className="text-left text-xs text-gray-500 py-3 px-4">サービス</th>
-                      <th className="text-left text-xs text-gray-500 py-3 px-4">ステータス</th>
-                      <th className="text-left text-xs text-gray-500 py-3 px-4">APIキー</th>
-                      <th className="text-left text-xs text-gray-500 py-3 px-4">アクション</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="border-b border-white/[0.04]">
-                      <td className="py-4 px-4 text-sm text-white">OpenAI</td>
-                      <td className="py-4 px-4">
-                        <span className="inline-flex items-center gap-2 text-sm text-emerald-400">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                          接続済み
-                        </span>
-                      </td>
-                      <td className="py-4 px-4 text-sm text-gray-500">sk-xxxx...xxxx</td>
-                      <td className="py-4 px-4">
-                        <button
-                          type="button"
-                          onClick={() => showToast('API設定の変更機能は今後実装予定です')}
-                          className="text-sm text-blue-400 hover:text-blue-300"
-                        >
-                          設定変更
-                        </button>
-                        {/* TODO: API設定モーダル */}
-                      </td>
-                    </tr>
-                    <tr className="border-b border-white/[0.04]">
-                      <td className="py-4 px-4 text-sm text-white">Resend</td>
-                      <td className="py-4 px-4">
-                        <span className="inline-flex items-center gap-2 text-sm text-emerald-400">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                          接続済み
-                        </span>
-                      </td>
-                      <td className="py-4 px-4 text-sm text-gray-500">re-xxxx...xxxx</td>
-                      <td className="py-4 px-4">
-                        <button
-                          type="button"
-                          onClick={() => showToast('API設定の変更機能は今後実装予定です')}
-                          className="text-sm text-blue-400 hover:text-blue-300"
-                        >
-                          設定変更
-                        </button>
-                      </td>
-                    </tr>
-                    <tr className="border-b border-white/[0.04]">
-                      <td className="py-4 px-4 text-sm text-white">Stripe</td>
-                      <td className="py-4 px-4">
-                        <span className="inline-flex items-center gap-2 text-sm text-gray-500">
-                          <span className="w-2 h-2 rounded-full bg-gray-500" />
-                          未接続
-                        </span>
-                      </td>
-                      <td className="py-4 px-4 text-sm text-gray-500">—</td>
-                      <td className="py-4 px-4">
-                        <button
-                          type="button"
-                          onClick={() => showToast('API設定の変更機能は今後実装予定です')}
-                          className="text-sm text-blue-400 hover:text-blue-300"
-                        >
-                          設定する
-                        </button>
-                      </td>
-                    </tr>
-                    <tr className="border-b border-white/[0.04]">
-                      <td className="py-4 px-4 text-sm text-white">Supabase</td>
-                      <td className="py-4 px-4">
-                        <span className="inline-flex items-center gap-2 text-sm text-emerald-400">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                          接続済み
-                        </span>
-                      </td>
-                      <td className="py-4 px-4 text-sm text-gray-500">eyJxx...xxxx</td>
-                      <td className="py-4 px-4">
-                        <button
-                          type="button"
-                          onClick={() => showToast('API設定の変更機能は今後実装予定です')}
-                          className="text-sm text-blue-400 hover:text-blue-300"
-                        >
-                          設定変更
-                        </button>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">直近のAPIコール</h2>
-              <div className="space-y-2">
-                {API_LOGS.map((log, i) => (
-                  <div
-                    key={i}
-                    className="flex flex-wrap items-center gap-2 bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-sm"
-                  >
-                    <span className="text-gray-500">{log.date}</span>
-                    <span className="text-gray-400">|</span>
-                    <span className="text-white">{log.service}</span>
-                    <span className="text-gray-400">|</span>
-                    <span className="text-gray-300">{log.action}</span>
-                    <span className="text-gray-400">|</span>
-                    <span
-                      className={
-                        log.status === '成功' ? 'text-emerald-400' : 'text-red-400'
-                      }
-                    >
-                      {log.status}
-                    </span>
-                    <span className="text-gray-400">|</span>
-                    <span className="text-gray-500">{log.detail}</span>
-                  </div>
-                ))}
-              </div>
-              {/* TODO: 実データに差替え */}
-            </div>
-          </div>
-        )}
-
-        {/* タブ5: 通知設定 */}
-        {activeTab === 'notification' && (
-          <div className="space-y-4">
-            <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">運営チームへの通知</h2>
-              <div className="space-y-4">
-                <div>
-                  <InputLabel>通知先メールアドレス</InputLabel>
-                  <input
-                    type="email"
-                    value={adminNotifyEmail}
-                    onChange={(e) => setAdminNotifyEmail(e.target.value)}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 text-white text-sm"
-                  />
-                </div>
-                <div className="space-y-3">
-                  {[
-                    { key: 'newCompany' as const, label: '新規企業登録時' },
-                    { key: 'changeRequest' as const, label: '変更リクエスト受信時' },
-                    { key: 'paymentOverdue' as const, label: '支払い遅延発生時' },
-                    { key: 'interviewError' as const, label: '面接エラー発生時' },
-                    { key: 'monthlyReport' as const, label: '月次レポート自動送信' },
-                    { key: 'apiError' as const, label: 'APIエラー発生時' },
-                  ].map(({ key, label }) => (
-                    <div key={key} className="flex items-center justify-between">
-                      <span className="text-sm text-gray-300">{label}</span>
-                      <Toggle
-                        size="sm"
-                        checked={adminNotifications[key]}
-                        onChange={(v) => updateAdminNotification(key, v)}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => showToast('設定を保存しました')}
-                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
-              >
-                保存
-              </button>
-              {/* TODO: Supabaseに保存 */}
-            </div>
-
-            <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 mb-4">
-              <h2 className="text-lg font-semibold text-white mb-4">企業への自動通知</h2>
-              <div className="space-y-3">
-                {[
-                  { key: 'interviewComplete' as const, label: '面接完了時の結果通知' },
-                  { key: 'monthlyReport' as const, label: '月次利用レポート' },
-                  { key: 'planWarning' as const, label: 'プラン上限接近時の警告（残り20%）' },
-                  { key: 'invoiceIssued' as const, label: '請求書発行時' },
-                  { key: 'maintenanceNotice' as const, label: 'メンテナンス予告' },
-                ].map(({ key, label }) => (
-                  <div key={key} className="flex items-center justify-between">
-                    <span className="text-sm text-gray-300">{label}</span>
-                    <Toggle
-                      size="sm"
-                      checked={clientNotifications[key]}
-                      onChange={(v) => updateClientNotification(key, v)}
-                    />
-                  </div>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => showToast('設定を保存しました')}
-                className="mt-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl"
-              >
-                保存
-              </button>
-              {/* TODO: Supabaseに保存 */}
+              </dl>
             </div>
           </div>
         )}
       </div>
 
-      {/* トースト */}
+      {/* トースト（設定変更用パスワード保存の成否表示） */}
       {toastVisible && (
-        <div className="fixed bottom-6 right-6 z-50 bg-white/[0.08] backdrop-blur-2xl border border-white/[0.06] rounded-xl px-4 py-3 text-sm text-white shadow-lg">
+        <div className="fixed bottom-6 right-6 z-50 bg-white/[0.08] backdrop-blur-2xl border border-white/[0.10] rounded-xl shadow-lg px-5 py-3 text-sm text-gray-300">
           {toastMessage}
         </div>
       )}

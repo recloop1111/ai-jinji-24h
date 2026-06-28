@@ -2,11 +2,11 @@ import { type NextRequest } from 'next/server'
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { isValidUUID } from '@/lib/api/validation'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminServerClient } from '@/lib/supabase/server'
 
 export async function GET(request: NextRequest) {
   try {
-    const { data: _admin, error: authError } = await getAdminUser()
+    const { error: authError } = await getAdminUser()
     if (authError) return authError
 
     const { searchParams } = request.nextUrl
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
       return apiError('VALIDATION_ERROR', 'company_id の形式が不正です')
     }
 
-    const supabase = await createClient()
+    const supabase = await createAdminServerClient()
 
     let query = supabase
       .from('email_templates')
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { data: _admin, error: authError } = await getAdminUser()
+    const { error: authError } = await getAdminUser()
     if (authError) return authError
 
     const body = await request.json().catch(() => null)
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
       return apiError('VALIDATION_ERROR', 'body は10000文字以内で入力してください')
     }
 
-    const supabase = await createClient()
+    const supabase = await createAdminServerClient()
 
     const { data: template, error: insertError } = await supabase
       .from('email_templates')

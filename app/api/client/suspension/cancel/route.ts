@@ -1,21 +1,22 @@
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
+import { createClientServerClient } from '@/lib/supabase/server'
 
 export async function POST() {
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
 
-    const supabase = await createClient()
+    const supabase = await createClientServerClient()
 
-    // pending 状態の停止申請を取得
+    // pending 状態の通常停止申請を取得（request_type='temporary'。緊急申請は取消対象外）
     const { data: request, error: fetchError } = await supabase
       .from('suspension_requests')
       .select('id')
       .eq('company_id', user.companyId)
+      .eq('request_type', 'temporary')
       .eq('status', 'pending')
-      .order('requested_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(1)
       .single()
 
@@ -23,10 +24,10 @@ export async function POST() {
       return apiError('NOT_FOUND', '取り消し可能な停止申請が見つかりません')
     }
 
-    // ステータスを cancelled に更新
+    // ステータスを cancelled に更新（cancelled_at カラムは存在しないため status のみ）
     const { error: updateError } = await supabase
       .from('suspension_requests')
-      .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+      .update({ status: 'cancelled' })
       .eq('id', request.id)
 
     if (updateError) {

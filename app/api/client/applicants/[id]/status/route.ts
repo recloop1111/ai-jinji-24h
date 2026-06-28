@@ -1,7 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
+import { createClientServerClient } from '@/lib/supabase/server'
 
 const VALID_STATUSES = ['pending', 'second_interview', 'rejected'] as const
 
@@ -25,7 +25,7 @@ export async function PATCH(
       return apiError('VALIDATION_ERROR', 'selection_status の値が不正です（pending / second_interview / rejected）')
     }
 
-    const supabase = await createClient()
+    const supabase = await createClientServerClient()
 
     // 応募者の所有権確認 + 現在のステータス取得
     const { data: applicant, error: appError } = await supabase

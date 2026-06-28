@@ -2,8 +2,9 @@
 
 import { useState, useMemo, useRef, useEffect, Suspense } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
+import { deriveCurrentStatus, CURRENT_STATUS_LABEL, type CurrentStatusKey } from '@/lib/applicants/displayStatus'
 import { useTemplates, type Template } from '../../contexts/TemplatesContext'
 import { ChevronRight as ChevronRightIcon, ChevronDown as ChevronDownIcon, Phone as PhoneIcon, Mail as MailIcon } from 'lucide-react'
 import { scoreToGrade, gradeColor } from '@/lib/utils/scoreToGrade'
@@ -17,7 +18,7 @@ type DashboardApplicant = {
   email: string
   phone: string
   date: string
-  currentStatus: 'preparing' | 'completed' | 'abandoned' // 準備中・完了・途中離脱
+  currentStatus: CurrentStatusKey // 準備中・面接中・完了・途中離脱（面接中はDB非保存・導出）
   status: ApplicantStatus
   score: number | null
   recommendationRank: 'A' | 'B' | 'C' | 'D' | null
@@ -25,10 +26,10 @@ type DashboardApplicant = {
 
 function DashboardContent() {
   const { companyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
-  const supabase = createClient()
+  const supabase = createClientBrowserClient()
 
   const [kpis, setKpis] = useState({ interviews: 0, avgDuration: 0, applicants: 0, used: 0, limit: 0 })
-  const [recentApplicants, setRecentApplicants] = useState<DashboardApplicant[]>([])
+  const [, setRecentApplicants] = useState<DashboardApplicant[]>([])
   const [dataLoading, setDataLoading] = useState(true)
 
   useEffect(() => {
@@ -69,9 +70,25 @@ function DashboardContent() {
         if (recentError) {
         }
 
+        // 今月の面接の平均時間を算出
+        let avgDur = 0
+        if (companyId) {
+          const { data: interviews } = await supabase
+            .from('interviews')
+            .select('duration_seconds')
+            .eq('company_id', companyId)
+            .gte('created_at', firstDayOfMonth)
+            .not('duration_seconds', 'is', null)
+
+          if (interviews && interviews.length > 0) {
+            const total = interviews.reduce((sum: number, i: any) => sum + (i.duration_seconds || 0), 0)
+            avgDur = Math.round(total / interviews.length / 60)
+          }
+        }
+
         setKpis({
           interviews: company?.monthly_interview_count || 0,
-          avgDuration: 22, // TODO: 面接実装後に実データから算出
+          avgDuration: avgDur,
           applicants: applicantCount || 0,
           used: company?.monthly_interview_count || 0,
           limit: company?.monthly_interview_limit || 0,
@@ -91,6 +108,19 @@ function DashboardContent() {
             })
           }
 
+          // 各 applicant の「最新 interview.status」を取得（面接中/途中離脱/完了 の導出用・DB非保存）
+          const latestInterviewStatus: Record<string, string> = {}
+          const { data: ipData } = await supabase
+            .from('interviews')
+            .select('applicant_id, status, created_at')
+            .eq('company_id', companyId)
+            .order('created_at', { ascending: false })
+          ;(ipData ?? []).forEach((iv: { applicant_id: string; status: string | null }) => {
+            if (iv.applicant_id && !(iv.applicant_id in latestInterviewStatus)) {
+              latestInterviewStatus[iv.applicant_id] = iv.status ?? ''
+            }
+          })
+
           // Step 3: マージしてマッピング
           const mappedApplicants = recent.map((a: any) => {
             const ir = resultsMap[a.id] || null
@@ -101,10 +131,7 @@ function DashboardContent() {
               email: a.email || '',
               phone: a.phone_number || '',
               date: a.created_at ? new Date(a.created_at).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '',
-              currentStatus: a.status === '準備中' ? 'preparing' as const
-                : a.status === '完了' ? 'completed' as const
-                : a.status === '途中離脱' ? 'abandoned' as const
-                : 'preparing' as const,
+              currentStatus: deriveCurrentStatus(a.status, latestInterviewStatus[a.id] ?? null),
               status: a.result === '検討中' ? 'considering' as const
                 : a.result === '二次通過' ? 'second_pass' as const
                 : a.result === '不採用' ? 'rejected' as const
@@ -120,7 +147,7 @@ function DashboardContent() {
           setRecentApplicants([])
           setApplicants([])
         }
-      } catch (err: any) {
+      } catch {
       }
       setDataLoading(false)
     }
@@ -199,7 +226,7 @@ function DashboardContent() {
           .from('applicants')
           .update({ result: dbResult, updated_at: new Date().toISOString() })
           .eq('id', applicantId)
-      } catch (err) {
+      } catch {
       }
     }
     
@@ -264,9 +291,8 @@ function DashboardContent() {
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition-shadow">
             <p className="text-xs font-medium text-slate-500 mb-1">平均面接時間</p>
             <p className="text-2xl font-bold text-slate-900">
-              {dataLoading ? '...' : kpis.avgDuration}<span className="text-base font-normal text-slate-500 ml-1">分</span>
+              {dataLoading ? '...' : kpis.avgDuration > 0 ? kpis.avgDuration : '--'}<span className="text-base font-normal text-slate-500 ml-1">分</span>
             </p>
-            <p className="text-xs text-slate-400 mt-0.5">※ 面接機能実装後に実データ反映</p>
           </div>
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition-shadow">
             <p className="text-xs font-medium text-slate-500 mb-1">今月の応募者数</p>
@@ -317,25 +343,24 @@ function DashboardContent() {
                       <td className="px-4 py-3">
                         <span
                           className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${
-                            a.currentStatus === 'preparing' ? 'bg-gray-100 text-gray-600' 
+                            a.currentStatus === 'preparing' ? 'bg-gray-100 text-gray-600'
+                            : a.currentStatus === 'in_progress' ? 'bg-blue-100 text-blue-600'
                             : a.currentStatus === 'completed' ? 'bg-green-100 text-green-600'
                             : 'bg-red-100 text-red-600' // 途中離脱
                           }`}
                         >
-                          {a.currentStatus === 'preparing' ? '準備中' 
-                            : a.currentStatus === 'completed' ? '完了'
-                            : '途中離脱'}
+                          {CURRENT_STATUS_LABEL[a.currentStatus]}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm">
-                        {a.currentStatus === 'preparing' || a.currentStatus === 'abandoned' ? (
+                        {a.currentStatus === 'preparing' || a.currentStatus === 'in_progress' || a.currentStatus === 'abandoned' ? (
                           <span className="text-slate-400">-</span>
                         ) : a.recommendationRank ? (
                           <span className="text-gray-700 font-semibold text-base">{a.recommendationRank}</span>
                         ) : <span className="text-slate-400">-</span>}
                       </td>
                       <td className="px-4 py-3">
-                        {a.currentStatus === 'preparing' ? (
+                        {a.currentStatus === 'preparing' || a.currentStatus === 'in_progress' ? (
                           <span className="text-slate-400">-</span>
                         ) : (
                           <div className="relative inline-block">

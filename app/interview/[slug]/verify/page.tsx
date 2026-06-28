@@ -2,13 +2,12 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { normalizeDigits } from '@/lib/utils/normalizeDigits'
 
 export default function VerifyPage() {
   const params = useParams()
   const router = useRouter()
   const slug = params.slug as string
-  const supabase = createClient()
 
   const [company, setCompany] = useState<{
     id: string
@@ -20,6 +19,7 @@ export default function VerifyPage() {
   const [loading, setLoading] = useState(true)
   const [code, setCode] = useState(['', '', '', ''])
   const [toast, setToast] = useState<string | null>(null)
+  const [codeError, setCodeError] = useState<string | null>(null)
   const inputRefs = [
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
@@ -28,7 +28,24 @@ export default function VerifyPage() {
   ]
 
   useEffect(() => {
-    fetchCompany()
+    let cancelled = false
+    async function loadCompany() {
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/interview/${slug}/public-config`)
+        if (cancelled) return
+        const json = await res.json().catch(() => null)
+        setCompany(!res.ok || !json?.company ? null : json.company)
+      } catch {
+        if (!cancelled) setCompany(null)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    loadCompany()
+    return () => {
+      cancelled = true
+    }
   }, [slug])
 
   useEffect(() => {
@@ -38,31 +55,16 @@ export default function VerifyPage() {
     }
   }, [toast])
 
-  async function fetchCompany() {
-    setLoading(true)
-    try {
-      const { data, error } = await supabase
-        .from('companies')
-        .select('id, name, logo_url, is_suspended, is_demo')
-        .eq('interview_slug', slug)
-        .single()
-
-      if (error || !data) {
-        setCompany(null)
-      } else {
-        setCompany(data)
-      }
-    } catch (error) {
-      setCompany(null)
-    }
-    setLoading(false)
-  }
-
-  function handleCodeChange(index: number, value: string) {
+  function handleCodeChange(index: number, rawValue: string) {
+    // 全角数字（１２３４）も半角へ正規化してから判定・保持する
+    const value = normalizeDigits(rawValue)
     // 数字のみ受け付ける
     if (value && !/^\d$/.test(value)) {
       return
     }
+
+    // 入力を始めたらエラー表示を消す
+    if (codeError) setCodeError(null)
 
     const newCode = [...code]
     newCode[index] = value
@@ -83,7 +85,8 @@ export default function VerifyPage() {
 
   function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
     e.preventDefault()
-    const pastedData = e.clipboardData.getData('text').slice(0, 4)
+    // 全角数字を含む貼り付けも半角へ正規化してから抽出
+    const pastedData = normalizeDigits(e.clipboardData.getData('text')).slice(0, 4)
     const digits = pastedData.split('').filter((char) => /^\d$/.test(char))
     
     if (digits.length > 0) {
@@ -101,31 +104,54 @@ export default function VerifyPage() {
     }
   }
 
-  function handleVerify() {
-    const codeString = code.join('')
-    if (code.every((digit) => digit !== '')) {
-      if (company?.is_demo) {
-        // デモモード: 固定コード「1234」で認証通過
-        if (codeString === '1234') {
-          setToast('認証が完了しました')
-          setTimeout(() => {
-            router.push(`/interview/${slug}/prepare`)
-          }, 1000)
-        } else {
-          setToast('認証コードが正しくありません')
+  async function handleVerify() {
+    // 念のため送信前にも半角へ正規化（入力時に正規化済みだが防御的に）
+    const codeString = normalizeDigits(code.join(''))
+    if (!code.every((digit) => digit !== '')) return
+
+    // 認証判定はサーバー側で行う（固定コード許可はテスト企業の company_id のときのみ）。
+    const token = sessionStorage.getItem(`interview_${slug}_token`)
+    const applicantId = sessionStorage.getItem(`interview_${slug}_applicant_id`)
+    if (!token || !applicantId) {
+      setCodeError('セッションの有効期限が切れました。最初からやり直してください。')
+      setToast('セッションが無効です')
+      return
+    }
+
+    setCodeError(null)
+    try {
+      const res = await fetch(`/api/interview/${slug}/sms/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, applicant_id: applicantId, code: codeString }),
+      })
+      if (res.ok) {
+        // SMS認証完了トークンを保存（start 側で必須検証される）
+        const data = await res.json().catch(() => null)
+        if (data?.sms_token) {
+          sessionStorage.setItem(`interview_${slug}_sms_token`, data.sms_token)
         }
-      } else {
-        // TODO: 本番モード - Twilio Verify API に差し替え
-        // 現時点ではデモと同じく「1234」で通過
-        if (codeString === '1234') {
-          setToast('認証が完了しました')
-          setTimeout(() => {
-            router.push(`/interview/${slug}/prepare`)
-          }, 1000)
-        } else {
-          setToast('認証コードが正しくありません')
-        }
+        setToast('認証が完了しました')
+        setTimeout(() => {
+          router.push(`/interview/${slug}/prepare`)
+        }, 1000)
+        return
       }
+      const data = await res.json().catch(() => null)
+      if (res.status === 503 || data?.error?.code === 'SMS_NOT_AVAILABLE') {
+        // 通常企業: SMS 未接続（誤コードとは区別して表示）
+        setCodeError('SMS認証は現在準備中です。お手数ですが運営までお問い合わせください。')
+        setToast('SMS認証は現在準備中です')
+      } else {
+        // 誤コード: 入力をクリアして先頭にフォーカスし、すぐ再入力できるようにする
+        setCodeError('認証コードが正しくありません。もう一度入力してください。')
+        setToast('認証コードが正しくありません')
+        setCode(['', '', '', ''])
+        inputRefs[0].current?.focus()
+      }
+    } catch {
+      setCodeError('通信エラーが発生しました。もう一度お試しください。')
+      setToast('通信エラーが発生しました')
     }
   }
 
@@ -134,10 +160,10 @@ export default function VerifyPage() {
       // TODO: Phase 4 - Supabase経由でのSMS再送信
       // TODO: 段階4 - Supabase接続を本実装する
       // ここでSupabase/API呼び出しを行う予定
-    } catch (error) {
+    } catch {
       // TODO: 段階4 - Supabase接続を本実装する
     }
-    
+
     setToast('認証コードを再送信しました')
   }
 
@@ -229,6 +255,10 @@ export default function VerifyPage() {
               />
             ))}
           </div>
+
+          {codeError && (
+            <p className="text-center text-sm text-red-600" role="alert">{codeError}</p>
+          )}
 
           {/* 認証するボタン */}
           <button

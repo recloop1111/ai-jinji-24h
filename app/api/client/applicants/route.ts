@@ -2,7 +2,7 @@ import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { sanitizeSearchQuery, isValidUUID, isValidDate, isValidRank } from '@/lib/api/validation'
-import { createClient } from '@/lib/supabase/server'
+import { createClientServerClient } from '@/lib/supabase/server'
 import { scoreToGrade } from '@/lib/utils/scoreToGrade'
 
 const VALID_SORT_COLUMNS = ['created_at', 'total_score_100', 'last_name'] as const
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
       return apiError('VALIDATION_ERROR', 'rank の値が不正です（A〜E）')
     }
 
-    const supabase = await createClient()
+    const supabase = await createClientServerClient()
     const offset = (page - 1) * perPage
 
     // ベースクエリ: applicants + job_types(name) + interviews > reports(score, summary)

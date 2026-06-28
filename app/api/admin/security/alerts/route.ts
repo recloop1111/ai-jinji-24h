@@ -1,13 +1,13 @@
 import { type NextRequest } from 'next/server'
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminServerClient } from '@/lib/supabase/server'
 
 const MAX_PER_PAGE = 100
 
 export async function GET(request: NextRequest) {
   try {
-    const { data: _admin, error: authError } = await getAdminUser()
+    const { error: authError } = await getAdminUser()
     if (authError) return authError
 
     const { searchParams } = request.nextUrl
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const perPage = Math.min(MAX_PER_PAGE, Math.max(1, parseInt(searchParams.get('per_page') ?? '20', 10) || 20))
     const offset = (page - 1) * perPage
 
-    const supabase = await createClient()
+    const supabase = await createAdminServerClient()
 
     const { data: alerts, count, error } = await supabase
       .from('security_alerts')

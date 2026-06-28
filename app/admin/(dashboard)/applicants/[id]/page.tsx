@@ -1,34 +1,76 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useState, useEffect, useMemo } from 'react'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { createAdminBrowserClient } from '@/lib/supabase/client'
+import { deriveDisplayStatusJa } from '@/lib/applicants/displayStatus'
 import { ChevronLeft as ChevronLeftIcon, Play as PlayIcon } from 'lucide-react'
-import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend, ResponsiveContainer } from 'recharts'
 
-const DUMMY = {
-  aiSummary: {
-    profile: '飲食業界で5年の店長経験を持つ、数値管理と現場改善に強い実行力重視の人材。',
-    career: '大学卒業後、大手飲食チェーンに入社し、入社2年目で副店長、3年目で店長に昇進。担当店舗では月間売上を前年比115%に改善し、人手不足の状況下で3ヶ月間に5名の新規採用を実現した。8名のスタッフのシフト管理・教育にも携わり、現場マネジメントの実務経験が豊富。',
-    impression: '質問の意図を正確に汲み取り、具体的な数値を交えて簡潔に回答する傾向がある。特に過去の実績に関する質問では、課題→施策→結果の構造で論理的に語れており、説得力が高い。一方で、想定外の質問にはやや回答に時間がかかる場面が見られた。',
-    strengthsAndConcerns: '最大の強みは、現場で培った問題解決力と数値に基づく説明力。即戦力としてマネジメント業務への適性が高い。懸念点は、3〜5年後のキャリアビジョンが漠然としており、長期定着への確信が持ちにくい点。また、チームワークに関する具体的なエピソードが少なく、協調性の実態は面接だけでは判断しきれない。',
-  },
-  recommendGrade: 'B',
-  recommendReason: '実務経験とコミュニケーションが高く即戦力として期待できる。キャリアビジョンの明確化が課題。',
-  radarAxis: [
-    { label: 'コミュニケーション', value: 78 },
-    { label: '論理的思考', value: 65 },
-    { label: '仕事意欲', value: 85 },
-    { label: 'カルチャーフィット', value: 80 },
-    { label: '課題対応力', value: 58 },
-    { label: '成長可能性', value: 70 },
-  ],
-  conversationLog: [
-    { number: 1, question: 'これまでのご経歴を簡単に教えてください。', answer: '大学卒業後、大手飲食チェーンに入社し5年間勤務しております。入社2年目で副店長、3年目で店長に昇進しました。', answerDuration: '2分30秒' },
-    { number: 2, question: 'なぜ当社に応募されたのですか。', answer: '現職での店舗運営経験を活かし、より大きな組織でマネジメントに関わりたいと考えました。', answerDuration: '1分45秒' },
-    { number: 3, question: '最も成果を上げた経験を教えてください。', answer: '人手不足で売上が低迷していた店舗に配属された際、採用プロセスを見直し3ヶ月で5名の採用に成功しました。', answerDuration: '2分15秒' },
-  ],
+// EBCA（Evidence-based Competency Analysis）の1軸。score=null は「判断材料不足」。
+type EvalAxis = {
+  label: string
+  score: number | null
+  rank: string | null
+  evidence: string[]
+  confidence: 'high' | 'medium' | 'low' | null
+  insufficientReason: string | null
+}
+
+const CONFIDENCE_LABELS: Record<'high' | 'medium' | 'low', string> = { high: '高', medium: '中', low: '低' }
+
+// 経歴要約の表示用ラベル（不明な値は生値をそのまま表示）
+const EDUCATION_LABELS: Record<string, string> = {
+  junior_high: '中学校卒業', high_school: '高校卒業', vocational: '専門学校卒業',
+  junior_college: '短期大学卒業', university: '大学卒業', graduate: '大学院卒業', other: 'その他',
+}
+const INDUSTRY_EXP_LABELS: Record<string, string> = { experienced: '経験あり', inexperienced: '未経験' }
+
+// 6評価軸キー → 日本語ラベル（evaluation_axes が label を持たない場合のフォールバック）
+const AXIS_LABELS: Record<string, string> = {
+  communication: 'コミュニケーション',
+  logical_thinking: '論理的思考',
+  initiative: '主体性・行動力',
+  desire: '仕事意欲',
+  stress_tolerance: 'ストレス耐性・柔軟性',
+  integrity: '誠実性・一貫性',
+}
+
+// interview_results.evaluation_axes を安全に正規化（EBCA形式）。
+// 配列 [{axis,label,score,rank,evidence[],confidence,insufficient_reason}] が主。
+// 旧形式 [{label,value}] / オブジェクト {key:number} にも最低限対応。
+// 重要: score=null（判断材料不足）は 0 に変換せず null のまま保持する。想定外/空/null は [] を返す（DUMMY補完なし）。
+function normalizeEvaluationAxes(raw: unknown): EvalAxis[] {
+  if (!raw || typeof raw !== 'object') return []
+  const toAxis = (
+    label: string, scoreRaw: unknown, rankRaw: unknown,
+    evidenceRaw: unknown, confRaw: unknown, insuffRaw: unknown,
+  ): EvalAxis => {
+    const score = typeof scoreRaw === 'number' && Number.isFinite(scoreRaw) ? scoreRaw : null
+    const rank = typeof rankRaw === 'string' && rankRaw ? rankRaw : null
+    const evidence = Array.isArray(evidenceRaw)
+      ? evidenceRaw.filter((e): e is string => typeof e === 'string' && e.length > 0)
+      : []
+    const confidence = confRaw === 'high' || confRaw === 'medium' || confRaw === 'low' ? confRaw : null
+    const insufficientReason = typeof insuffRaw === 'string' && insuffRaw ? insuffRaw : null
+    return { label, score, rank, evidence, confidence, insufficientReason }
+  }
+  const out: EvalAxis[] = []
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue
+      const obj = item as Record<string, unknown>
+      const keyStr = typeof obj.axis === 'string' ? obj.axis : typeof obj.key === 'string' ? obj.key : ''
+      const labelRaw = obj.label ?? obj.name
+      const label = typeof labelRaw === 'string' && labelRaw ? labelRaw : AXIS_LABELS[keyStr] ?? (keyStr || '評価軸')
+      out.push(toAxis(label, obj.score ?? obj.value, obj.rank, obj.evidence, obj.confidence, obj.insufficient_reason))
+    }
+  } else {
+    for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+      out.push(toAxis(AXIS_LABELS[key] ?? key, val, undefined, undefined, undefined, undefined))
+    }
+  }
+  return out
 }
 
 const STATUS_OPTIONS = [
@@ -46,11 +88,12 @@ const RECOMMEND_LEGEND = [
   { grade: 'D', label: '非推奨', desc: '現時点では要件を満たしていない' },
 ] as const
 
-type TabKey = 'summary' | 'detail' | 'conversation' | 'recording' | 'questions' | 'rawdata' | 'selection'
+type TabKey = 'summary' | 'resume' | 'detail' | 'conversation' | 'recording' | 'questions' | 'rawdata' | 'selection'
 
 function CurrentStatusBadge({ status }: { status: string }) {
   const statusMap: Record<string, { label: string; className: string }> = {
     '準備中': { label: '準備中', className: 'bg-gray-600 text-gray-100' },
+    '面接中': { label: '面接中', className: 'bg-blue-600 text-white' },
     '完了': { label: '完了', className: 'bg-emerald-600 text-white' },
     '途中離脱': { label: '途中離脱', className: 'bg-amber-600 text-white' },
   }
@@ -67,19 +110,6 @@ const GRADE_STYLES: Record<string, string> = {
   B: 'bg-sky-500 text-white',
   C: 'bg-amber-500 text-white',
   D: 'bg-rose-500 text-white',
-}
-
-function GradeBadge({ grade, size = 'md' }: { grade: string; size?: 'sm' | 'md' }) {
-  const isSm = size === 'sm'
-  return (
-    <span
-      className={`inline-flex items-center justify-center rounded-full font-bold shrink-0 ${GRADE_STYLES[grade] || 'bg-gray-500 text-white'} ${
-        isSm ? 'w-7 h-7 text-xs' : 'w-16 h-16 text-2xl'
-      }`}
-    >
-      {grade}
-    </span>
-  )
 }
 
 function RecommendLegendDark() {
@@ -105,15 +135,15 @@ function RecommendLegendDark() {
 
 export default function AdminApplicantDetailPage() {
   const params = useParams()
-  const router = useRouter()
   const id = params.id as string
-  const supabase = createClient()
+  // createAdminBrowserClient() を毎レンダー生成するとデータ取得 effect の依存(supabase)が
+  // 毎回変わり再取得ループ（画面チカチカ）になるため useMemo で安定化する（billing ページと同方式・6620f8f）。
+  const supabase = useMemo(() => createAdminBrowserClient(), [])
 
   const [activeTab, setActiveTab] = useState<TabKey>('summary')
   const [applicant, setApplicant] = useState<any>(null)
   const [interviewResult, setInterviewResult] = useState<any>(null)
-  const [cultureProfile, setCultureProfile] = useState<any>(null)
-  const [cultureAnalysisEnabled, setCultureAnalysisEnabled] = useState<boolean>(false)
+  const [latestInterviewStatus, setLatestInterviewStatus] = useState<string | null>(null)
   const [companyName, setCompanyName] = useState<string>('')
   const [loading, setLoading] = useState(true)
 
@@ -124,6 +154,7 @@ export default function AdminApplicantDetailPage() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'summary', label: '概要' },
+    { key: 'resume', label: '履歴書' },
     { key: 'detail', label: '詳細評価' },
     { key: 'conversation', label: '会話ログ' },
     { key: 'recording', label: '録画再生' },
@@ -142,7 +173,7 @@ export default function AdminApplicantDetailPage() {
       try {
         const { data: applicantData, error: applicantError } = await supabase
           .from('applicants')
-          .select('*')
+          .select('*, jobs(title)')
           .eq('id', id)
           .single()
 
@@ -152,6 +183,15 @@ export default function AdminApplicantDetailPage() {
           setApplicant(applicantData)
           setSelectionStatus(applicantData.selection_status || 'pending')
           setSelectionMemo(applicantData.selection_memo || '')
+
+          // 最新 interview.status（面接中/途中離脱/完了 の導出用・DBには保存しない）
+          const { data: ivRows } = await supabase
+            .from('interviews')
+            .select('status, created_at')
+            .eq('applicant_id', id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+          setLatestInterviewStatus((ivRows ?? [])[0]?.status ?? null)
 
           const { data: irData } = await supabase
             .from('interview_results')
@@ -165,26 +205,15 @@ export default function AdminApplicantDetailPage() {
           if (applicantData.company_id) {
             const { data: companyData } = await supabase
               .from('companies')
-              .select('name, culture_analysis_enabled')
+              .select('name')
               .eq('id', applicantData.company_id)
               .maybeSingle()
             if (companyData) {
               setCompanyName(companyData.name || '')
-              setCultureAnalysisEnabled(companyData.culture_analysis_enabled === true)
-            }
-
-            const { data: profileData } = await supabase
-              .from('culture_profiles')
-              .select('*')
-              .eq('company_id', applicantData.company_id)
-              .limit(1)
-              .maybeSingle()
-            if (profileData) {
-              setCultureProfile(profileData)
             }
           }
         }
-      } catch (err: any) {
+      } catch {
       } finally {
         setLoading(false)
       }
@@ -208,7 +237,7 @@ export default function AdminApplicantDetailPage() {
       } else {
         setToast('保存しました')
       }
-    } catch (err: any) {
+    } catch {
       setToast('保存に失敗しました')
     } finally {
       setSaving(false)
@@ -216,14 +245,21 @@ export default function AdminApplicantDetailPage() {
     }
   }
 
+  // 評価軸は interview_results.evaluation_axes の実データのみ（DUMMY補完なし）。空なら空状態。
+  const evalAxes = normalizeEvaluationAxes(interviewResult?.evaluation_axes)
+  // レーダーは判定済み（score≠null）の軸のみで描画。判断材料不足の軸は除外（0点として描かない）。
+  const scoredAxes = evalAxes.filter((a) => a.score != null)
+  const axisCount = scoredAxes.length
   const cx = 100
   const cy = 100
   const maxR = 72
   const getPoint = (i: number, r: number) => {
-    const angle = (-90 + i * 60) * (Math.PI / 180)
+    const step = axisCount > 0 ? 360 / axisCount : 60
+    const angle = (-90 + i * step) * (Math.PI / 180)
     return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) }
   }
-  const radarPoints = DUMMY.radarAxis.map((d, i) => getPoint(i, (d.value / 100) * maxR))
+  // score は 0〜20。20点満点で正規化。
+  const radarPoints = scoredAxes.map((d, i) => getPoint(i, (Math.max(0, Math.min(20, d.score ?? 0)) / 20) * maxR))
   const radarPath = radarPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
 
   if (loading) {
@@ -262,9 +298,9 @@ export default function AdminApplicantDetailPage() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
                   <h1 className="text-xl sm:text-2xl font-bold text-gray-100 truncate tracking-tight">
-                    {applicant.name}
+                    {`${applicant.last_name || ''} ${applicant.first_name || ''}`.trim() || '名前未設定'}
                   </h1>
-                  <CurrentStatusBadge status={applicant.status} />
+                  <CurrentStatusBadge status={deriveDisplayStatusJa(applicant.status, latestInterviewStatus)} />
                 </div>
                 <p className="text-sm text-gray-400 mt-1">{companyName}</p>
                 <dl className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-gray-300">
@@ -274,11 +310,7 @@ export default function AdminApplicantDetailPage() {
                   </div>
                   <div className="flex gap-2">
                     <dt className="text-gray-500 shrink-0">電話</dt>
-                    <dd>{applicant.phone}</dd>
-                  </div>
-                  <div className="flex gap-2">
-                    <dt className="text-gray-500 shrink-0">面接日時</dt>
-                    <dd>{applicant.interview_scheduled_at ? new Date(applicant.interview_scheduled_at).toLocaleString('ja-JP') : '-'}</dd>
+                    <dd>{applicant.phone_number || '-'}</dd>
                   </div>
                 </dl>
               </div>
@@ -306,6 +338,71 @@ export default function AdminApplicantDetailPage() {
             </nav>
           </div>
 
+          {/* 履歴書タブ */}
+          {activeTab === 'resume' && (
+            <div className="space-y-6">
+              <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 sm:p-7">
+                <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-6">履歴書情報</h2>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">氏名</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.last_name || applicant?.first_name ? `${applicant.last_name || ''} ${applicant.first_name || ''}`.trim() : '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">フリガナ</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.last_name_kana || applicant?.first_name_kana ? `${applicant.last_name_kana || ''} ${applicant.first_name_kana || ''}`.trim() : '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">年齢</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.age != null ? `${applicant.age}歳` : '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">性別</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.gender || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">電話番号</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.phone_number || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">メールアドレス</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.email || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">居住都道府県</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.prefecture || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">最終学歴</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.education || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">応募職種</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.jobs?.title || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">就業形態</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.employment_type || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">業界経験</dt>
+                    <dd className="text-sm text-gray-100">{applicant?.industry_experience || '未入力'}</dd>
+                  </div>
+                </dl>
+                <div className="mt-6 space-y-5">
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">職歴・業種</dt>
+                    <dd className="text-sm text-gray-100 bg-gray-900/50 rounded-xl p-4 border border-gray-700 whitespace-pre-wrap">{applicant?.work_history || '未入力'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 mb-1">保有資格</dt>
+                    <dd className="text-sm text-gray-100 bg-gray-900/50 rounded-xl p-4 border border-gray-700 whitespace-pre-wrap">{applicant?.qualifications || '未入力'}</dd>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* タブ1: 概要 */}
           {activeTab === 'summary' && (
             <div className="space-y-8">
@@ -314,109 +411,235 @@ export default function AdminApplicantDetailPage() {
                   <p className="text-gray-400 font-medium">面接が完了していないため、AI分析レポートは生成されていません</p>
                 </div>
               ) : (
-                <>
-                  {/* AIサマリー */}
-                  <div className="rounded-2xl bg-indigo-900/30 border-l-4 border-indigo-500 p-6 sm:p-7 border border-indigo-800/50">
-                    <h2 className="text-xs font-semibold text-indigo-400 uppercase tracking-wider mb-5">AI 面接分析</h2>
-                    <div className="space-y-5 text-sm sm:text-base text-gray-300 leading-relaxed">
-                      <section>
-                        <p className="font-semibold text-gray-200 mb-1">人物像</p>
-                        <p className="font-bold text-gray-100">{DUMMY.aiSummary.profile}</p>
-                      </section>
-                      <section>
-                        <p className="font-semibold text-gray-200 mb-1.5">経歴・実績</p>
-                        <p>{DUMMY.aiSummary.career}</p>
-                      </section>
-                      <section>
-                        <p className="font-semibold text-gray-200 mb-1.5">面接での印象</p>
-                        <p>{DUMMY.aiSummary.impression}</p>
-                      </section>
-                      <section>
-                        <p className="font-semibold text-gray-200 mb-1.5">強みと懸念点</p>
-                        <p>{DUMMY.aiSummary.strengthsAndConcerns}</p>
-                      </section>
-                    </div>
+                !interviewResult ? (
+                  <div className="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center">
+                    <p className="text-gray-400 font-medium">AI評価レポートはまだ生成されていません</p>
                   </div>
+                ) : (
+                  <>
+                    {/* 人物概要（profile_summary.persona 優先 / 無ければ既存DB項目で代替） */}
+                    {(interviewResult.detail_json?.profile_summary?.persona || interviewResult.personality_type || interviewResult.summary_text || interviewResult.feedback_text) && (
+                      <div className="rounded-2xl bg-indigo-900/30 border-l-4 border-indigo-500 p-6 sm:p-7 border border-indigo-800/50">
+                        <h2 className="text-xs font-semibold text-indigo-400 uppercase tracking-wider mb-5">人物概要</h2>
+                        <div className="space-y-5 text-sm sm:text-base text-gray-300 leading-relaxed">
+                          {interviewResult.detail_json?.profile_summary?.persona ? (
+                            <section>
+                              <p className="font-bold text-gray-100 whitespace-pre-wrap">{interviewResult.detail_json.profile_summary.persona}</p>
+                            </section>
+                          ) : (
+                            <>
+                              {interviewResult.personality_type && (
+                                <section>
+                                  <p className="font-semibold text-gray-200 mb-1">人物像</p>
+                                  <p className="font-bold text-gray-100">{interviewResult.personality_type}</p>
+                                  {interviewResult.personality_description && (
+                                    <p className="mt-1.5">{interviewResult.personality_description}</p>
+                                  )}
+                                </section>
+                              )}
+                              {interviewResult.summary_text && (
+                                <section>
+                                  <p className="font-semibold text-gray-200 mb-1.5">総評</p>
+                                  <p>{interviewResult.summary_text}</p>
+                                </section>
+                              )}
+                            </>
+                          )}
+                          {interviewResult.feedback_text && (
+                            <section>
+                              <p className="font-semibold text-gray-200 mb-1.5">面接での印象</p>
+                              <p>{interviewResult.feedback_text}</p>
+                            </section>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
-                  {/* 推薦度バッジ */}
-                  <div>
-                    <div className="flex flex-col sm:flex-row sm:items-start gap-6 p-5 rounded-2xl bg-gray-800 border border-gray-700">
-                      <span className={`inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-2xl text-4xl font-bold shrink-0 ${GRADE_STYLES[interviewResult?.detail_json?.recommendation_rank || DUMMY.recommendGrade]}`}>
-                        {interviewResult?.detail_json?.recommendation_rank || DUMMY.recommendGrade}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-gray-100">推奨</p>
-                        <p className="text-sm text-gray-400 mt-1 max-w-xl leading-relaxed">{DUMMY.recommendReason}</p>
-                        {interviewResult?.total_score != null && (
-                          <div className="mt-4 pt-4 border-t border-gray-700">
-                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
-                              <div>
-                                <span className="text-sm text-gray-500">AI面接スコア: </span>
-                                <span className="text-lg font-semibold text-gray-100">{interviewResult.total_score}</span>
-                                <span className="text-sm text-gray-500"> / 100</span>
+                    {/* 経歴要約（profile_summary.career 優先 / 無ければ応募者の職歴・業界経験・学歴で代替） */}
+                    <div className="rounded-2xl bg-gray-800 border border-gray-700 p-6 sm:p-7">
+                      <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">経歴要約</h2>
+                      {interviewResult.detail_json?.profile_summary?.career ? (
+                        <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{interviewResult.detail_json.profile_summary.career}</p>
+                      ) : (applicant?.work_history || applicant?.industry_experience || applicant?.education) ? (
+                        <dl className="space-y-3">
+                          {applicant?.work_history && (
+                            <div>
+                              <dt className="text-xs font-medium text-gray-500 mb-1">職務経歴</dt>
+                              <dd className="text-sm text-gray-200 whitespace-pre-wrap">{applicant.work_history}</dd>
+                            </div>
+                          )}
+                          {applicant?.industry_experience && (
+                            <div>
+                              <dt className="text-xs font-medium text-gray-500 mb-1">業界経験</dt>
+                              <dd className="text-sm text-gray-200">{INDUSTRY_EXP_LABELS[applicant.industry_experience] ?? applicant.industry_experience}</dd>
+                            </div>
+                          )}
+                          {applicant?.education && (
+                            <div>
+                              <dt className="text-xs font-medium text-gray-500 mb-1">最終学歴</dt>
+                              <dd className="text-sm text-gray-200">{EDUCATION_LABELS[applicant.education] ?? applicant.education}</dd>
+                            </div>
+                          )}
+                        </dl>
+                      ) : (
+                        <p className="text-sm text-gray-400">経歴情報はまだありません。</p>
+                      )}
+                    </div>
+
+                    {/* 強み */}
+                    {Array.isArray(interviewResult.strengths) && interviewResult.strengths.length > 0 && (
+                      <div className="rounded-2xl bg-gray-800 border border-gray-700 p-6 sm:p-7">
+                        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">強み</h2>
+                        <ul className="space-y-3">
+                          {interviewResult.strengths.map((s: string, idx: number) => (
+                            <li key={idx} className="pl-4 border-l-2 border-emerald-500/40 text-sm text-gray-300 leading-relaxed">{s}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* 推薦度バッジ（実データ recommendation_rank がある場合のみ） */}
+                    {interviewResult.detail_json?.recommendation_rank && (
+                      <div>
+                        <div className="flex flex-col sm:flex-row sm:items-start gap-6 p-5 rounded-2xl bg-gray-800 border border-gray-700">
+                          <span className={`inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-2xl text-4xl font-bold shrink-0 ${GRADE_STYLES[interviewResult.detail_json.recommendation_rank] || 'bg-gray-600 text-white'}`}>
+                            {interviewResult.detail_json.recommendation_rank}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-gray-100">推奨</p>
+                            {interviewResult.feedback_text && (
+                              <p className="text-sm text-gray-400 mt-1 max-w-xl leading-relaxed">{interviewResult.feedback_text}</p>
+                            )}
+                            {interviewResult.total_score != null && (
+                              <div className="mt-4 pt-4 border-t border-gray-700">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
+                                  <div>
+                                    <span className="text-sm text-gray-500">AI面接スコア: </span>
+                                    <span className="text-lg font-semibold text-gray-100">{interviewResult.total_score}</span>
+                                    <span className="text-sm text-gray-500"> / 100</span>
+                                  </div>
+                                </div>
                               </div>
-                              <div>
-                                <span className="text-sm text-gray-500">カルチャーフィット: </span>
-                                {interviewResult?.culture_fit_score != null ? (
-                                  <span className="text-lg font-semibold text-gray-100">{interviewResult.culture_fit_score}%</span>
+                            )}
+                          </div>
+                        </div>
+                        <RecommendLegendDark />
+                      </div>
+                    )}
+
+                    {/* 評価軸（EBCA）。score=null は「判断材料不足」。レーダーは判定済み軸のみ。無ければ空状態 */}
+                    {evalAxes.length > 0 ? (
+                      <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
+                        <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 sm:p-7 shrink-0">
+                          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-5">評価軸レーダーチャート</h2>
+                          {scoredAxes.length > 0 ? (
+                            <div className="flex justify-center p-4 bg-gray-900/50 rounded-2xl">
+                              <svg viewBox="0 0 200 200" className="w-48 h-48 sm:w-56 sm:h-56">
+                                <defs>
+                                  <linearGradient id="radarFillAdmin" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.35" />
+                                    <stop offset="100%" stopColor="#6366f1" stopOpacity="0.35" />
+                                  </linearGradient>
+                                </defs>
+                                {[1, 2, 3, 4, 5].map((l) => {
+                                  const r = (l / 5) * maxR
+                                  const pts = scoredAxes.map((_, i) => getPoint(i, r))
+                                  const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
+                                  return <path key={l} d={path} fill="none" stroke="#4B5563" strokeWidth="1.2" />
+                                })}
+                                {scoredAxes.map((_, i) => {
+                                  const p = getPoint(i, maxR)
+                                  return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="#4B5563" strokeWidth="1.2" />
+                                })}
+                                <path d={radarPath} fill="url(#radarFillAdmin)" stroke="#0ea5e9" strokeWidth="2.5" />
+                                {scoredAxes.map((d, i) => {
+                                  const p = getPoint(i, maxR + 14)
+                                  return (
+                                    <text key={i} x={p.x} y={p.y} textAnchor="middle" fill="#D1D5DB" fontSize="11" fontWeight="600">
+                                      {d.label}
+                                    </text>
+                                  )
+                                })}
+                              </svg>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-400 p-4">レーダー表示できる評価軸がありません（全軸が判断材料不足）</p>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0 space-y-4">
+                          {evalAxes.map((d, i) => (
+                            <div key={i} className="bg-gray-800 rounded-2xl border border-gray-700 p-4">
+                              <div className="flex justify-between items-baseline gap-3 mb-1.5">
+                                <span className="text-sm font-medium text-gray-200">{d.label}</span>
+                                {d.score != null ? (
+                                  <span className="text-sm font-bold text-gray-100 tabular-nums whitespace-nowrap">
+                                    {d.score}<span className="text-xs font-normal text-gray-500"> / 20</span>
+                                    {d.rank && <span className="ml-2 text-xs font-semibold text-sky-400">{d.rank}</span>}
+                                  </span>
                                 ) : (
-                                  <span className="text-gray-500">-（社風分析未設定）</span>
+                                  <span className="text-xs font-semibold text-amber-400 whitespace-nowrap">判断材料不足</span>
                                 )}
                               </div>
+                              {d.confidence && (
+                                <p className="text-xs text-gray-500 mb-1">信頼度: {CONFIDENCE_LABELS[d.confidence]}</p>
+                              )}
+                              {d.score == null && d.insufficientReason && (
+                                <p className="text-xs text-amber-300/80 mb-1">{d.insufficientReason}</p>
+                              )}
+                              {d.evidence.length > 0 && (
+                                <ul className="mt-1.5 space-y-1">
+                                  {d.evidence.map((e, j) => (
+                                    <li key={j} className="text-xs text-gray-400 leading-relaxed border-l-2 border-gray-600 pl-2.5">{e}</li>
+                                  ))}
+                                </ul>
+                              )}
                             </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-gray-800 rounded-2xl border border-gray-700 p-8 text-center">
+                        <p className="text-gray-400 font-medium">評価軸データはまだありません</p>
+                      </div>
+                    )}
+
+                    {/* 懸念点・追加確認ポイント（改善点 ＋ EBCAの判断材料不足軸を統合） */}
+                    {((Array.isArray(interviewResult.improvement_points) && interviewResult.improvement_points.length > 0) ||
+                      evalAxes.filter((a) => a.score == null).length > 0) && (
+                      <div className="rounded-2xl bg-gray-800 border border-gray-700 p-6 sm:p-7">
+                        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">懸念点・追加確認ポイント</h2>
+                        {Array.isArray(interviewResult.improvement_points) && interviewResult.improvement_points.length > 0 && (
+                          <ul className="space-y-3">
+                            {interviewResult.improvement_points.map((w: string, idx: number) => (
+                              <li key={idx} className="pl-4 border-l-2 border-amber-500/40 text-sm text-gray-300 leading-relaxed">{w}</li>
+                            ))}
+                          </ul>
+                        )}
+                        {evalAxes.filter((a) => a.score == null).length > 0 && (
+                          <div className="mt-5 pt-4 border-t border-gray-700">
+                            <p className="text-xs font-semibold text-amber-400 mb-2">判断材料不足・次回確認ポイント</p>
+                            <ul className="space-y-2">
+                              {evalAxes.filter((a) => a.score == null).map((a, idx) => (
+                                <li key={idx} className="pl-4 border-l-2 border-amber-500/40 text-sm text-gray-300 leading-relaxed">
+                                  <span className="font-medium">{a.label}</span>{a.insufficientReason ? `：${a.insufficientReason}` : '：判断材料が不足しています'}
+                                </li>
+                              ))}
+                            </ul>
                           </div>
                         )}
                       </div>
-                    </div>
-                    <RecommendLegendDark />
-                  </div>
+                    )}
 
-                  {/* レーダーチャート */}
-                  <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
-                    <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 sm:p-7 shrink-0">
-                      <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-5">6軸レーダーチャート</h2>
-                      <div className="flex justify-center p-4 bg-gray-900/50 rounded-2xl">
-                        <svg viewBox="0 0 200 200" className="w-48 h-48 sm:w-56 sm:h-56">
-                          <defs>
-                            <linearGradient id="radarFillAdmin" x1="0%" y1="0%" x2="100%" y2="100%">
-                              <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.35" />
-                              <stop offset="100%" stopColor="#6366f1" stopOpacity="0.35" />
-                            </linearGradient>
-                          </defs>
-                          {[1, 2, 3, 4, 5].map((l) => {
-                            const r = (l / 5) * maxR
-                            const pts = [0, 1, 2, 3, 4, 5].map((i) => getPoint(i, r))
-                            const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
-                            return <path key={l} d={path} fill="none" stroke="#4B5563" strokeWidth="1.2" />
-                          })}
-                          {[0, 1, 2, 3, 4, 5].map((i) => {
-                            const p = getPoint(i, maxR)
-                            return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="#4B5563" strokeWidth="1.2" />
-                          })}
-                          <path d={radarPath} fill="url(#radarFillAdmin)" stroke="#0ea5e9" strokeWidth="2.5" />
-                          {DUMMY.radarAxis.map((d, i) => {
-                            const p = getPoint(i, maxR + 14)
-                            return (
-                              <text key={i} x={p.x} y={p.y} textAnchor="middle" fill="#D1D5DB" fontSize="11" fontWeight="600">
-                                {d.label}
-                              </text>
-                            )
-                          })}
-                        </svg>
+                    {/* 面接官向けメモ（profile_summary.interviewer_notes があれば表示） */}
+                    {interviewResult.detail_json?.profile_summary?.interviewer_notes && (
+                      <div className="rounded-2xl bg-gray-800 border border-gray-700 p-6 sm:p-7">
+                        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">面接官向けメモ</h2>
+                        <p className="text-xs text-gray-500 mb-4">採用判断で特に見るべきポイント</p>
+                        <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{interviewResult.detail_json.profile_summary.interviewer_notes}</p>
                       </div>
-                    </div>
-                    <div className="flex-1 min-w-0 space-y-4">
-                      {DUMMY.radarAxis.map((d, i) => (
-                        <div key={i} className="bg-gray-800 rounded-2xl border border-gray-700 p-4">
-                          <div className="flex justify-between items-baseline mb-1.5">
-                            <span className="text-sm font-medium text-gray-200">{d.label}</span>
-                            <span className="text-sm font-bold text-gray-100 tabular-nums">{d.value}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
+                    )}
+                  </>
+                )
               )}
             </div>
           )}
@@ -511,135 +734,6 @@ export default function AdminApplicantDetailPage() {
                     </div>
                   </div>
 
-                  <hr className="my-8 border-gray-700" />
-
-                  {/* セクション2: カルチャーフィット詳細分析セクション */}
-                  {cultureAnalysisEnabled && interviewResult?.culture_fit_score != null && interviewResult?.big_five_scores && cultureProfile && applicant?.status === '完了' && (
-                    <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
-                      <div className="p-6 sm:p-7">
-                        <h3 className="text-base font-bold text-gray-100 mb-1">カルチャーフィット詳細分析</h3>
-                        <p className="text-xs text-gray-500 mb-6">
-                          BIG FIVE性格特性理論（Goldberg, 1990）およびPerson-Organization Fit理論（Chatman, 1989）に基づく分析
-                        </p>
-                        
-                        {/* マッチング度 */}
-                        <div className="mb-8">
-                          <p className="text-3xl font-bold text-gray-100 mb-2">{interviewResult.culture_fit_score}%</p>
-                          <div className="relative">
-                            <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all bg-gradient-to-r ${
-                                  interviewResult.culture_fit_score >= 80 ? 'from-green-400 to-green-500' :
-                                  interviewResult.culture_fit_score >= 70 ? 'from-blue-400 to-blue-500' :
-                                  interviewResult.culture_fit_score >= 50 ? 'from-yellow-400 to-yellow-500' :
-                                  'from-red-400 to-red-500'
-                                }`}
-                                style={{ width: `${interviewResult.culture_fit_score}%` }}
-                              />
-                            </div>
-                            <div className="absolute top-0 left-[50%] h-3 w-px bg-gray-500" />
-                            <div className="absolute top-0 left-[70%] h-3 w-px bg-gray-500" />
-                            <div className="absolute top-0 left-[80%] h-3 w-px bg-gray-500" />
-                            <div className="flex justify-between text-[10px] text-gray-500 mt-1 px-0.5">
-                              <span>0%</span>
-                              <span style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>50%</span>
-                              <span style={{ position: 'absolute', left: '70%', transform: 'translateX(-50%)' }}>70%</span>
-                              <span style={{ position: 'absolute', left: '80%', transform: 'translateX(-50%)' }}>80%</span>
-                              <span>100%</span>
-                            </div>
-                          </div>
-                          <p className="text-sm text-gray-400 mt-3">
-                            {interviewResult.culture_fit_score >= 80 ? '非常に高いマッチング' :
-                             interviewResult.culture_fit_score >= 70 ? '良好なマッチング' :
-                             interviewResult.culture_fit_score >= 50 ? '中程度のマッチング' : 'マッチングに課題あり'}
-                          </p>
-                        </div>
-
-                        {/* BIG FIVE 比較レーダーチャート */}
-                        <div className="mb-8">
-                          <div className="h-72">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <RadarChart data={[
-                                { subject: '開放性', applicant: interviewResult.big_five_scores.openness, company: cultureProfile.avg_openness },
-                                { subject: '誠実性', applicant: interviewResult.big_five_scores.conscientiousness, company: cultureProfile.avg_conscientiousness },
-                                { subject: '外向性', applicant: interviewResult.big_five_scores.extraversion, company: cultureProfile.avg_extraversion },
-                                { subject: '協調性', applicant: interviewResult.big_five_scores.agreeableness, company: cultureProfile.avg_agreeableness },
-                                { subject: '情緒安定性', applicant: 10 - interviewResult.big_five_scores.neuroticism, company: 10 - cultureProfile.avg_neuroticism },
-                              ]}>
-                                <PolarGrid stroke="#4B5563" />
-                                <PolarAngleAxis dataKey="subject" tick={{ fill: '#D1D5DB', fontSize: 12 }} />
-                                <PolarRadiusAxis angle={90} domain={[0, 10]} tick={{ fill: '#6B7280', fontSize: 10 }} />
-                                <Radar name="応募者" dataKey="applicant" stroke="#2563eb" fill="#2563eb" fillOpacity={0.15} strokeWidth={2} />
-                                <Radar name={`企業平均（${cultureProfile.department || '全社'}/${cultureProfile.employment_type || '全職種'}）`} dataKey="company" stroke="#6B7280" fill="#6B7280" fillOpacity={0.05} strokeDasharray="5 5" strokeWidth={2} />
-                                <Legend wrapperStyle={{ fontSize: 11 }} />
-                              </RadarChart>
-                            </ResponsiveContainer>
-                          </div>
-                        </div>
-
-                        {/* 因子別詳細テーブル */}
-                        <div className="mb-8">
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-sm border border-gray-700 rounded-lg overflow-hidden">
-                              <thead>
-                                <tr className="bg-gray-900 border-b border-gray-700">
-                                  <th className="py-2.5 px-4 text-left font-medium text-gray-400">因子名</th>
-                                  <th className="py-2.5 px-4 text-center font-medium text-gray-400">応募者</th>
-                                  <th className="py-2.5 px-4 text-center font-medium text-gray-400">企業平均</th>
-                                  <th className="py-2.5 px-4 text-center font-medium text-gray-400">差異</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-gray-700">
-                                {[
-                                  { label: '開放性', key: 'openness', avgKey: 'avg_openness' },
-                                  { label: '誠実性', key: 'conscientiousness', avgKey: 'avg_conscientiousness' },
-                                  { label: '外向性', key: 'extraversion', avgKey: 'avg_extraversion' },
-                                  { label: '協調性', key: 'agreeableness', avgKey: 'avg_agreeableness' },
-                                  { label: '情緒安定性', key: 'neuroticism', avgKey: 'avg_neuroticism', invert: true },
-                                ].map((factor: any) => {
-                                  const applicantValue = factor.invert 
-                                    ? (10 - interviewResult.big_five_scores[factor.key]).toFixed(1)
-                                    : interviewResult.big_five_scores[factor.key].toFixed(1)
-                                  const companyValue = factor.invert
-                                    ? (10 - cultureProfile[factor.avgKey]).toFixed(1)
-                                    : cultureProfile[factor.avgKey].toFixed(1)
-                                  const diff = (Number(applicantValue) - Number(companyValue)).toFixed(1)
-                                  const diffNum = Number(diff)
-                                  const absDiff = Math.abs(diffNum)
-                                  const diffStyle = absDiff >= 1.0 ? 'text-red-400 font-bold' :
-                                                    absDiff >= 0.5 ? 'text-yellow-400 font-medium' : 'text-gray-300'
-                                  return (
-                                    <tr key={factor.key}>
-                                      <td className="py-2.5 px-4 text-gray-300">{factor.label}</td>
-                                      <td className="py-2.5 px-4 text-center text-gray-100">{applicantValue}</td>
-                                      <td className="py-2.5 px-4 text-center text-gray-400">{companyValue}</td>
-                                      <td className={`py-2.5 px-4 text-center ${diffStyle}`}>
-                                        {diffNum > 0 ? '+' : ''}{diffNum === 0 ? '±0.0' : diff}
-                                      </td>
-                                    </tr>
-                                  )
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-
-                        {/* 総合所見 */}
-                        {interviewResult.culture_fit_detail?.summary && (
-                          <div className="mb-6">
-                            <p className="text-sm text-gray-300 leading-relaxed bg-gray-900 rounded-lg p-4 border border-gray-700">
-                              {interviewResult.culture_fit_detail.summary}
-                            </p>
-                          </div>
-                        )}
-
-                        {/* 注記 */}
-                        <p className="text-xs text-gray-500">
-                          ※ 本分析はBIG FIVE性格特性理論（Goldberg, 1990）およびPerson-Organization Fit理論（Chatman, 1989）に基づく参考指標です。最終的な採用判断は面接内容と合わせて総合的にご判断ください。
-                        </p>
-                      </div>
-                    </div>
-                  )}
                 </>
               )}
             </div>
@@ -652,33 +746,11 @@ export default function AdminApplicantDetailPage() {
                 <div className="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center">
                   <p className="text-gray-400 font-medium">面接がまだ開始されていません</p>
                 </div>
-              ) : DUMMY.conversationLog.length === 0 ? (
+              ) : (
+                // 会話ログ（interview_logs）は録画/文字起こしパイプライン（P-10）導入後に表示
                 <div className="rounded-2xl bg-gray-800 border border-gray-700 p-8 text-center">
                   <p className="text-gray-400 font-medium">会話ログデータがありません</p>
                 </div>
-              ) : (
-                DUMMY.conversationLog.map((log, i) => (
-                  <div key={i} className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
-                    <div className="p-6 sm:p-7 border-b border-gray-700 bg-gray-900/50">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-bold text-gray-100">質問 {log.number}</span>
-                        <span className="text-xs text-gray-500">{log.answerDuration}</span>
-                      </div>
-                    </div>
-                    <div className="p-6 sm:p-7 space-y-4">
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">質問</p>
-                        <p className="text-sm text-gray-300 leading-relaxed">{log.question}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">回答</p>
-                        <p className="text-sm text-gray-200 leading-relaxed bg-gray-900/50 rounded-xl p-4 border border-gray-700">
-                          {log.answer}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ))
               )}
             </div>
           )}

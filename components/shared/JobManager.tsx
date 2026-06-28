@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { Plus, Pencil, MessageSquare, Pause, Play, X, Trash2 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { createAdminBrowserClient, createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
 
 type JobStatus = 'active' | 'paused' | 'draft'
@@ -51,6 +52,15 @@ const EMPLOYMENT_TYPE_FROM_DB: Record<string, string> = {
   other: 'その他',
 }
 
+// 雇用形態ごとの質問パターン説明（QuestionEditor の getPatternTabs と整合）。
+// fulltime / contract / temporary は 新卒・中途経験者・中途未経験者 の3区分、それ以外は 経験者・未経験者 の2区分。
+function getPatternDescription(employmentType: string): string {
+  const threeTab = ['fulltime', 'contract', 'temporary']
+  return threeTab.includes(employmentType)
+    ? '新卒・中途経験者・中途未経験者の3パターンで質問を設定できます'
+    : '経験者・未経験者の2パターンで質問を設定できます'
+}
+
 function getStatusBadge(status: JobStatus, theme: 'light' | 'dark'): { label: string; className: string } {
   if (theme === 'dark') {
     const map: Record<JobStatus, { label: string; className: string }> = {
@@ -71,11 +81,23 @@ function getStatusBadge(status: JobStatus, theme: 'light' | 'dark'): { label: st
 type JobManagerProps = {
   companyId: string
   theme: 'light' | 'dark'
+  // 求人の「質問設定」への遷移。admin 代理管理では /client/** へ飛ばさず親のタブ切替に委ねる。
+  // 未指定（企業自身の画面）では従来どおり /client/questions へ遷移する。
+  onNavigateToQuestions?: (jobId: string) => void
 }
 
-export default function JobManager({ companyId: companyIdProp, theme }: JobManagerProps) {
-  const { companyId: currentCompanyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
-  const supabase = createClient()
+export default function JobManager({ companyId: companyIdProp, theme, onNavigateToQuestions }: JobManagerProps) {
+  // companyId='current'（企業自身）のときだけ client セッションから解決する。
+  // admin 代理管理（companyIdProp に対象企業IDを明示）では client API を呼ばず redirect もしない。
+  const { companyId: currentCompanyId, loading: companyIdLoading, error: companyIdError } =
+    useCompanyId({ enabled: companyIdProp === 'current' })
+  // 共有コンポーネント（admin企業詳細・client求人管理の両方で使用）。
+  // 現在のパスで使う認証セッションを切替える（/admin→admin cookie・それ以外→client cookie）。
+  const pathname = usePathname()
+  const supabase = useMemo(
+    () => (pathname?.startsWith('/admin') ? createAdminBrowserClient() : createClientBrowserClient()),
+    [pathname],
+  )
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [createModalOpen, setCreateModalOpen] = useState(false)
@@ -223,7 +245,7 @@ export default function JobManager({ companyId: companyIdProp, theme }: JobManag
     }
 
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('jobs')
         .insert(payload)
         .select()
@@ -411,9 +433,7 @@ export default function JobManager({ companyId: companyIdProp, theme }: JobManag
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="flex-1 min-w-0">
                     <h3 className={`text-lg font-semibold mb-1 truncate ${cn.title}`}>{job.jobType} × {job.employmentTypeLabel}</h3>
-                    {job.employmentType === 'fulltime' && (
-                      <p className={`text-xs mt-1 ${cn.subtext}`}>新卒・中途の2パターンの質問が設定されます</p>
-                    )}
+                    <p className={`text-xs mt-1 ${cn.subtext}`}>{getPatternDescription(job.employmentType)}</p>
                   </div>
                   <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium shrink-0 ${statusBadge.className}`}>
                     {statusBadge.label}
@@ -434,13 +454,24 @@ export default function JobManager({ companyId: companyIdProp, theme }: JobManag
                     <Pencil className="w-4 h-4" />
                     編集
                   </button>
-                  <Link
-                    href={`/client/questions?jobId=${job.id}`}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${cn.btnQuestion}`}
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    質問設定
-                  </Link>
+                  {onNavigateToQuestions ? (
+                    <button
+                      type="button"
+                      onClick={() => onNavigateToQuestions(job.id)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${cn.btnQuestion}`}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      質問設定
+                    </button>
+                  ) : (
+                    <Link
+                      href={`/client/questions?jobId=${job.id}`}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${cn.btnQuestion}`}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      質問設定
+                    </Link>
+                  )}
                   {job.status === 'active' ? (
                     <button
                       type="button"

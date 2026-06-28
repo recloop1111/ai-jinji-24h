@@ -1,12 +1,17 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
-import { Plus, FileText, Check, ChevronUp, ChevronDown, Pencil, X, Lock } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { useSearchParams, usePathname } from 'next/navigation'
+import { Plus, FileText, Check, ChevronUp, ChevronDown, Pencil, X } from 'lucide-react'
+import { createAdminBrowserClient, createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
-import { CULTURE_FIT_QUESTIONS, distributeQuestionsSimple } from '@/lib/constants/questions'
+import {
+  MAX_TOTAL_QUESTIONS,
+  MAX_EVALUATION_QUESTIONS,
+  MAX_ICEBREAKER_QUESTIONS,
+  MAX_CLOSING_QUESTIONS,
+} from '@/lib/config/interview-policy'
 
 type Question = {
   id: string
@@ -17,7 +22,7 @@ type CommonQuestionItem = { id: string; label: string; category: string; questio
 
 const DEFAULT_COMMON_QUESTIONS: { icebreakers: CommonQuestionItem[]; closing: CommonQuestionItem[] } = {
   icebreakers: [
-    { id: 'ice-1', label: '冒頭1', category: 'アイスブレイク', question: '本日はお時間をいただきありがとうございます。これから約30〜40分の面接を行います。途中で聞き取りにくい点があれば遠慮なくお知らせください。本日の体調は問題ありませんか？' },
+    { id: 'ice-1', label: '冒頭1', category: 'アイスブレイク', question: '本日はお時間をいただきありがとうございます。これから約30〜60分の面接を行います。途中で聞き取りにくい点があれば遠慮なくお知らせください。本日の体調は問題ありませんか？' },
     { id: 'ice-2', label: '冒頭2', category: 'アイスブレイク', question: 'ありがとうございます。面接を始める前に、最近あった嬉しかったことや、ちょっとした楽しみにしていることがあれば気軽に教えてください。' },
   ],
   closing: [
@@ -109,8 +114,7 @@ const JOB_TYPE_TEMPLATES: Record<JobTypeKey, { name: string; questions: string[]
   'その他': { name: 'その他', questions: ['これまでのご経歴を簡単に教えてください。', '志望動機を教えてください。', 'あなたの強みと弱みを教えてください。', 'チームで働いた経験を教えてください。', '5年後のキャリアプランを教えてください。', '仕事で最もやりがいを感じた経験を教えてください。', '困難な状況をどのように乗り越えましたか？', '当社でどのように貢献したいですか？'] },
 }
 
-const DEFAULT_CUSTOM_QUESTIONS_WITH_CULTURE = 5
-const DEFAULT_CUSTOM_QUESTIONS_WITHOUT_CULTURE = 8
+const DEFAULT_CUSTOM_QUESTIONS = 8
 
 type QuestionEditorProps = {
   companyId: string
@@ -121,9 +125,18 @@ type QuestionEditorProps = {
 export default function QuestionEditor({ companyId: companyIdProp, theme, onNavigateToJobs }: QuestionEditorProps) {
   const searchParams = useSearchParams()
   const initialJobId = searchParams.get('jobId')
-  const { companyId: currentCompanyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
+  // companyId='current'（企業自身）のときだけ client セッションから解決する。
+  // admin 代理管理（companyIdProp に対象企業IDを明示）では client API を呼ばず redirect もしない。
+  const { companyId: currentCompanyId, loading: companyIdLoading, error: companyIdError } =
+    useCompanyId({ enabled: companyIdProp === 'current' })
   // Supabaseクライアント: createBrowserClientを使用（lib/supabase/client.ts経由）
-  const supabase = useMemo(() => createClient(), [])
+  // 共有コンポーネント（admin企業詳細・client質問設定の両方で使用）。
+  // 現在のパスで使う認証セッションを切替える（/admin→admin cookie・それ以外→client cookie）。
+  const pathname = usePathname()
+  const supabase = useMemo(
+    () => (pathname?.startsWith('/admin') ? createAdminBrowserClient() : createClientBrowserClient()),
+    [pathname],
+  )
   const resolvedCompanyId = companyIdProp === 'current' ? currentCompanyId : companyIdProp
 
   const [jobs, setJobs] = useState<Job[]>([])
@@ -134,7 +147,8 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
   const [activePattern, setActivePattern] = useState<string>('')
   const [patternQuestions, setPatternQuestions] = useState<Question[]>([])
   const [questionsLoading, setQuestionsLoading] = useState(false)
-  const [commonQuestionsIcebreak, setCommonQuestionsIcebreak] = useState<CommonQuestionItem[]>(DEFAULT_COMMON_QUESTIONS.icebreakers.map((x) => ({ ...x })))
+  // アイスブレイクは求人×pattern_key 単位で DB から読み込む（fetchJobQuestions）。初期は空配列（0件許容）。
+  const [commonQuestionsIcebreak, setCommonQuestionsIcebreak] = useState<CommonQuestionItem[]>([])
   const [commonQuestionsClosing, setCommonQuestionsClosing] = useState<CommonQuestionItem[]>(DEFAULT_COMMON_QUESTIONS.closing.map((x) => ({ ...x })))
   const [editingCommonId, setEditingCommonId] = useState<string | null>(null)
   const [templateModalOpen, setTemplateModalOpen] = useState(false)
@@ -142,7 +156,6 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
   const [insertAt, setInsertAt] = useState(0)
   const [toast, setToast] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [cultureAnalysisEnabled, setCultureAnalysisEnabled] = useState(false)
 
   const isDark = theme === 'dark'
 
@@ -209,22 +222,6 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
   }, [resolvedCompanyId, initialJobId, supabase])
 
   useEffect(() => {
-    if (!resolvedCompanyId) {
-      setCultureAnalysisEnabled(false)
-      return
-    }
-    async function fetchCultureAnalysisFlag() {
-      const { data } = await supabase
-        .from('companies')
-        .select('culture_analysis_enabled')
-        .eq('id', resolvedCompanyId)
-        .single()
-      setCultureAnalysisEnabled(data?.culture_analysis_enabled ?? false)
-    }
-    fetchCultureAnalysisFlag()
-  }, [resolvedCompanyId, supabase])
-
-  useEffect(() => {
     if (selectedJobId) {
       const job = jobs.find((j) => j.id === selectedJobId) || null
       setSelectedJob(job)
@@ -244,95 +241,86 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     }
   }, [selectedJobId, jobs])
 
-  const fetchCommonQuestions = async (companyId: string | null) => {
+  // クロージングは企業共通（common_questions.category='closing'）のまま。
+  // アイスブレイクは求人×pattern_key 単位へ移行したため、ここでは読み込まない（fetchJobQuestions で取得）。
+  const fetchCommonQuestions = useCallback(async (companyId: string | null) => {
     if (!companyId) {
-      console.log('[QuestionEditor 共通質問読み込み] company_idなし - スキップ')
       return
     }
     try {
-      console.log('[QuestionEditor 共通質問読み込み] テーブル: common_questions 条件: company_id=', companyId, '取得カラム: *')
       const { data, error } = await supabase
         .from('common_questions')
         .select('*')
         .eq('company_id', companyId)
-        .order('category')
+        .eq('category', 'closing')
         .order('sort_order')
 
-      console.log('[QuestionEditor 共通質問読み込み] 取得件数=', data?.length || 0, 'data=', data, 'error=', error)
-
       if (error) {
-        console.error('[QuestionEditor 共通質問読み込み] エラー:', error)
+        console.error('[QuestionEditor クロージング読み込み] エラー:', error)
         return
       }
-
       if (!data || data.length === 0) {
-        console.log('[QuestionEditor 共通質問読み込み] データなし - デフォルト値を使用')
         return
       }
 
-      const ice = data.filter((r: { category: string }) => r.category === 'icebreakers').map((r: { id: string; label?: string; question?: string; question_text?: string }) => ({
-        id: r.id,
-        label: r.label || 'アイスブレイク',
-        category: 'アイスブレイク',
-        question: r.question ?? r.question_text ?? '',
-      }))
-      const close = data.filter((r: { category: string }) => r.category === 'closing').map((r: { id: string; label?: string; question?: string; question_text?: string }) => ({
+      const close = data.map((r: { id: string; label?: string; question?: string; question_text?: string }) => ({
         id: r.id,
         label: r.label || 'クロージング',
         category: 'クロージング',
         question: r.question ?? r.question_text ?? '',
       }))
-
-      console.log('[QuestionEditor 共通質問読み込み] マッピング後 アイスブレイク件数=', ice.length, 'クロージング件数=', close.length)
-
-      if (ice.length > 0) setCommonQuestionsIcebreak(ice)
-      if (close.length > 0) setCommonQuestionsClosing(close)
+      setCommonQuestionsClosing(close)
     } catch (err) {
-      console.error('[QuestionEditor 共通質問読み込み] 例外:', err)
+      console.error('[QuestionEditor クロージング読み込み] 例外:', err)
     }
-  }
+  }, [supabase])
 
   useEffect(() => {
     fetchCommonQuestions(resolvedCompanyId)
-  }, [resolvedCompanyId, supabase])
+  }, [resolvedCompanyId, fetchCommonQuestions])
 
-  const fetchJobQuestions = async (jobId: string, patternKey: string) => {
+  // 求人×pattern_key 単位で evaluation（評価質問）と icebreaker（アイスブレイク）を取得し、category で振り分ける。
+  // アイスブレイクは job_id + pattern_key + category='icebreaker' に分離されているため、
+  // 求人や区分(pattern)を切り替えると該当する icebreaker だけが表示される。
+  const fetchJobQuestions = useCallback(async (jobId: string, patternKey: string) => {
     setQuestionsLoading(true)
     try {
       const { data, error } = await supabase
         .from('job_questions')
-        .select('*')
+        .select('id, question_text, sort_order, category')
         .eq('job_id', jobId)
         .eq('pattern_key', patternKey)
         .order('sort_order', { ascending: true })
 
-      console.log('[QuestionEditor 読み込み] テーブル: job_questions', '条件: job_id=', jobId, 'pattern_key=', patternKey, '取得件数=', data?.length || 0, 'data=', data, 'error=', error)
-
       if (error) throw error
-      if (data && data.length > 0) {
-        const mapped = data.map((r: { id: string; question?: string; question_text?: string }) => ({
-          id: r.id,
-          question: r.question ?? r.question_text ?? '',
-        }))
-        setPatternQuestions(mapped)
-      } else {
-        setPatternQuestions([])
-      }
+      const rows = (data ?? []) as { id: string; question_text?: string; sort_order: number; category: string }[]
+
+      const evaluation = rows
+        .filter((r) => r.category === 'evaluation')
+        .map((r) => ({ id: r.id, question: r.question_text ?? '' }))
+      const icebreakers = rows
+        .filter((r) => r.category === 'icebreaker')
+        .map((r) => ({ id: r.id, label: 'アイスブレイク', category: 'アイスブレイク', question: r.question_text ?? '' }))
+
+      setPatternQuestions(evaluation)
+      setCommonQuestionsIcebreak(icebreakers)
     } catch (err) {
       console.error('質問取得エラー:', err)
       setPatternQuestions([])
+      setCommonQuestionsIcebreak([])
     } finally {
       setQuestionsLoading(false)
     }
-  }
+  }, [supabase])
 
   useEffect(() => {
     if (!selectedJobId || !activePattern) {
       setPatternQuestions([])
+      setCommonQuestionsIcebreak([])
       return
     }
     fetchJobQuestions(selectedJobId, activePattern)
-  }, [selectedJobId, activePattern, supabase])
+  }, [selectedJobId, activePattern, fetchJobQuestions])
 
   const showToast = (message: string) => {
     setToast(message)
@@ -355,92 +343,75 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     }
   }
 
-  const MAX_TOTAL_QUESTIONS = 10
-  const cultureQuestionCount = cultureAnalysisEnabled ? CULTURE_FIT_QUESTIONS.length : 0
-  const maxCustomQuestions = MAX_TOTAL_QUESTIONS - cultureQuestionCount
-  const totalQuestionCount = cultureQuestionCount + patternQuestions.length
+  // アイスブレイク質問は企業ごとに 0件・1件・複数件を柔軟に設定できる（評価対象の job_questions とは別管理）。
+  // 追加・削除・並べ替えはローカル state を操作し、「保存」で common_questions に delete→insert で反映する。
+  const handleAddIcebreak = () => {
+    if (icebreakerCount >= MAX_ICEBREAKER_QUESTIONS) {
+      showToast(`アイスブレイクは最大${MAX_ICEBREAKER_QUESTIONS}問までです`)
+      return
+    }
+    if (totalQuestionCount >= MAX_TOTAL_QUESTIONS) {
+      showToast(`全質問合計（アイスブレイク+評価+クロージング）は最大${MAX_TOTAL_QUESTIONS}問までです`)
+      return
+    }
+    const newId = `ice-new-${Date.now()}`
+    setCommonQuestionsIcebreak((prev) => [
+      ...prev,
+      { id: newId, label: 'アイスブレイク', category: 'アイスブレイク', question: '' },
+    ])
+    setEditingCommonId(newId)
+  }
 
-  // 統合質問リスト: カスタム質問と社風分析質問を分散配置した順序で表示
+  const handleDeleteIcebreak = (id: string) => {
+    setCommonQuestionsIcebreak((prev) => prev.filter((x) => x.id !== id))
+    setEditingCommonId((cur) => (cur === id ? null : cur))
+  }
+
+  const handleMoveIcebreak = (id: string, dir: -1 | 1) => {
+    setCommonQuestionsIcebreak((prev) => {
+      const idx = prev.findIndex((x) => x.id === id)
+      if (idx < 0) return prev
+      const target = idx + dir
+      if (target < 0 || target >= prev.length) return prev
+      const next = [...prev]
+      ;[next[idx], next[target]] = [next[target], next[idx]]
+      return next
+    })
+  }
+
+  // 質問数ポリシー（lib/config/interview-policy）: 全質問合計15問 / evaluation単体10問。
+  // 全質問合計 = icebreaker + evaluation + closing（選択中の job × pattern_key 単位）。
+  const evaluationCount = patternQuestions.length
+  const icebreakerCount = commonQuestionsIcebreak.length
+  const closingCount = commonQuestionsClosing.length
+  const totalQuestionCount = icebreakerCount + evaluationCount + closingCount
+  const remainingTotal = MAX_TOTAL_QUESTIONS - totalQuestionCount
+
+  // 質問リスト（カスタム質問のみ。社風分析質問は廃止）
   type IntegratedQuestion = {
     id: string
     question: string
-    type: 'custom' | 'culture'
+    type: 'custom'
     originalIndex: number
-    label?: string
-    traits?: string
   }
 
   const integratedQuestions = useMemo<IntegratedQuestion[]>(() => {
-    if (!cultureAnalysisEnabled) {
-      return patternQuestions.map((q, i) => ({
-        id: q.id,
-        question: q.question,
-        type: 'custom' as const,
-        originalIndex: i,
-      }))
-    }
-
-    // 社風分析ON時: distributeQuestionsSimpleのロジックで配置位置を計算
-    const customCount = patternQuestions.length
-    const cultureCount = CULTURE_FIT_QUESTIONS.length
-    const totalSlots = customCount + cultureCount
-
-    if (totalSlots === 0) return []
-
-    // 社風分析質問を挿入する位置を計算
-    const culturePositions: number[] = []
-    for (let i = 0; i < cultureCount; i++) {
-      const pos = Math.round((i + 1) * totalSlots / (cultureCount + 1))
-      culturePositions.push(pos)
-    }
-
-    const result: IntegratedQuestion[] = []
-    let customIdx = 0
-    let cultureIdx = 0
-
-    for (let i = 0; i < totalSlots; i++) {
-      if (culturePositions.includes(i) && cultureIdx < cultureCount) {
-        const cfq = CULTURE_FIT_QUESTIONS[cultureIdx]
-        result.push({
-          id: cfq.id,
-          question: cfq.question,
-          type: 'culture',
-          originalIndex: cultureIdx,
-          label: cfq.label,
-          traits: cfq.traits,
-        })
-        cultureIdx++
-      } else if (customIdx < customCount) {
-        result.push({
-          id: patternQuestions[customIdx].id,
-          question: patternQuestions[customIdx].question,
-          type: 'custom',
-          originalIndex: customIdx,
-        })
-        customIdx++
-      } else if (cultureIdx < cultureCount) {
-        const cfq = CULTURE_FIT_QUESTIONS[cultureIdx]
-        result.push({
-          id: cfq.id,
-          question: cfq.question,
-          type: 'culture',
-          originalIndex: cultureIdx,
-          label: cfq.label,
-          traits: cfq.traits,
-        })
-        cultureIdx++
-      }
-    }
-
-    return result
-  }, [cultureAnalysisEnabled, patternQuestions])
+    return patternQuestions.map((q, i) => ({
+      id: q.id,
+      question: q.question,
+      type: 'custom' as const,
+      originalIndex: i,
+    }))
+  }, [patternQuestions])
 
   const handleAddQuestion = () => {
     if (!selectedJobId) return
+    if (evaluationCount >= MAX_EVALUATION_QUESTIONS) {
+      showToast(`評価質問は最大${MAX_EVALUATION_QUESTIONS}問までです`)
+      return
+    }
     if (totalQuestionCount >= MAX_TOTAL_QUESTIONS) {
-      showToast(cultureAnalysisEnabled 
-        ? `質問は最大${MAX_TOTAL_QUESTIONS}問までです（社風分析${cultureQuestionCount}問を含む）` 
-        : `質問は最大${MAX_TOTAL_QUESTIONS}問までです`)
+      showToast(`全質問合計（アイスブレイク+評価+クロージング）は最大${MAX_TOTAL_QUESTIONS}問までです`)
       return
     }
     const newQuestion: Question = { id: `temp-${Date.now()}`, question: '' }
@@ -499,8 +470,7 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     if (!window.confirm('現在の質問を全てテンプレートに置き換えますか？')) return
     const templateKey = JOB_TYPES.includes(selectedJob.title as JobTypeKey) ? (selectedJob.title as JobTypeKey) : 'その他'
     const template = JOB_TYPE_TEMPLATES[templateKey]
-    // 社風分析ON: 先頭5問のみ使用（社風分析3問 + カスタム5問 = 8問）、OFF: 8問全て使用
-    const defaultCount = cultureAnalysisEnabled ? DEFAULT_CUSTOM_QUESTIONS_WITH_CULTURE : DEFAULT_CUSTOM_QUESTIONS_WITHOUT_CULTURE
+    const defaultCount = DEFAULT_CUSTOM_QUESTIONS
     const questionsToUse = template.questions.slice(0, defaultCount)
     const newQuestions: Question[] = questionsToUse.map((q, i) => ({ id: `temp-${Date.now()}-${i}`, question: q }))
     setPatternQuestions(newQuestions)
@@ -509,181 +479,165 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     showToast(`${template.name}テンプレートで全て置き換えました（${defaultCount}問）`)
   }
 
-  const handleSaveCommonQuestions = async () => {
+  // クロージング（企業共通・common_questions.category='closing'）のみを置換する。
+  // アイスブレイクは求人×pattern へ移行したため common_questions では一切触らない
+  // （旧 common icebreakers は検証完了まで残す＝ここで削除しない）。
+  const handleSaveClosingQuestions = async () => {
     if (!resolvedCompanyId) {
-      console.error('[QuestionEditor 共通質問保存] company_idなし - スキップ')
+      console.error('[QuestionEditor クロージング保存] company_idなし - スキップ')
       return
     }
-
     try {
-      console.log('[QuestionEditor 共通質問保存開始] テーブル: common_questions company_id=', resolvedCompanyId, 'アイスブレイク件数=', commonQuestionsIcebreak.length, 'クロージング件数=', commonQuestionsClosing.length)
+      // closing カテゴリだけ削除（icebreakers/その他は触らない）
+      const { error: deleteError } = await supabase
+        .from('common_questions')
+        .delete()
+        .eq('company_id', resolvedCompanyId)
+        .eq('category', 'closing')
 
-      // アイスブレイクとクロージングを統合
-      const allCommonQuestions = [
-        ...commonQuestionsIcebreak.map((q, index) => ({
-          id: q.id,
-          company_id: resolvedCompanyId,
-          category: 'icebreakers',
-          label: q.label,
-          question_text: q.question,
-          is_scorable: false,
-          sort_order: index + 1,
-        })),
-        ...commonQuestionsClosing.map((q, index) => ({
-          id: q.id,
+      if (deleteError) {
+        console.error('[QuestionEditor クロージング保存] 削除エラー:', deleteError)
+        throw deleteError
+      }
+
+      if (commonQuestionsClosing.length > 0) {
+        const rows = commonQuestionsClosing.map((q, index) => ({
           company_id: resolvedCompanyId,
           category: 'closing',
           label: q.label,
           question_text: q.question,
           is_scorable: false,
           sort_order: index + 1,
-        })),
-      ]
-
-      // ステップ1: 既存の共通質問を全削除
-      const { data: deleteData, error: deleteError } = await supabase
-        .from('common_questions')
-        .delete()
-        .eq('company_id', resolvedCompanyId)
-        .select()
-
-      console.log('[QuestionEditor 共通質問保存] ステップ1: DELETE実行完了', '削除件数=', deleteData?.length || 0, 'data=', deleteData, 'error=', deleteError)
-
-      if (deleteError) {
-        console.error('[QuestionEditor 共通質問保存] 削除エラー:', deleteError)
-        throw deleteError
-      }
-
-      // ステップ2: 新しい共通質問を一括挿入
-      if (allCommonQuestions.length > 0) {
-        const rows = allCommonQuestions.map((q) => ({
-          company_id: q.company_id,
-          category: q.category,
-          label: q.label,
-          question_text: q.question_text,
-          is_scorable: q.is_scorable,
-          sort_order: q.sort_order,
         }))
-
-        console.log('[QuestionEditor 共通質問保存] ステップ2: INSERT実行開始', '挿入件数=', rows.length, 'rows=', rows)
-
-        const { data: insertData, error: insertError } = await supabase
-          .from('common_questions')
-          .insert(rows)
-          .select()
-
-        console.log('[QuestionEditor 共通質問保存] ステップ2: INSERT実行完了', '挿入件数=', insertData?.length || 0, 'data=', insertData, 'error=', insertError)
-
+        const { error: insertError } = await supabase.from('common_questions').insert(rows)
         if (insertError) {
-          console.error('[QuestionEditor 共通質問保存] 挿入エラー:', insertError)
+          console.error('[QuestionEditor クロージング保存] 挿入エラー:', insertError)
           throw insertError
         }
-      } else {
-        console.log('[QuestionEditor 共通質問保存] ステップ2: 挿入データなし（空配列）')
       }
 
-      // ステップ3: 保存直後の検証
-      const { data: verifyData, error: verifyError } = await supabase
-        .from('common_questions')
-        .select('*')
-        .eq('company_id', resolvedCompanyId)
-        .order('category')
-        .order('sort_order')
-
-      console.log('[QuestionEditor 共通質問保存後の検証] 再取得データ テーブル: common_questions 条件: company_id=', resolvedCompanyId, '取得件数=', verifyData?.length || 0, 'data=', verifyData, 'error=', verifyError)
-
-      if (verifyError) {
-        console.error('[QuestionEditor 共通質問保存後の検証] 検証エラー:', verifyError)
-      }
-
-      // ステップ4: 保存後に最新データを再取得して画面に反映
       await fetchCommonQuestions(resolvedCompanyId)
-
-      console.log('[QuestionEditor 共通質問保存] 保存成功: DELETE→INSERT完了')
     } catch (err) {
-      console.error('[QuestionEditor 共通質問保存] エラー発生:', err)
+      console.error('[QuestionEditor クロージング保存] エラー発生:', err)
       throw err
     }
+  }
+
+  // 現在の job_id + pattern_key + 指定 category だけを置換する（他 category を消さない）。
+  // evaluation 保存で icebreaker を、icebreaker 保存で evaluation を削除しないための分離。
+  const replaceJobQuestionsByCategory = async (
+    jobId: string,
+    patternKey: string,
+    category: 'evaluation' | 'icebreaker',
+    items: { question: string }[],
+  ) => {
+    const { error: deleteError } = await supabase
+      .from('job_questions')
+      .delete()
+      .eq('job_id', jobId)
+      .eq('pattern_key', patternKey)
+      .eq('category', category)
+    if (deleteError) throw deleteError
+
+    if (items.length > 0) {
+      const rows = items.map((q, index) => ({
+        job_id: jobId,
+        pattern_key: patternKey,
+        category,
+        question_text: q.question,
+        sort_order: index + 1,
+      }))
+      const { error: insertError } = await supabase.from('job_questions').insert(rows)
+      if (insertError) throw insertError
+    }
+  }
+
+  // 保存前の上限検証。OK なら null、超過ならエラーメッセージ（どのカテゴリが何問超過か）を返す。
+  // - icebreaker ≤ MAX_ICEBREAKER_QUESTIONS(2) / evaluation ≤ MAX_EVALUATION_QUESTIONS(13) / closing ≤ MAX_CLOSING_QUESTIONS(1)
+  // - 選択中 (job,pattern) の合計(ice+eval+closing) ≤ MAX_TOTAL_QUESTIONS(16)
+  // - クロージングは企業共通のため、企業内の全 job×pattern で 16 を超えないか確認（超過する求人・区分を提示）。
+  const validateSaveLimits = async (): Promise<string | null> => {
+    const newIce = commonQuestionsIcebreak.length
+    const newEval = patternQuestions.length
+    const newClosing = commonQuestionsClosing.length
+
+    // カテゴリ別上限（どのカテゴリが何問超過か明示）
+    const overflows: string[] = []
+    if (newIce > MAX_ICEBREAKER_QUESTIONS) overflows.push(`アイスブレイク ${newIce}問（上限${MAX_ICEBREAKER_QUESTIONS}問・${newIce - MAX_ICEBREAKER_QUESTIONS}問超過）`)
+    if (newEval > MAX_EVALUATION_QUESTIONS) overflows.push(`評価質問 ${newEval}問（上限${MAX_EVALUATION_QUESTIONS}問・${newEval - MAX_EVALUATION_QUESTIONS}問超過）`)
+    if (newClosing > MAX_CLOSING_QUESTIONS) overflows.push(`クロージング ${newClosing}問（上限${MAX_CLOSING_QUESTIONS}問・${newClosing - MAX_CLOSING_QUESTIONS}問超過）`)
+    if (overflows.length > 0) {
+      return `カテゴリ上限を超えています: ${overflows.join(' / ')}。減らしてから保存してください。`
+    }
+
+    const curTotal = newIce + newEval + newClosing
+    if (curTotal > MAX_TOTAL_QUESTIONS) {
+      return `全質問合計が${curTotal}問です（アイスブレイク${newIce}＋評価${newEval}＋クロージング${newClosing}）。最大${MAX_TOTAL_QUESTIONS}問までにしてください。`
+    }
+
+    // クロージング変更は企業内の全 job×pattern に波及するため、各組が 16 を超えないか確認。
+    const jobIds = jobs.map((j) => j.id)
+    if (jobIds.length > 0) {
+      const { data, error } = await supabase
+        .from('job_questions')
+        .select('job_id, pattern_key, category')
+        .in('job_id', jobIds)
+      if (error) return '保存前チェックに失敗しました。時間をおいて再度お試しください。'
+
+      const counts: Record<string, { ice: number; ev: number }> = {}
+      for (const r of (data ?? []) as { job_id: string; pattern_key: string; category: string }[]) {
+        const k = `${r.job_id}|${r.pattern_key}`
+        if (!counts[k]) counts[k] = { ice: 0, ev: 0 }
+        if (r.category === 'icebreaker') counts[k].ice++
+        else if (r.category === 'evaluation') counts[k].ev++
+      }
+      // 編集中の (job,pattern) は未保存の in-memory 値で上書き（DB値より優先）。
+      counts[`${selectedJobId}|${activePattern}`] = {
+        ice: commonQuestionsIcebreak.length,
+        ev: patternQuestions.length,
+      }
+
+      const violations: string[] = []
+      for (const [k, c] of Object.entries(counts)) {
+        const total = c.ice + c.ev + newClosing
+        if (total > MAX_TOTAL_QUESTIONS) {
+          const [jid, pk] = k.split('|')
+          const title = jobs.find((j) => j.id === jid)?.title ?? jid.slice(0, 8)
+          violations.push(`${title}／${pk}（ice ${c.ice}＋eval ${c.ev}＋closing ${newClosing}＝${total}問）`)
+        }
+      }
+      if (violations.length > 0) {
+        return `クロージングを${newClosing}問にすると、次の求人・区分が全質問${MAX_TOTAL_QUESTIONS}問を超えます: ${violations.join(' / ')}。クロージングまたは該当区分の質問を減らしてください。`
+      }
+    }
+    return null
   }
 
   const handleSaveQuestions = async () => {
     if (!selectedJobId || !activePattern) return
     setIsLoading(true)
     try {
-      console.log('[QuestionEditor 保存開始] 処理方式: DELETE → INSERT', 'job_id=', selectedJobId, 'pattern_key=', activePattern, '保存予定件数=', patternQuestions.length)
-      console.log('[QuestionEditor 保存] Supabaseクライアント:', supabase, 'URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
-
-      // 共通質問も保存
-      await handleSaveCommonQuestions()
-
-      // ステップ1: 既存の質問を全削除
-      const { data: deleteData, error: deleteError } = await supabase
-        .from('job_questions')
-        .delete()
-        .eq('job_id', selectedJobId)
-        .eq('pattern_key', activePattern)
-        .select()
-
-      console.log('[QuestionEditor 保存] ステップ1: DELETE実行完了', '削除件数=', deleteData?.length || 0, 'data=', deleteData, 'error=', deleteError)
-
-      if (deleteError) {
-        console.error('[QuestionEditor 保存] 削除エラー:', deleteError)
-        showToast('質問の保存に失敗しました。')
+      // 上限検証（15問合計・evaluation10・closing全pattern横断）。超過なら保存せず中断（切り捨てない）。
+      const limitError = await validateSaveLimits()
+      if (limitError) {
+        showToast(limitError)
         return
       }
 
-      // ステップ2: 新しい質問を一括挿入
-      if (patternQuestions.length > 0) {
-        const rows = patternQuestions.map((q, index) => ({
-          job_id: selectedJobId,
-          pattern_key: activePattern,
-          question_text: q.question,
-          sort_order: index + 1,
-        }))
+      // クロージング（企業共通）を保存
+      await handleSaveClosingQuestions()
 
-        console.log('[QuestionEditor 保存] ステップ2: INSERT実行開始', '挿入件数=', rows.length, 'rows=', rows)
+      // 評価質問（evaluation）とアイスブレイク（icebreaker）を、それぞれ category 単位で置換。
+      // category を絞っているため、evaluation 保存で icebreaker を、その逆も消さない。0件保存も維持。
+      await replaceJobQuestionsByCategory(selectedJobId, activePattern, 'evaluation', patternQuestions)
+      await replaceJobQuestionsByCategory(
+        selectedJobId,
+        activePattern,
+        'icebreaker',
+        commonQuestionsIcebreak.map((q) => ({ question: q.question })),
+      )
 
-        const { data: insertData, error: insertError } = await supabase
-          .from('job_questions')
-          .insert(rows)
-          .select()
-
-        console.log('[QuestionEditor 保存] ステップ2: INSERT実行完了', '挿入件数=', insertData?.length || 0, 'data=', insertData, 'error=', insertError)
-
-        if (insertError) {
-          console.error('[QuestionEditor 保存] 挿入エラー:', insertError)
-          showToast('質問の保存に失敗しました。')
-          return
-        }
-      } else {
-        console.log('[QuestionEditor 保存] ステップ2: 挿入データなし（空配列）')
-      }
-
-      console.log('[QuestionEditor 保存] 保存成功: DELETE→INSERT完了')
-
-      // ステップ3: 保存直後の検証 - 保存したはずのデータを再取得
-      const { data: verifyData, error: verifyError } = await supabase
-        .from('job_questions')
-        .select('*')
-        .eq('job_id', selectedJobId)
-        .eq('pattern_key', activePattern)
-        .order('sort_order', { ascending: true })
-
-      console.log('[QuestionEditor 保存後の検証] 再取得データ テーブル: job_questions 条件: job_id=', selectedJobId, 'pattern_key=', activePattern, '取得件数=', verifyData?.length || 0, 'data=', verifyData, 'error=', verifyError)
-
-      if (verifyError) {
-        console.error('[QuestionEditor 保存後の検証] 検証エラー:', verifyError)
-      } else {
-        const expectedCount = patternQuestions.length
-        const actualCount = verifyData?.length || 0
-        if (actualCount !== expectedCount) {
-          console.warn('[QuestionEditor 保存後の検証] 件数不一致 期待=', expectedCount, '実際=', actualCount)
-        } else {
-          console.log('[QuestionEditor 保存後の検証] ✓ 件数一致 期待=', expectedCount, '実際=', actualCount)
-        }
-      }
-
-      // ステップ4: 保存後に最新データを再取得して画面に反映
+      // 保存後に最新データを再取得して画面に反映（evaluation/icebreaker 両方）
       await fetchJobQuestions(selectedJobId, activePattern)
 
       showToast('質問を保存しました')
@@ -779,63 +733,91 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
       {selectedJobId && selectedJob ? (
         <>
           <div className={`mb-8 rounded-xl border p-6 ${cn.card}`}>
-            <h2 className={`text-base font-semibold mb-2 ${cn.title}`}>共通質問（アイスブレイク）</h2>
-            <p className={`text-sm mb-4 ${cn.subtext}`}>すべての面接で冒頭に自動挿入されます。</p>
+            <h2 className={`text-base font-semibold mb-2 ${cn.title}`}>アイスブレイク質問（この求人・区分）</h2>
+            <p className={`text-sm mb-4 ${cn.subtext}`}>選択中の求人・区分の面接でのみ冒頭に自動挿入されます（求人×区分ごとに独立）。0件・1件・複数件を設定でき、評価対象の質問とは別に扱われます。</p>
             <div className="space-y-4">
-              {commonQuestionsIcebreak.map((cq) => (
+              {commonQuestionsIcebreak.length === 0 && (
+                <p className={`text-sm ${cn.subtext}`}>アイスブレイク質問は設定されていません（0件のまま保存すると、面接は冒頭の挿入なしで開始します）。</p>
+              )}
+              {commonQuestionsIcebreak.map((cq, idx) => (
                 <div key={cq.id} className={`rounded-xl border p-4 ${cn.innerCard}`}>
                   <div className="flex items-start justify-between gap-3 mb-2">
-                    <p className={`text-xs font-semibold ${cn.label}`}>{cq.label}（{cq.category}）</p>
-                    {editingCommonId === cq.id ? (
-                      <button type="button" onClick={() => setEditingCommonId(null)} className={`text-xs font-medium ${isDark ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-700'}`}>保存</button>
-                    ) : (
-                      <button type="button" onClick={() => setEditingCommonId(cq.id)} className={`inline-flex items-center gap-1 text-xs ${cn.subtext} ${isDark ? 'hover:text-white' : 'hover:text-slate-900'}`}>
-                        <Pencil className="w-3 h-3" />編集
+                    <p className={`text-xs font-semibold ${cn.label}`}>アイスブレイク{idx + 1}</p>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button type="button" onClick={() => handleMoveIcebreak(cq.id, -1)} disabled={idx === 0} aria-label="上へ移動" className={`p-1 rounded ${cn.subtext} ${isDark ? 'hover:text-white' : 'hover:text-slate-900'} disabled:opacity-30`}>
+                        <ChevronUp className="w-4 h-4" />
                       </button>
-                    )}
+                      <button type="button" onClick={() => handleMoveIcebreak(cq.id, 1)} disabled={idx === commonQuestionsIcebreak.length - 1} aria-label="下へ移動" className={`p-1 rounded ${cn.subtext} ${isDark ? 'hover:text-white' : 'hover:text-slate-900'} disabled:opacity-30`}>
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                      {editingCommonId === cq.id ? (
+                        <button type="button" onClick={() => setEditingCommonId(null)} className={`text-xs font-medium px-1 ${isDark ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-700'}`}>保存</button>
+                      ) : (
+                        <button type="button" onClick={() => setEditingCommonId(cq.id)} className={`inline-flex items-center gap-1 text-xs px-1 ${cn.subtext} ${isDark ? 'hover:text-white' : 'hover:text-slate-900'}`}>
+                          <Pencil className="w-3 h-3" />編集
+                        </button>
+                      )}
+                      <button type="button" onClick={() => handleDeleteIcebreak(cq.id)} aria-label="削除" className={`p-1 rounded ${isDark ? 'text-red-400 hover:text-red-300' : 'text-red-500 hover:text-red-600'}`}>
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                   {editingCommonId === cq.id ? (
-                    <textarea value={cq.question} onChange={(e) => handleCommonQuestionChange(cq.id, e.target.value, 'icebreakers')} rows={3} className={`w-full px-4 py-2.5 border rounded-xl text-sm resize-none focus:ring-2 focus:outline-none ${cn.input}`} onBlur={() => setEditingCommonId(null)} />
+                    <textarea value={cq.question} onChange={(e) => handleCommonQuestionChange(cq.id, e.target.value, 'icebreakers')} rows={3} placeholder="アイスブレイク質問を入力" className={`w-full px-4 py-2.5 border rounded-xl text-sm resize-none focus:ring-2 focus:outline-none ${cn.input}`} />
                   ) : (
-                    <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-slate-800'}`}>{cq.question}</p>
+                    <p className={`text-sm leading-relaxed ${isDark ? 'text-gray-300' : 'text-slate-800'}`}>{cq.question || '（未入力）'}</p>
                   )}
                 </div>
               ))}
             </div>
+            <button type="button" onClick={handleAddIcebreak} className={`mt-4 inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border ${cn.btnAdd}`}>
+              <Plus className="w-4 h-4" />アイスブレイク質問を追加
+            </button>
           </div>
 
           <div className={`mb-8 rounded-xl border p-6 ${cn.card}`}>
             <h2 className={`text-base font-semibold mb-2 ${cn.title}`}>
               面接質問
             </h2>
-            <p className={`text-sm mb-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-              アイスブレイク（{commonQuestionsIcebreak.length}問）の後に以下の質問が順番に出題されます。{cultureAnalysisEnabled && '社風分析質問は固定位置で表示されます。'}
+            <p className={`text-sm mb-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+              アイスブレイク（{icebreakerCount}問）の後に以下の評価質問、最後にクロージング（{closingCount}問）が出題されます。
+            </p>
+            <p className={`text-sm mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+              カテゴリ別: アイスブレイク {icebreakerCount} / {MAX_ICEBREAKER_QUESTIONS}問・評価質問 {evaluationCount} / {MAX_EVALUATION_QUESTIONS}問・クロージング {closingCount} / {MAX_CLOSING_QUESTIONS}問
             </p>
             <p className={`text-sm mb-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-              質問数: {totalQuestionCount} / {MAX_TOTAL_QUESTIONS}問（アイスブレイク除く）
-              {cultureAnalysisEnabled && ` ｜ 社風分析: ${cultureQuestionCount}問（固定）/ カスタム: ${patternQuestions.length}問`}
+              全質問合計（アイスブレイク{icebreakerCount}＋評価{evaluationCount}＋クロージング{closingCount}）:{' '}
+              <span className={totalQuestionCount > MAX_TOTAL_QUESTIONS ? (isDark ? 'text-red-300 font-semibold' : 'text-red-700 font-semibold') : ''}>
+                {totalQuestionCount}
+              </span>{' '}/ {MAX_TOTAL_QUESTIONS}問（残り {Math.max(0, remainingTotal)}問追加可能）
             </p>
-            {totalQuestionCount > MAX_TOTAL_QUESTIONS && (
+            {icebreakerCount > MAX_ICEBREAKER_QUESTIONS && (
               <div className={`rounded-lg p-3 mb-4 ${isDark ? 'bg-red-900/30 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
                 <p className={`text-sm ${isDark ? 'text-red-300' : 'text-red-800'}`}>
-                  ⚠ 質問数が上限を超えています。面接で全質問に到達できない可能性があります。質問を削除してください。
+                  ⚠ アイスブレイクが上限（{MAX_ICEBREAKER_QUESTIONS}問）を超えています。保存できません。減らしてください。
                 </p>
               </div>
             )}
-            {totalQuestionCount === MAX_TOTAL_QUESTIONS && (
-              isDark ? (
-                <div className="bg-yellow-900/30 border border-yellow-700 rounded-lg p-3 mb-4">
-                  <p className="text-sm text-yellow-300">
-                    ⚠ 質問を10問に設定した場合、応募者の回答時間によっては最終質問まで到達できない可能性があります。推奨は8問以下です。
-                  </p>
-                </div>
-              ) : (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
-                  <p className="text-sm text-yellow-800">
-                    ⚠ 質問を10問に設定した場合、応募者の回答時間によっては最終質問まで到達できない可能性があります。推奨は8問以下です。
-                  </p>
-                </div>
-              )
+            {closingCount > MAX_CLOSING_QUESTIONS && (
+              <div className={`rounded-lg p-3 mb-4 ${isDark ? 'bg-red-900/30 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
+                <p className={`text-sm ${isDark ? 'text-red-300' : 'text-red-800'}`}>
+                  ⚠ クロージングが上限（{MAX_CLOSING_QUESTIONS}問）を超えています。保存できません。減らしてください。
+                </p>
+              </div>
+            )}
+            {evaluationCount > MAX_EVALUATION_QUESTIONS && (
+              <div className={`rounded-lg p-3 mb-4 ${isDark ? 'bg-red-900/30 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
+                <p className={`text-sm ${isDark ? 'text-red-300' : 'text-red-800'}`}>
+                  ⚠ 評価質問が上限（{MAX_EVALUATION_QUESTIONS}問）を超えています。保存できません。質問を減らしてください。
+                </p>
+              </div>
+            )}
+            {totalQuestionCount > MAX_TOTAL_QUESTIONS && (
+              <div className={`rounded-lg p-3 mb-4 ${isDark ? 'bg-red-900/30 border border-red-700' : 'bg-red-50 border border-red-200'}`}>
+                <p className={`text-sm ${isDark ? 'text-red-300' : 'text-red-800'}`}>
+                  ⚠ 全質問合計が上限（{MAX_TOTAL_QUESTIONS}問）を超えています。保存できません。アイスブレイク／評価／クロージングのいずれかを減らしてください。
+                </p>
+              </div>
             )}
             <div className={`flex border-b mb-4 ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
               {patternTabs.map((tab) => (
@@ -863,62 +845,6 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
               <>
                 <div className="space-y-4">
                   {integratedQuestions.map((q, i) => {
-                    const isCultureQuestion = q.type === 'culture'
-                    
-                    if (isCultureQuestion) {
-                      return (
-                        <div 
-                          key={q.id} 
-                          className={`rounded-xl border-l-4 border p-5 transition-all ${
-                            isDark 
-                              ? 'bg-purple-500/5 border-purple-500/30 border-l-purple-400' 
-                              : 'bg-purple-50/50 border-purple-200 border-l-purple-400'
-                          }`}
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="flex flex-col gap-0.5 shrink-0 opacity-0 pointer-events-none">
-                              <div className="p-1"><ChevronUp className="w-5 h-5" /></div>
-                              <div className="p-1"><ChevronDown className="w-5 h-5" /></div>
-                            </div>
-                            <span className={`shrink-0 mt-1 inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
-                              isDark ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-100 text-purple-700'
-                            }`}>
-                              {i + 1}
-                            </span>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-2">
-                                <span className={`text-xs font-semibold ${isDark ? 'text-purple-400' : 'text-purple-700'}`}>{q.label}</span>
-                                <span className={`text-xs px-2 py-0.5 rounded-full ${isDark ? 'bg-purple-500/10 text-purple-400' : 'bg-purple-100 text-purple-600'}`}>
-                                  {q.traits}
-                                </span>
-                              </div>
-                              {isDark ? (
-                                <textarea
-                                  defaultValue={q.question}
-                                  rows={2}
-                                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-lg text-gray-300 px-3 py-2 text-sm focus:border-purple-500/50 outline-none resize-none"
-                                />
-                              ) : (
-                                <p className="text-sm leading-relaxed text-slate-700">{q.question}</p>
-                              )}
-                              <p className={`text-xs mt-2 ${isDark ? 'text-purple-400/60' : 'text-purple-500'}`}>
-                                社風分析用質問（固定）
-                              </p>
-                            </div>
-                            {isDark ? (
-                              <button type="button" className="shrink-0 p-2 text-gray-700 cursor-not-allowed">
-                                <X className="w-5 h-5" />
-                              </button>
-                            ) : (
-                              <div className="shrink-0 p-2 opacity-0 pointer-events-none">
-                                <X className="w-5 h-5" />
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    }
-                    
                     return (
                       <div key={q.id} className={`rounded-xl border p-5 transition-all ${cn.innerCard} ${!isDark && 'shadow-sm hover:shadow-md'}`}>
                         <div className="flex items-start gap-3">
@@ -969,21 +895,23 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
                 <div className="mt-6">
                   <button 
                     type="button" 
-                    onClick={handleAddQuestion} 
-                    disabled={totalQuestionCount >= MAX_TOTAL_QUESTIONS}
+                    onClick={handleAddQuestion}
+                    disabled={evaluationCount >= MAX_EVALUATION_QUESTIONS || totalQuestionCount >= MAX_TOTAL_QUESTIONS}
                     className={`w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed text-sm font-medium rounded-xl transition-colors ${
-                      totalQuestionCount >= MAX_TOTAL_QUESTIONS
-                        ? isDark 
-                          ? 'border-gray-700 text-gray-600 cursor-not-allowed opacity-50' 
+                      evaluationCount >= MAX_EVALUATION_QUESTIONS || totalQuestionCount >= MAX_TOTAL_QUESTIONS
+                        ? isDark
+                          ? 'border-gray-700 text-gray-600 cursor-not-allowed opacity-50'
                           : 'border-gray-300 text-gray-400 cursor-not-allowed opacity-50'
                         : cn.btnAdd
                     }`}
                   >
                     <Plus className="w-5 h-5" />質問を追加
                   </button>
-                  {totalQuestionCount >= MAX_TOTAL_QUESTIONS && (
+                  {(evaluationCount >= MAX_EVALUATION_QUESTIONS || totalQuestionCount >= MAX_TOTAL_QUESTIONS) && (
                     <p className={`mt-2 text-center text-sm ${isDark ? 'text-gray-400' : 'text-gray-400'}`}>
-                      質問は最大{cultureAnalysisEnabled ? maxCustomQuestions : MAX_TOTAL_QUESTIONS}問までです{cultureAnalysisEnabled && `（社風分析含め合計${MAX_TOTAL_QUESTIONS}問）`}
+                      {evaluationCount >= MAX_EVALUATION_QUESTIONS
+                        ? `評価質問は最大${MAX_EVALUATION_QUESTIONS}問までです`
+                        : `全質問合計は最大${MAX_TOTAL_QUESTIONS}問までです`}
                     </p>
                   )}
                 </div>

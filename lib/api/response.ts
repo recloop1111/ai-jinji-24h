@@ -9,6 +9,7 @@ export const ERROR_CODES = {
   RATE_LIMITED: { code: 'RATE_LIMITED', status: 429, message: 'リクエスト制限を超えました。しばらく経ってから再試行してください' },
   INTERNAL_ERROR: { code: 'INTERNAL_ERROR', status: 500, message: 'サーバー内部エラーが発生しました' },
   CONFLICT: { code: 'CONFLICT', status: 409, message: 'リソースが競合しています' },
+  QUESTION_LIMIT_EXCEEDED: { code: 'QUESTION_LIMIT_EXCEEDED', status: 422, message: '質問数が上限を超えています' },
 } as const
 
 type ErrorCodeKey = keyof typeof ERROR_CODES

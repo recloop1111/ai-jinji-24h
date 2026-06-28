@@ -1,7 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
+import { createClientServerClient } from '@/lib/supabase/server'
 
 export async function PATCH(
   request: NextRequest,
@@ -25,7 +25,7 @@ export async function PATCH(
       return apiError('VALIDATION_ERROR', 'body は10000文字以内で入力してください')
     }
 
-    const supabase = await createClient()
+    const supabase = await createClientServerClient()
 
     // テンプレートの所有権確認
     const { data: template, error: tplError } = await supabase

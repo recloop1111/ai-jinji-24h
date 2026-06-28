@@ -1,93 +1,16 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { Save as SaveIcon, Upload as UploadIcon, Eye as EyeIcon, EyeOff as EyeOffIcon, LogOut } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
+import PasswordInput from '@/components/shared/PasswordInput'
+import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget'
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
 type TabType = 'general' | 'notifications' | 'security'
-
-// 管理者認証モーダル（管理者用パスワード変更用・TODO: Supabase連携）
-function AdminAuthModal({
-  isOpen,
-  onClose,
-  onConfirm,
-}: {
-  isOpen: boolean
-  onClose: () => void
-  onConfirm: () => void
-}) {
-  const [adminPassword, setAdminPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState('')
-
-  const handleSubmit = () => {
-    if (!adminPassword.trim()) {
-      setError('パスワードを入力してください')
-      return
-    }
-    setError('')
-    onConfirm()
-    setAdminPassword('')
-    onClose()
-  }
-
-  if (!isOpen) return null
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden />
-      <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
-        <h3 className="text-lg font-bold text-slate-900 mb-2">管理者認証</h3>
-        <p className="text-sm text-slate-600 mb-4">
-          この操作には管理者用パスワードが必要です。
-        </p>
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-slate-700 mb-2">
-            管理者用パスワード
-          </label>
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={adminPassword}
-              onChange={(e) => {
-                setAdminPassword(e.target.value)
-                setError('')
-              }}
-              className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="管理者用パスワードを入力"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-            >
-              {showPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
-            </button>
-          </div>
-          {error && <p className="mt-1.5 text-sm text-red-600">{error}</p>}
-        </div>
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-          >
-            キャンセル
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            className="flex-1 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-          >
-            認証して実行
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 type CompanyForm = {
   name: string
@@ -99,13 +22,13 @@ type CompanyForm = {
 function SettingsContent() {
   const router = useRouter()
   const { companyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
-  const supabase = createClient()
+  const supabase = createClientBrowserClient()
 
   const [activeTab, setActiveTab] = useState<TabType>('general')
   const [toast, setToast] = useState<string | null>(null)
 
   // 企業情報（一般タブ）
-  const [company, setCompany] = useState<CompanyForm | null>(null)
+  const [, setCompany] = useState<CompanyForm | null>(null)
   const [companyLoading, setCompanyLoading] = useState(true)
   const [companySaving, setCompanySaving] = useState(false)
   const [companyForm, setCompanyForm] = useState<CompanyForm>({
@@ -129,17 +52,20 @@ function SettingsContent() {
   const [showLoginCurrentPassword, setShowLoginCurrentPassword] = useState(false)
   const [showLoginNewPassword, setShowLoginNewPassword] = useState(false)
   const [showLoginConfirmPassword, setShowLoginConfirmPassword] = useState(false)
+  // パスワード変更前の「現在のPW再認証」用 Turnstile（Supabaseネイティブ CAPTCHA）。
+  // ※ この再認証はブラウザから直接 Supabase Auth を呼ぶため、ログインAPIの独自スロットル対象外。
+  const [loginCaptchaToken, setLoginCaptchaToken] = useState('')
+  const loginTurnstileRef = useRef<TurnstileHandle>(null)
 
-  // 管理者用パスワード変更
-  const [adminCurrentPassword, setAdminCurrentPassword] = useState('')
-  const [adminNewPassword, setAdminNewPassword] = useState('')
-  const [adminConfirmPassword, setAdminConfirmPassword] = useState('')
-  const [showAdminCurrentPassword, setShowAdminCurrentPassword] = useState(false)
-  const [showAdminNewPassword, setShowAdminNewPassword] = useState(false)
-  const [showAdminConfirmPassword, setShowAdminConfirmPassword] = useState(false)
-  const [adminAuthModalOpen, setAdminAuthModalOpen] = useState(false)
 
-  const [twoFactorAuth, setTwoFactorAuth] = useState(false)
+
+  // 管理者設定用パスワード（ログインPWとは別）
+  const [settingPwConfigured, setSettingPwConfigured] = useState<boolean | null>(null)
+  const [settingPwCurrent, setSettingPwCurrent] = useState('')
+  const [settingPwNew, setSettingPwNew] = useState('')
+  const [settingPwConfirm, setSettingPwConfirm] = useState('')
+  const [settingPwError, setSettingPwError] = useState('')
+  const [settingPwLoading, setSettingPwLoading] = useState(false)
 
   const showToastMessage = (msg: string) => {
     setToast(msg)
@@ -184,6 +110,69 @@ function SettingsContent() {
     return () => { cancelled = true }
   }, [companyId])
 
+  // 管理者設定用パスワードの設定状況を取得
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/client/security/setting-password')
+        const json = await res.json().catch(() => ({}))
+        if (cancelled) return
+        setSettingPwConfigured(res.ok ? !!json.configured : false)
+      } catch {
+        if (!cancelled) setSettingPwConfigured(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const handleSettingPasswordSubmit = async () => {
+    setSettingPwError('')
+    if (!settingPwNew || !settingPwConfirm) {
+      setSettingPwError('新しいパスワードを入力してください')
+      return
+    }
+    if (settingPwNew.length < 8) {
+      setSettingPwError('パスワードは8文字以上で設定してください')
+      return
+    }
+    if (settingPwNew !== settingPwConfirm) {
+      setSettingPwError('新しいパスワードと確認用パスワードが一致しません')
+      return
+    }
+    if (settingPwConfigured && !settingPwCurrent) {
+      setSettingPwError('現在の管理者設定用パスワードを入力してください')
+      return
+    }
+    const wasConfigured = settingPwConfigured
+    setSettingPwLoading(true)
+    try {
+      const res = await fetch('/api/client/security/setting-password', {
+        method: wasConfigured ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          wasConfigured
+            ? { currentPassword: settingPwCurrent, newPassword: settingPwNew }
+            : { newPassword: settingPwNew },
+        ),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setSettingPwError(json?.error?.message ?? '保存に失敗しました')
+        return
+      }
+      setSettingPwConfigured(true)
+      setSettingPwCurrent('')
+      setSettingPwNew('')
+      setSettingPwConfirm('')
+      showToastMessage(wasConfigured ? '管理者設定用パスワードを変更しました' : '管理者設定用パスワードを設定しました')
+    } catch {
+      setSettingPwError('保存に失敗しました')
+    } finally {
+      setSettingPwLoading(false)
+    }
+  }
+
   const handleSaveCompany = async () => {
     if (!companyId) return
     setCompanySaving(true)
@@ -222,13 +211,23 @@ function SettingsContent() {
       return
     }
     setLoginPasswordLoading(true)
+    // 現在のパスワード再認証（Supabaseネイティブ CAPTCHA。captchaToken を options で渡す）
     const { error: signInError } = await supabase.auth.signInWithPassword({
       email: user.email,
       password: loginCurrentPassword,
+      options: { captchaToken: loginCaptchaToken },
     })
+    // token は単回使用 → 試行後は成功・失敗を問わず破棄＋widget reset
+    setLoginCaptchaToken('')
+    loginTurnstileRef.current?.reset()
     if (signInError) {
       setLoginPasswordLoading(false)
-      setLoginPasswordError('現在のパスワードが正しくありません')
+      // captcha 失敗は error.code で判定（文字列比較しない）
+      if (signInError.code === 'captcha_failed') {
+        setLoginPasswordError('Bot対策の確認に失敗しました。再度お試しください。')
+      } else {
+        setLoginPasswordError('現在のパスワードが正しくありません')
+      }
       return
     }
     const { error: updateError } = await supabase.auth.updateUser({ password: loginNewPassword })
@@ -241,13 +240,6 @@ function SettingsContent() {
     setLoginNewPassword('')
     setLoginConfirmPassword('')
     showToastMessage('パスワードを変更しました')
-  }
-
-  const handleAdminPasswordChange = () => {
-    setAdminCurrentPassword('')
-    setAdminNewPassword('')
-    setAdminConfirmPassword('')
-    showToastMessage('管理者用パスワードの変更は今後実装予定です')
   }
 
   const handleLogout = async () => {
@@ -467,9 +459,8 @@ function SettingsContent() {
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
               <h4 className="text-sm font-semibold text-blue-900 mb-2">パスワードポリシー</h4>
               <ul className="text-xs text-blue-800 space-y-1 list-disc list-inside">
-                <li>12文字以上（大文字・小文字・数字・特殊文字を各1文字以上含む）</li>
-                <li>定期的なパスワード変更は不要です（NISTガイドライン準拠）</li>
-                <li>パスワード漏洩が検知された場合のみ、変更をお願いします</li>
+                <li>8文字以上で設定してください</li>
+                <li>定期的なパスワード変更は求めていません</li>
               </ul>
             </div>
             <div className="space-y-4">
@@ -510,7 +501,7 @@ function SettingsContent() {
                     {showLoginNewPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
                   </button>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">12文字以上、大文字・小文字・数字・特殊文字を各1文字以上含む</p>
+                <p className="text-xs text-slate-500 mt-1">8文字以上で設定してください</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">新しいパスワード（確認）</label>
@@ -531,11 +522,21 @@ function SettingsContent() {
                   </button>
                 </div>
               </div>
+              {TURNSTILE_SITE_KEY && (
+                <TurnstileWidget
+                  ref={loginTurnstileRef}
+                  siteKey={TURNSTILE_SITE_KEY}
+                  action="client_password_reauth"
+                  theme="light"
+                  onVerify={setLoginCaptchaToken}
+                  onExpire={() => setLoginCaptchaToken('')}
+                />
+              )}
               {loginPasswordError && <p className="text-sm text-red-600">{loginPasswordError}</p>}
               <button
                 type="button"
                 onClick={handleLoginPasswordChange}
-                disabled={loginPasswordLoading}
+                disabled={loginPasswordLoading || (!!TURNSTILE_SITE_KEY && !loginCaptchaToken)}
                 className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm disabled:opacity-70"
               >
                 {loginPasswordLoading ? '変更中...' : '変更する'}
@@ -543,83 +544,68 @@ function SettingsContent() {
             </div>
           </div>
 
+          {/* 管理者設定用パスワード（ログインPWとは別） */}
           <div className={cardClass}>
-            <h3 className="text-base font-semibold text-slate-900 mb-2">管理者用パスワード変更</h3>
-            <p className="text-sm text-slate-600 mb-4">管理者用パスワードはCSV出力や重要な設定変更時に必要です</p>
+            <h3 className="text-base font-semibold text-slate-900 mb-2">管理者設定用パスワード</h3>
+            <p className="text-sm text-slate-600 mb-3">
+              翌月の月間上限変更、CSV出力、重要設定の変更時に使用するパスワードです。ログインパスワードとは別に管理してください。
+            </p>
+            <p className="text-xs mb-4">
+              {settingPwConfigured === null
+                ? <span className="text-slate-400">状態を確認中...</span>
+                : settingPwConfigured
+                  ? <span className="text-emerald-600 font-medium">設定済み</span>
+                  : <span className="text-amber-600 font-medium">未設定</span>}
+            </p>
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">現在の管理者用パスワード</label>
-                <div className="relative">
-                  <input
-                    type={showAdminCurrentPassword ? 'text' : 'password'}
-                    value={adminCurrentPassword}
-                    onChange={(e) => setAdminCurrentPassword(e.target.value)}
-                    className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="現在の管理者用パスワードを入力"
+              {settingPwConfigured && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">現在の管理者設定用パスワード</label>
+                  <PasswordInput
+                    value={settingPwCurrent}
+                    onChange={setSettingPwCurrent}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="現在の管理者設定用パスワードを入力"
                   />
-                  <button type="button" onClick={() => setShowAdminCurrentPassword(!showAdminCurrentPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                    {showAdminCurrentPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
-                  </button>
                 </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">新しい管理者設定用パスワード</label>
+                <PasswordInput
+                  value={settingPwNew}
+                  onChange={setSettingPwNew}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="新しいパスワードを入力"
+                />
+                <p className="text-xs text-slate-500 mt-1">8文字以上で設定してください</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">新しい管理者用パスワード</label>
-                <div className="relative">
-                  <input
-                    type={showAdminNewPassword ? 'text' : 'password'}
-                    value={adminNewPassword}
-                    onChange={(e) => setAdminNewPassword(e.target.value)}
-                    className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="新しい管理者用パスワードを入力"
-                  />
-                  <button type="button" onClick={() => setShowAdminNewPassword(!showAdminNewPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                    {showAdminNewPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
-                  </button>
-                </div>
-                <p className="text-xs text-slate-500 mt-1">12文字以上、大文字・小文字・数字・特殊文字を各1文字以上含む</p>
+                <label className="block text-sm font-medium text-slate-700 mb-2">新しい管理者設定用パスワード（確認）</label>
+                <PasswordInput
+                  value={settingPwConfirm}
+                  onChange={setSettingPwConfirm}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="新しいパスワードを再入力"
+                />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">新しい管理者用パスワード（確認）</label>
-                <div className="relative">
-                  <input
-                    type={showAdminConfirmPassword ? 'text' : 'password'}
-                    value={adminConfirmPassword}
-                    onChange={(e) => setAdminConfirmPassword(e.target.value)}
-                    className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="新しい管理者用パスワードを再入力"
-                  />
-                  <button type="button" onClick={() => setShowAdminConfirmPassword(!showAdminConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                    {showAdminConfirmPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
-                  </button>
-                </div>
-              </div>
+              {settingPwError && <p className="text-sm text-red-600">{settingPwError}</p>}
               <button
                 type="button"
-                onClick={() => setAdminAuthModalOpen(true)}
-                className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                onClick={handleSettingPasswordSubmit}
+                disabled={settingPwLoading || settingPwConfigured === null}
+                className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm disabled:opacity-70"
               >
-                変更する
+                {settingPwLoading ? '保存中...' : settingPwConfigured ? '変更する' : '設定する'}
               </button>
             </div>
           </div>
 
           <div className={cardClass}>
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">二要素認証（2FA）</label>
-                <p className="text-xs text-slate-500">
-                  ログイン時にGoogle AuthenticatorなどのTOTPアプリで生成される6桁のコードが必要になります。アカウントの不正アクセス防止のため、有効化を強く推奨します。
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setTwoFactorAuth(!twoFactorAuth)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  twoFactorAuth ? 'bg-blue-600' : 'bg-slate-300'
-                }`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${twoFactorAuth ? 'translate-x-6' : 'translate-x-1'}`} />
-              </button>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">二要素認証（2FA）</label>
+              <p className="text-xs text-slate-500">
+                TOTPアプリ（Google Authenticator等）による二要素認証は未実装です（今後実装予定）。現在は設定できません。
+              </p>
             </div>
           </div>
 
@@ -628,15 +614,15 @@ function SettingsContent() {
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-3">
               <div>
                 <h4 className="text-sm font-medium text-slate-700">セッション管理</h4>
-                <p className="text-xs text-slate-500 mt-1">最終操作から24時間が経過すると自動的にログアウトされます。複数デバイスからの同時ログインに制限はありません。</p>
+                <p className="text-xs text-slate-500 mt-1">運営・企業のセッションは別cookieで分離済みです。無操作タイムアウトの独自制御は未実装で、セッション期限は認証基盤（Supabase Auth）の既定に依存します。複数デバイスからの同時ログインに制限はありません。</p>
               </div>
               <div>
                 <h4 className="text-sm font-medium text-slate-700">アカウントロック</h4>
-                <p className="text-xs text-slate-500 mt-1">ログインに10回連続で失敗すると、30分間アカウントがロックされます。30分経過後に自動で解除されます。ロック中にお急ぎの場合は運営までご連絡ください。</p>
+                <p className="text-xs text-slate-500 mt-1">ロック管理用の基盤はありますが、ログイン失敗回数に基づく自動ロックは現在未実装です。</p>
               </div>
               <div>
                 <h4 className="text-sm font-medium text-slate-700">ログイン通知</h4>
-                <p className="text-xs text-slate-500 mt-1">通常と異なるIPアドレスや地域からのログインが検知された場合、登録メールアドレスに通知が送信されます。</p>
+                <p className="text-xs text-slate-500 mt-1">通常と異なるIPアドレスや地域からのログインを検知してメール通知する機能は未実装です（今後実装予定）。</p>
               </div>
             </div>
           </div>
@@ -661,12 +647,6 @@ function SettingsContent() {
           {toast}
         </div>
       )}
-
-      <AdminAuthModal
-        isOpen={adminAuthModalOpen}
-        onClose={() => setAdminAuthModalOpen(false)}
-        onConfirm={handleAdminPasswordChange}
-      />
     </div>
   )
 }

@@ -1,8 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import InterviewLayout from '@/components/interview/InterviewLayout'
 import {
   StepIndicator,
@@ -14,6 +13,10 @@ import {
   SelectField,
   RadioGroup,
 } from '@/components/interview/FormComponents'
+import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget'
+import { normalizeDigits } from '@/lib/utils/normalizeDigits'
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
 const STEP_LABELS = ['同意', '情報入力', 'SMS認証', '環境確認', '面接']
 
@@ -42,7 +45,6 @@ export default function FormPage() {
   const params = useParams()
   const router = useRouter()
   const slug = params.slug as string
-  const supabase = createClient()
 
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [isDemo, setIsDemo] = useState(false)
@@ -66,6 +68,8 @@ export default function FormPage() {
   const [qualifications, setQualifications] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState('')
+  const turnstileRef = useRef<TurnstileHandle>(null)
 
   useEffect(() => {
     initialize()
@@ -80,15 +84,12 @@ export default function FormPage() {
       setPhone(storedPhone)
     }
 
-    // 企業情報取得
+    // 企業情報取得（公開設定API。companies は安全列のみ）
     try {
-      const { data: company, error: companyError } = await supabase
-        .from('companies')
-        .select('id, is_demo')
-        .eq('interview_slug', slug)
-        .single()
-
-      if (companyError || !company) {
+      const res = await fetch(`/api/interview/${slug}/public-config`)
+      const json = await res.json().catch(() => null)
+      const company = json?.company
+      if (!res.ok || !company) {
         setLoading(false)
         return
       }
@@ -108,16 +109,8 @@ export default function FormPage() {
         setEducation('university')
       }
 
-      // 求人一覧取得（jobsテーブル）
-      const { data: jobsData, error: jobsError } = await supabase
-        .from('jobs')
-        .select('id, title, employment_type')
-        .eq('company_id', company.id)
-        .eq('is_active', true)
-
-      if (jobsError) {
-        // 求人取得エラー時は空リストのまま
-      }
+      // 求人一覧（当該企業の active のみ・公開設定APIが返す）
+      const jobsData: { id: string; title: string; employment_type: string }[] = json.jobs ?? []
 
       if (jobsData && jobsData.length > 0) {
         setJobTypes(
@@ -176,6 +169,7 @@ export default function FormPage() {
     }
     if (jobId && !industryExperience) newErrors.industryExperience = '業界経験を選択してください'
     if (jobTypes.length > 0 && !jobId) newErrors.jobId = '応募職種を選択してください'
+    if (TURNSTILE_SITE_KEY && !captchaToken) newErrors.submit = '認証を完了してください'
 
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -186,7 +180,6 @@ export default function FormPage() {
     if (!companyId) return
 
     setSubmitting(true)
-    const selectedJob = jobTypes.find((j) => j.value === jobId)
 
     try {
       // employment_type: フォームで選択された「就業形態（新卒/中途）」の値を常に設定
@@ -200,11 +193,12 @@ export default function FormPage() {
         first_name_kana: firstNameKana.trim(),
         birth_date: (() => {
           const now = new Date()
-          const birthYear = now.getFullYear() - parseInt(age, 10)
+          const birthYear = now.getFullYear() - parseInt(normalizeDigits(age), 10)
           return `${birthYear}-01-01`
         })(),
         gender: gender,
-        phone_number: phone,
+        // API送信前にも半角へ正規化（autofill 等で onChange を経由しない場合の防御）
+        phone_number: normalizeDigits(phone),
         email: email.trim(),
         selection_status: 'pending', // 準備中（面接前の初期状態）
         status: '準備中', // 面接の進行状況（準備中・完了・途中離脱）
@@ -212,7 +206,7 @@ export default function FormPage() {
         duplicate_flag: false,
         inappropriate_flag: false,
         // NULL可能カラム（任意）
-        age: parseInt(age, 10) || null,
+        age: parseInt(normalizeDigits(age), 10) || null,
         prefecture: prefecture || null,
         education: education || null,
         employment_type: employmentType || null, // フォームで選択された値を常に設定
@@ -220,27 +214,33 @@ export default function FormPage() {
         job_id: jobId || null,
         work_history: workHistory.trim() || null,
         qualifications: qualifications.trim() || null,
+        captchaToken,
       }
 
-      const { data, error } = await supabase
-        .from('applicants')
-        .insert(insertData)
-        .select()
-        .single()
+      // applicants の直INSERT は廃止し、service-role API で作成＋ケイパビリティ・トークンを発行する
+      const res = await fetch(`/api/interview/${slug}/applicant`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(insertData),
+      })
+      const json = await res.json().catch(() => null)
 
-      if (error) {
+      if (!res.ok || !json?.applicant_id) {
         setErrors({ submit: '情報の保存に失敗しました。もう一度お試しください。' })
+        setCaptchaToken('')
+        turnstileRef.current?.reset()
         setSubmitting(false)
         return
       }
 
-      if (data) {
-        sessionStorage.setItem(`interview_${slug}_applicant_id`, data.id)
-        sessionStorage.setItem(`interview_${slug}_company_id`, companyId)
-        router.push(`/interview/${slug}/verify?phone=${encodeURIComponent(phone)}`)
-      }
+      sessionStorage.setItem(`interview_${slug}_applicant_id`, json.applicant_id)
+      sessionStorage.setItem(`interview_${slug}_company_id`, json.company_id)
+      sessionStorage.setItem(`interview_${slug}_token`, json.token)
+      router.push(`/interview/${slug}/verify?phone=${encodeURIComponent(phone)}`)
     } catch {
       setErrors({ submit: '情報の保存に失敗しました。もう一度お試しください。' })
+      setCaptchaToken('')
+      turnstileRef.current?.reset()
       setSubmitting(false)
     }
   }
@@ -327,11 +327,10 @@ export default function FormPage() {
 
           <InputField label="年齢" required error={errors.age}>
             <input
-              type="number"
-              min={1}
-              max={100}
+              type="text"
+              inputMode="numeric"
               value={age}
-              onChange={(e) => setAge(e.target.value)}
+              onChange={(e) => setAge(normalizeDigits(e.target.value))}
               placeholder="例）25"
               className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors bg-white text-gray-900"
             />
@@ -354,7 +353,7 @@ export default function FormPage() {
             <TextInput
               type="tel"
               value={phone}
-              onChange={setPhone}
+              onChange={(v) => setPhone(normalizeDigits(v))}
               placeholder="例）09012345678"
             />
           </InputField>
@@ -448,6 +447,19 @@ export default function FormPage() {
               rows={3}
             />
           </InputField>
+
+          {TURNSTILE_SITE_KEY && (
+            <div className="flex justify-center py-2">
+              <TurnstileWidget
+                ref={turnstileRef}
+                siteKey={TURNSTILE_SITE_KEY}
+                action="interview_applicant"
+                theme="light"
+                onVerify={setCaptchaToken}
+                onExpire={() => setCaptchaToken('')}
+              />
+            </div>
+          )}
 
           {errors.submit && (
             <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-3 rounded">

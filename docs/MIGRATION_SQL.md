@@ -136,6 +136,23 @@ ALTER TABLE public.culture_surveys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.culture_survey_responses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.culture_profiles ENABLE ROW LEVEL SECURITY;
 
+-- ============================================================================
+-- 【注記・後日訂正 / 2026-06】以下の culture_* の USING(true) / WITH CHECK(true) は
+--   「初期版」の記述であり、現在の実DBとは異なる。実DBでは culture_surveys /
+--   culture_survey_responses / culture_profiles は `company_*`（roles={public} だが
+--   `auth.uid()` 経由の company スコープ条件付き）ポリシーに置換済みで、無条件の
+--   USING(true)/WITH CHECK(true) は存在しない。anon は auth.uid() が null のため
+--   条件 false ＝**実効的に anon 遮断済み**。
+--   → RLSハードニング Phase 2-e-2 は「RLS変更不要」で完了扱い。
+--   【追記・2026-06 / Phase C】社風分析 / 社員アンケート / culture fit は **不採用**となり、
+--     コードは削除済み（app/survey・/api/survey・/client/culture-analysis・culture 質問/表示）。
+--     下記 culture_* テーブル（companies.culture_analysis_enabled・interview_results.culture_fit_score/
+--     culture_fit_detail/big_five_scores 列を含む）は**コード参照ゼロの死蔵**で、別タスク（C-4）で
+--     DROP 予定（要バックアップ）。本セクションの CREATE 文は履歴として残す（書き換えない）。
+--   ※ 本ファイルは過去のSQL履歴資料のため下記 SQL本文は当時のまま残す（書き換えない）。
+--      正確な現状は CLAUDE.md / docs/INFRASTRUCTURE.md / docs/API_DESIGN.md の最新記述を参照。
+-- ============================================================================
+
 -- culture_surveys: 全ユーザー読み取り可、認証済みユーザーINSERT/UPDATE可
 CREATE POLICY "culture_surveys_select" ON public.culture_surveys FOR SELECT USING (true);
 CREATE POLICY "culture_surveys_insert" ON public.culture_surveys FOR INSERT WITH CHECK (true);

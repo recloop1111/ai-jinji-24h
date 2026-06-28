@@ -1,7 +1,6 @@
 'use client'
 
-import { useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { ChevronLeft } from 'lucide-react'
 
 // 動物キャラクターSVGアイコンコンポーネント（ゆるキャラ・LINEスタンプ風）
@@ -543,8 +542,7 @@ const PERSONALITY_TYPES = {
   },
 }
 
-const EVALUATION_AXES = ['コミュニケーション', '論理的思考', 'カルチャーフィット', '仕事への意欲', '課題対応力', '成長可能性']
-const EVALUATION_AXES_SHORT = ['コミュ力', '論理思考', '文化適性', '意欲', '課題力', '成長性']
+const EVALUATION_AXES_SHORT = ['コミュ力', '論理思考', '主体性', '意欲', '課題力', '成長性']
 
 // 性格タグバッジのスタイルマッピング
 const TAG_STYLES: Record<string, string> = {
@@ -579,20 +577,12 @@ const TAG_STYLES: Record<string, string> = {
 
 // TODO: Phase 4 - OGP画像生成・シェアURL生成
 export default function DiagnosisPage() {
-  const params = useParams()
   const router = useRouter()
-  const slug = params.slug as string
-  const [toast, setToast] = useState('')
 
   // ダミーで「ライオン型リーダー」タイプを表示
   const currentType = PERSONALITY_TYPES.lion
   const currentTypeKey = 'lion'
   const IconComponent = currentType.icon
-
-  const showToast = (message: string) => {
-    setToast(message)
-    setTimeout(() => setToast(''), 3000)
-  }
 
   // レーダーチャート用の計算
   const cx = 80
@@ -842,12 +832,6 @@ export default function DiagnosisPage() {
         </div>
       </div>
 
-      {/* トースト */}
-      {toast && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium z-50 border-2 border-white">
-          {toast}
-        </div>
-      )}
     </>
   )
 }

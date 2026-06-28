@@ -1,18 +1,30 @@
+import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
+import { createClientServerClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { verifySettingPassword } from '@/lib/security/setting-password'
+import { applyNextMonthLimit, jstCurrentMonthStartIso, jstFirstOfNextMonthDate } from '@/lib/companies/applyNextMonthLimit'
+import { PRICE_PER_INTERVIEW, MIN_INTERVIEW_LIMIT } from '@/types/database'
+
+// 翌月1日（YYYY-MM-01）を返す。
+// ※ JST基準（applyNextMonthLimit の昇格判定と同一基準）。サーバTZ(UTC)依存にすると、
+//   JST月初の最初の9時間に effective_month が当月になり即時昇格してしまう（仕様: 適用は必ず翌月1日）。
+function firstOfNextMonth(): string {
+  return jstFirstOfNextMonthDate()
+}
 
 export async function GET() {
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
 
-    const supabase = await createClient()
+    const supabase = await createClientServerClient()
 
-    // 企業のプラン情報を取得
+    // 企業情報は必要な安全列のみ明示 select（select('*') をやめ、hash/auth_user_id/stripe_* 等の
+    // 機微列を authenticated で読まない。phase2h 列ホワイトリスト前提）。
     const { data: company, error: compError } = await supabase
       .from('companies')
-      .select('plan, plan_limit, auto_upgrade, stripe_subscription_id, billing_cycle_start, billing_cycle_end')
+      .select('id, monthly_interview_limit, next_month_interview_limit, next_month_limit_effective_month, price_per_interview')
       .eq('id', user.companyId)
       .single()
 
@@ -20,30 +32,142 @@ export async function GET() {
       return apiError('NOT_FOUND', '企業情報が見つかりません')
     }
 
-    // 当月の面接件数（billable のみ）
-    const startDate = company.billing_cycle_start ?? new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10)
+    // 翌月上限予約の月初昇格（適用月到来時に monthly_interview_limit へ反映）
+    const applied = await applyNextMonthLimit({
+      id: company.id,
+      monthly_interview_limit: company.monthly_interview_limit ?? null,
+      next_month_interview_limit: company.next_month_interview_limit ?? null,
+      next_month_limit_effective_month: company.next_month_limit_effective_month ?? null,
+    })
 
+    // 会社ごとの単価（未設定/未適用なら通常単価）
+    const pricePerInterview = company.price_per_interview ?? PRICE_PER_INTERVIEW
+    const limit = applied.monthly_interview_limit ?? 10
+    const nextMonthLimit = applied.next_month_interview_limit
+    const nextMonthEffectiveMonth = applied.next_month_limit_effective_month
+
+    // 当月の面接件数（billable のみ）。月初は JST 基準（start API の上限カウントと同一基準）。
+    const monthStart = jstCurrentMonthStartIso()
     const { count: monthlyCount } = await supabase
       .from('interviews')
       .select('id', { count: 'exact', head: true })
-      .eq('billable', true)
-      .in('applicant_id',
-        (await supabase
-          .from('applicants')
-          .select('id')
-          .eq('company_id', user.companyId)
-        ).data?.map((a: { id: string }) => a.id) ?? []
-      )
-      .gte('created_at', `${startDate}T00:00:00Z`)
+      .eq('company_id', user.companyId)
+      .eq('is_billable', true)
+      .gte('created_at', monthStart)
+
+    const used = monthlyCount ?? 0
+    const remaining = Math.max(0, limit - used)
+
+    // 次回リセット日（翌月1日）も JST 基準で算出
+    const nextResetDate = jstFirstOfNextMonthDate()
 
     return successJson({
-      plan: company.plan,
-      plan_limit: company.plan_limit,
-      monthly_count: monthlyCount ?? 0,
-      auto_upgrade: company.auto_upgrade,
-      has_subscription: !!company.stripe_subscription_id,
-      billing_cycle_start: company.billing_cycle_start ?? null,
-      billing_cycle_end: company.billing_cycle_end ?? null,
+      // 企業側には plan(custom等)を出さず、契約形態は常に「従量課金」表記
+      contract_type_label: '従量課金',
+      price_per_interview: pricePerInterview,
+      monthly_interview_limit: limit,
+      monthly_count: used,
+      remaining,
+      current_charge: used * pricePerInterview,
+      max_charge: limit * pricePerInterview,
+      next_month_interview_limit: nextMonthLimit,
+      next_month_limit_effective_month: nextMonthEffectiveMonth,
+      next_month_max_charge: (nextMonthLimit ?? limit) * pricePerInterview,
+      next_reset_date: nextResetDate,
+      min_interview_limit: MIN_INTERVIEW_LIMIT,
+    })
+  } catch {
+    return apiError('INTERNAL_ERROR')
+  }
+}
+
+// 企業側: 翌月上限予約のみ変更可（即時反映しない / 自社のみ / 設定変更用パスワード必須）
+export async function PATCH(request: NextRequest) {
+  try {
+    const { data: user, error: authError } = await getClientUser()
+    if (authError) return authError
+
+    const body = await request.json().catch(() => null)
+    if (!body) {
+      return apiError('VALIDATION_ERROR', 'リクエストボディが不正です')
+    }
+
+    const { next_month_interview_limit, settingPassword, demo } = body as {
+      next_month_interview_limit?: unknown
+      settingPassword?: unknown
+      demo?: unknown
+    }
+
+    // バリデーション: 整数・最低5人（使用済み人数より低くても許可）
+    if (typeof next_month_interview_limit !== 'number' || !Number.isInteger(next_month_interview_limit)) {
+      return apiError('VALIDATION_ERROR', '翌月の上限人数は整数で指定してください')
+    }
+    if (next_month_interview_limit < MIN_INTERVIEW_LIMIT) {
+      return apiError('VALIDATION_ERROR', `翌月の上限人数は最低${MIN_INTERVIEW_LIMIT}人です`)
+    }
+
+    // demo の場合は DB 更新せず、画面確認用に成功扱い
+    if (demo === true) {
+      return successJson({
+        updated: true,
+        demo: true,
+        next_month_interview_limit,
+        next_month_limit_effective_month: firstOfNextMonth(),
+      })
+    }
+
+    // 自社のみ（companyId は認証から取得。body の company_id は信用しない）。
+    // company_setting_password_hash を検証用に読むため service-role（RLS/列権限 bypass）。
+    // companyId スコープは認証由来のため自社限定は維持。書き込みも同 client で行う。
+    const serviceSupabase = createServiceRoleClient()
+    const { data: company, error: compError } = await serviceSupabase
+      .from('companies')
+      .select('id, company_setting_password_hash, monthly_interview_limit, next_month_interview_limit, next_month_limit_effective_month')
+      .eq('id', user.companyId)
+      .single()
+
+    if (compError || !company) {
+      return apiError('NOT_FOUND', '企業情報が見つかりません')
+    }
+
+    // 企業設定変更用パスワード（未設定ならエラー）
+    if (!company.company_setting_password_hash) {
+      return apiError('FORBIDDEN', '企業設定変更用パスワードが未設定です。運営担当者へお問い合わせください')
+    }
+    if (typeof settingPassword !== 'string' || !verifySettingPassword(settingPassword, company.company_setting_password_hash)) {
+      return apiError('FORBIDDEN', '企業設定変更用パスワードが正しくありません')
+    }
+
+    // 新しい翌月予約で next_month_* を上書きする前に、満了済みの予約があれば先に昇格しておく。
+    // （JST月替わり後、その月まだ GET/start が一度も走っていない状態で PATCH が来た場合に、
+    //  当月へ効くはずだった既存予約を上書きで黙って飛ばさないため。二重反映ガードは applyNextMonthLimit 側にある）
+    await applyNextMonthLimit({
+      id: company.id,
+      monthly_interview_limit: company.monthly_interview_limit ?? null,
+      next_month_interview_limit: company.next_month_interview_limit ?? null,
+      next_month_limit_effective_month: company.next_month_limit_effective_month ?? null,
+    })
+
+    // 翌月上限予約のみ更新（今月の monthly_interview_limit は変更しない）。
+    // 書き込みは service-role で行う（companies の機微列は authenticated 直接UPDATEを RLS/列権限で禁止するため）。
+    // 認証は getClientUser、対象企業は session 由来の user.companyId のみ（body の company_id は信用しない）。
+    const { error: updateError } = await serviceSupabase
+      .from('companies')
+      .update({
+        next_month_interview_limit,
+        next_month_limit_effective_month: firstOfNextMonth(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', user.companyId)
+
+    if (updateError) {
+      return apiError('INTERNAL_ERROR', '翌月上限予約の更新に失敗しました')
+    }
+
+    return successJson({
+      updated: true,
+      next_month_interview_limit,
+      next_month_limit_effective_month: firstOfNextMonth(),
     })
   } catch {
     return apiError('INTERNAL_ERROR')

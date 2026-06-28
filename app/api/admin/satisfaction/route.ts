@@ -2,11 +2,11 @@ import { type NextRequest } from 'next/server'
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { isValidUUID } from '@/lib/api/validation'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 
 export async function GET(request: NextRequest) {
   try {
-    const { data: _admin, error: authError } = await getAdminUser()
+    const { error: authError } = await getAdminUser()
     if (authError) return authError
 
     const { searchParams } = request.nextUrl
@@ -20,12 +20,14 @@ export async function GET(request: NextRequest) {
       return apiError('VALIDATION_ERROR', 'period の形式が不正です（YYYY-MM）')
     }
 
-    const supabase = await createClient()
+    // 満足度の実データは applicants.satisfaction_rating（satisfaction_ratings テーブルは書き込み元が無いため使わない）
+    // 運営は全企業横断で集計するため service role（RLS非依存）
+    const supabase = createServiceRoleClient()
 
-    // 満足度データ取得
     let query = supabase
-      .from('satisfaction_ratings')
-      .select('id, company_id, rating, created_at')
+      .from('applicants')
+      .select('id, company_id, satisfaction_rating, created_at')
+      .not('satisfaction_rating', 'is', null)
 
     if (companyId) {
       query = query.eq('company_id', companyId)
@@ -37,13 +39,18 @@ export async function GET(request: NextRequest) {
       query = query.gte('created_at', start).lte('created_at', end)
     }
 
-    const { data: ratings, error } = await query
+    const { data: rows, error } = await query
 
     if (error) {
       return apiError('INTERNAL_ERROR', '満足度データの取得に失敗しました')
     }
 
-    const allRatings = ratings ?? []
+    // 既存レスポンス互換のため、downstream の集計が参照する rating キーへ正規化
+    const allRatings = (rows ?? []).map((r: { company_id: string; satisfaction_rating: number | null; created_at: string }) => ({
+      company_id: r.company_id,
+      rating: r.satisfaction_rating ?? 0,
+      created_at: r.created_at,
+    }))
 
     // overall_average, total_responses
     const totalResponses = allRatings.length

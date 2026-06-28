@@ -4,14 +4,27 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 // ============================================
 // AI人事24h 共通型定義（Supabase テーブル対応）
 // ============================================
+// 【注意】本ファイルは参照用であり、実DBスキーマと一部ドリフトがある。
+// - 正は Supabase の実スキーマ（snake_case）。本ファイルの型はコードから型として import されておらず（実際の利用は PRICE_PER_INTERVIEW / MIN_INTERVIEW_LIMIT 定数のみ）、API/画面は inline 型注釈で実DB列を直接扱う。
+// - 一部の型は実DBに該当テーブルが無い、または列名・列構成がズレている（各型のコメント参照）。
+// - 新規実装でテーブルを扱う際は、本ファイルではなく実DBの列・CHECK制約を確認すること。
 
 export type Company = {
   id: string
   name: string
   email: string
   industry: string
-  plan: 'light' | 'standard' | 'pro' | 'custom'
+  plan: 'pay_per_use' | 'custom'
+  /** 1面接あたりの単価（税抜）。通常=4000 / 特別契約(custom)=3000 等。会社ごとに保持 */
+  pricePerInterview: number
   maxInterviews: number
+  monthlyInterviewLimit: number
+  /** 翌月から適用する上限予約（null=予約なし） */
+  nextMonthInterviewLimit: number | null
+  /** 翌月上限の適用開始月（その月の1日。例 2026-07-01）。null=予約なし */
+  nextMonthLimitEffectiveMonth: string | null
+  /** 企業設定変更用パスワードの hash（ログインPWとは別。平文保存禁止） */
+  companySettingPasswordHash: string | null
   autoUpgrade: boolean
   isActive: boolean
   isPaused: boolean
@@ -39,6 +52,8 @@ export type Applicant = {
   qualifications: string
   currentStatus: 'preparing' | 'in_progress' | 'completed' | 'error'
   status: 'pending' | 'second_interview' | 'rejected' | null
+  /** 面接体験の満足度評価（1〜5・任意）。実DB列 applicants.satisfaction_rating。null=未回答 */
+  satisfactionRating: number | null
   createdAt: string
   updatedAt: string
 }
@@ -56,6 +71,7 @@ export type Interview = {
   recordingExpiresAt: string | null
   status: 'waiting' | 'in_progress' | 'completed' | 'error' | 'cancelled'
   errorReason: string | null
+  questionsSnapshot: { sort_order: number; question_text: string }[] | null
   createdAt: string
 }
 
@@ -124,6 +140,9 @@ export type Memo = {
   createdAt: string
 }
 
+// 【ドリフト】`invoices` テーブルは実DBに存在しない。実在は `billing_records`（列: billing_month / amount_jpy / tax_jpy / total_jpy / payment_status / invoice_pdf_url 等）。
+// billing 参照コード（admin/client billing）は `billing_records` 読みに修正済み（amount=amount_jpy / tax_amount=tax_jpy / period=billing_month→YYYY-MM / status=payment_status）。
+// ただし billing_records の writer（Stripe月末締めバッチ BATCH-001）は未実装のため、確定請求は現状空になり得る。
 export type Invoice = {
   id: string
   companyId: string
@@ -148,18 +167,22 @@ export type JobType = {
   createdAt: string
 }
 
+// 実DB suspension_requests に整合（CHECK: request_type=temporary|emergency / status=pending|approved|rejected|cancelled）
 export type SuspensionRequest = {
   id: string
   companyId: string
-  type: 'normal' | 'emergency'
-  reason: string | null
+  requestType: 'temporary' | 'emergency'
   status: 'pending' | 'approved' | 'rejected' | 'cancelled'
-  requestedAt: string
-  scheduledDate: string | null
-  processedAt: string | null
-  processedBy: string | null
+  reason: string | null
+  /** 実DBに存在する監査/予定列（現コードは未使用。承認/却下の監査記録は別タスク） */
+  requestedStartDate: string | null
+  reviewedBy: string | null
+  reviewedAt: string | null
+  reviewComment: string | null
+  createdAt: string
 }
 
+// 【ドリフト】`admin_users` テーブルは実DBに存在しない。admin 判定は `profiles.role`（admin / super_admin）で行う。
 export type AdminUser = {
   id: string
   email: string
@@ -184,6 +207,7 @@ export type SecurityAlert = {
   createdAt: string
 }
 
+// 【ドリフト】`audit_logs` テーブルは実DBに存在しない（監査ログ用テーブル未整備）。
 export type AuditLog = {
   id: string
   userId: string | null
@@ -196,6 +220,7 @@ export type AuditLog = {
   createdAt: string
 }
 
+// 【ドリフト】`question_bank` テーブルは実DBに存在しない。実在は `questions` / `question_patterns`（質問は job_questions / common_questions にも保持）。
 export type QuestionBank = {
   id: string
   category: string
@@ -208,12 +233,8 @@ export type QuestionBank = {
   updatedAt: string
 }
 
-export const PLAN_CONFIG = {
-  light: { name: 'ライト', price: 40000, maxInterviews: 10, csvDownload: false, dataRetentionDays: 180 },
-  standard: { name: 'スタンダード', price: 80000, maxInterviews: 20, csvDownload: true, dataRetentionDays: null },
-  pro: { name: 'プロ', price: 120000, maxInterviews: 30, csvDownload: true, dataRetentionDays: null },
-} as const
+/** 1面接あたりの単価（税別） */
+export const PRICE_PER_INTERVIEW = 4000
 
-export const SETUP_FEE = 200000
-
-export type PlanKey = keyof typeof PLAN_CONFIG
+/** 月間面接上限の最小値 */
+export const MIN_INTERVIEW_LIMIT = 5

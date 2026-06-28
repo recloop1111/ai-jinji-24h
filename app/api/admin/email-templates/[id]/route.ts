@@ -2,13 +2,13 @@ import { type NextRequest } from 'next/server'
 import { getAdminUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { isValidUUID } from '@/lib/api/validation'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminServerClient } from '@/lib/supabase/server'
 
 type RouteParams = { params: Promise<{ id: string }> }
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
-    const { data: _admin, error: authError } = await getAdminUser()
+    const { error: authError } = await getAdminUser()
     if (authError) return authError
 
     const { id } = await params
@@ -38,7 +38,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return apiError('VALIDATION_ERROR', '更新する項目がありません')
     }
 
-    const supabase = await createClient()
+    const supabase = await createAdminServerClient()
 
     const { data: template, error: updateError } = await supabase
       .from('email_templates')
@@ -59,7 +59,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
 export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   try {
-    const { data: _admin, error: authError } = await getAdminUser()
+    const { error: authError } = await getAdminUser()
     if (authError) return authError
 
     const { id } = await params
@@ -67,7 +67,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
       return apiError('VALIDATION_ERROR', 'IDの形式が不正です')
     }
 
-    const supabase = await createClient()
+    const supabase = await createAdminServerClient()
 
     const { error: deleteError } = await supabase
       .from('email_templates')

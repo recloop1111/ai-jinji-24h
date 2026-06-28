@@ -108,30 +108,68 @@
 | リフレッシュトークン | 有効 |
 
 #### RLS（Row Level Security）
-全テーブルでRLS有効化。主要ポリシー:
+全テーブルでRLS有効化。**RLSハードニング Phase 1 / 2-pre / 2-c / 2-d / 2-d-3 / 2-f を適用済み**（手動実行用SQL: `supabase/rls/`・migration外）。運営API・公開フロー（面接）の書き込みは **Service Role Key で RLS をバイパス**。**公開フローの anon 由来の漏洩/改竄リスクはクローズ済み**。
 
+主要ポリシー（現状）:
 | テーブル | ポリシー |
 |---------|---------|
-| companies | `auth.uid() = auth_user_id` で自社のみ |
-| applicants | `company_id` が自社のcompanies.idと一致 |
-| job_types | `company_id` が自社と一致 |
-| interviews | applicants経由で自社のみ |
-| reports | interviews経由で自社のみ |
-| internal_memos | `company_id` が自社と一致 |
-| email_templates | `company_id` が自社と一致 |
-| sent_emails | applicants経由で自社のみ |
+| applicants | client=自社のみ（`company_select_applicants` / `company_update_applicants`）／admin=全社SELECT（`admin_select_applicants`）。**anon は遮断（Phase 2-c）** |
+| interviews | client=自社のみ（`company_select_interviews`）／admin=全社SELECT（`admin_select_interviews`）。**anon は遮断（Phase 2-c）** |
+| interview_results | client=自社のみ（`company_select_interview_results`）／admin=全社（`admin_select_interview_results`）。**anon は遮断（Phase 1）** |
+| internal_memos / email_templates / sent_emails 等 | `company_id` 経由で自社のみ |
+| companies / common_questions | client=自社（`company_*`）／admin=全社SELECT（`admin_select_companies`）。**anon SELECT は遮断（Phase 2-d）**。公開フローの企業情報取得は **interview public-config API（service-role）** 経由 |
+| jobs / job_questions | client/admin=既存 company系/authenticated系。**anon SELECT は遮断（Phase 2-d-3）**。公開フローの求人取得は **interview public-config API**、面接質問取得は **questions API（service-role＋token）** 経由 |
+| culture_surveys / culture_survey_responses / culture_profiles | **社風機能は不採用・コード削除済み（Phase C）→ 死蔵テーブル**。`company_*`（`auth.uid()` company スコープ）で anon は実効遮断のまま。別タスク（C-4）で DROP 予定 |
+| applicant_feedback / cooldown_locks / interview_re_exam_records / otp_locks / satisfaction_ratings | 死蔵テーブル（コード未使用）。**public(true) policy を遮断済み（Phase 2-f）**＝RLS有効・service-role のみ到達。テーブル/データは不変 |
 
-運営APIはService Role Keyを使用しRLSをバイパス。
+ハードニング適用フェーズ:
+- **Phase 1（適用済）**: `interview_results` の anon SELECT/INSERT・authenticated true系を遮断、`company_select` 維持＋`admin_select_interview_results` 追加。
+- **Phase 2-pre（適用済）**: applicants/interviews の不要な authenticated true系（INSERT/UPDATE）を削除。
+- **Phase 2-c（適用済）**: applicants/interviews の anon insert/select/update を遮断、`company_*` 維持、`admin_select_applicants`/`admin_select_interviews` 追加。
+- **Phase 2-d（適用済）**: `companies` / `common_questions` の anon SELECT を遮断、`company_*` 維持、`admin_select_companies` 追加。
+- **Phase 2-d-3（適用済）**: `jobs` / `job_questions` の anon SELECT を遮断、company系/authenticated系を温存。
+- **Phase 2-f（適用済）**: 死蔵5テーブルの public(true) policy を遮断（service-role のみ到達）。
+- **culture_*（不採用・削除）**: 社風機能は不採用・コード削除済み（Phase C）。`culture_*` 3テーブルは実DB上 `auth.uid()` company スコープで anon 実効遮断のまま死蔵。C-4 で DROP 予定（docs/MIGRATION_SQL.md の古い `USING(true)` 記述は実DBと乖離・注記済み）。
+- 結果: **anon では interview_results / applicants / interviews / companies / common_questions / jobs / job_questions / culture_* / 死蔵5テーブル を読めない**（service-role では読める）。admin判定は `profiles.role IN ('admin','super_admin')`。
 
-#### 接続文字列
+#### Phase 2-a / 2-d-1: 公開面接フローの service-role API ＋ ケイパビリティ・トークン
+- 公開フロー（未ログイン）の主要**書き込み**は browser Supabase 直書きを廃し、**token付き service-role API** へ移行（applicants/interviews への browser 直書きは撤去済み）:
+  `POST /api/interview/[slug]/{applicant, start, end, satisfaction, snapshot}`
+- 公開フローの**読み取り**も service-role API 化（Phase 2-d-1）:
+  - `GET /api/interview/[slug]/public-config` — companies の**安全列のみ**（id/name/logo_url/interview_slug/is_suspended/is_demo/brand_color/avatar_config）＋当該企業の active jobs（id/title/employment_type）。機微列（email/phone/contact/price/plan/stripe/company_setting_password_hash/auth_user_id 等）は返さない。
+  - `POST /api/interview/[slug]/questions` — applicant.job_id 由来で `job_questions`（question_text / sort_order のみ・昇順）を取得（service-role＋token）。
+- **HMAC-SHA256 ケイパビリティ・トークン**（`lib/interview/capability-token.ts`）。payload `{ slug, applicant_id, iat, exp }`、署名鍵 = **`INTERVIEW_TOKEN_SECRET`**。各APIで slug / applicant_id / company / interview の整合を再検証。
+- `applicants.status` の確定（完了/途中離脱）は **end API（service-role）** で実施（anon は applicants を更新できないため）。`interviews.status` は `in_progress` / `completed` / `cancelled` 運用。
+- **`/interview/[slug]` 配下の browser Supabase 直アクセスは読み書きとも全撤去済み**。
+
+#### 社風アンケート（survey）/ culture fit — 不採用・削除済み（Phase C）
+- 社風分析 / 社員アンケート / culture profile / culture fit は質問設計と評価軸の整合が取りにくく根拠が弱いため**不採用**。`app/survey/*`・`/api/survey/*`・`/client/culture-analysis`・culture 質問/表示コードは**削除済み**。評価の中心は **EBCA**（質問非依存）。
+- DB の `culture_surveys` / `culture_survey_responses` / `culture_profiles`（テーブル）・`companies.culture_analysis_enabled`・`interview_results.culture_fit_score` / `culture_fit_detail` / `big_five_scores`（列）はコード参照ゼロの**死蔵**。anon は `auth.uid()` company スコープで実効遮断のまま、別タスク（C-4）で DROP 予定（要バックアップ）。
+
+#### RLSハードニング残課題（低優先 cleanup / 別タスク）
+- **`roles={public}` → `{authenticated}` の relabel cleanup**（多数の company_* policy。`auth.uid()` 条件付きで即時漏洩は無いが、ラベルの明示化は低優先 cleanup 候補）。
+- **死蔵テーブル/列の DROP**（culture_* 一式 ＋ satisfaction_ratings 等）/ **死蔵API削除** / **既存lint整理** は別タスク。
+- **有料API系（OpenAI Realtime / Twilio / Cloudflare R2 / Stripe / Resend）＋ EBCA評価 writer** ＋ **本番前E2Eチェックリスト** は最後にまとめて。
+
+#### 接続文字列 / サーバ専用シークレット
 ```
 # クライアント（ブラウザ）
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 
-# サーバー（API Routes）
+# サーバー（API Routes 専用。NEXT_PUBLIC_ を付けない・値はコミット禁止）
 SUPABASE_SERVICE_ROLE_KEY=sb_secret_...
+# 公開面接フローの HMAC ケイパビリティ・トークン署名/検証に使用。.env.local と本番環境変数に設定。
+INTERVIEW_TOKEN_SECRET=（十分に長いランダム文字列）
+# ログイン スロットル（account/IP）の scope_key HMAC-SHA256 署名鍵。サーバー専用（NEXT_PUBLIC 不可）。
+# - 生成例: `openssl rand -hex 32`（32バイト=64hex 以上必須）。値はコミット禁止（.env.local / Vercel Env のみ）。
+# - 未設定時はログインAPIが 503 fail closed（NODE_ENV=test を除く）。
+# - 同じ Supabase DB へ接続する全環境（dev/staging/prod）で **同一の鍵** を使用すること。
+#   鍵を変更すると scope_key が変わり、既存の auth_login_throttles のロック判定キーが変化（＝既存ブロックが実質リセット）する。
+AUTH_LOGIN_THROTTLE_SECRET=（openssl rand -hex 32 で生成したランダム値）
 ```
+
+> 外部有料API（OpenAI Realtime / Twilio Verify / Cloudflare R2 / Stripe / Resend）は**未導入または最後にまとめてE2E確認**する方針。現時点は外部有料API導入なしで DB / API / RLS の土台を整備中（SMS認証は現状「1234」モック）。
 
 ---
 
@@ -144,7 +182,7 @@ SUPABASE_SERVICE_ROLE_KEY=sb_secret_...
 | **用途③ フィードバック生成** | GPT API (gpt-4o-mini) |
 | **接続方式（面接）** | ブラウザWebRTC直接接続 |
 | **接続方式（レポート）** | サーバーサイドHTTP API |
-| **リアルタイム最大時間** | 40分/セッション |
+| **リアルタイム最大時間** | 60分/セッション |
 | **レポート生成目標** | 5分以内 |
 | **フィードバック生成目標** | 20秒以内 |
 
@@ -173,7 +211,7 @@ SUPABASE_SERVICE_ROLE_KEY=sb_secret_...
 | **用途** | 面接録画動画の保存・配信 |
 | **バケットタイプ** | Private |
 | **バケット名** | `ai-jinji-24h-recordings` |
-| **保存期間** | 90日（ライフサイクルルールで自動削除） |
+| **保存期間** | 180日（ライフサイクルルールで自動削除） |
 | **動画フォーマット** | WebM (VP9), 1280x720, 30fps |
 | **アップロード方式** | マルチパートアップロード（パートサイズ 5MiB以上） |
 | **配信方式** | 署名付きURL（有効期限10分、IP制限） |
@@ -225,13 +263,12 @@ R2_BUCKET_NAME=ai-jinji-24h-recordings
 | **Webhook** | `/api/webhooks/stripe` |
 
 #### Stripe Product/Price設計
-| Product | Price ID | 金額（税別） | 面接件数 |
-|---------|----------|-------------|---------|
-| プランA | `price_plan_a` | ¥60,000/月 | 〜10件 |
-| プランB | `price_plan_b` | ¥120,000/月 | 〜20件 |
-| プランC | `price_plan_c` | ¥180,000/月 | 〜30件 |
-| 初期費用 | `price_setup` | ¥200,000（一括） | - |
-| 職種追加 | `price_job_type` | ¥100,000（一括） | - |
+> 旧月額固定プラン（プランA/B/C）は廃止。現行は従量課金（1面接・1人あたり単価制）。
+| Product | 金額（税別） | 備考 |
+|---------|-------------|------|
+| 面接従量課金 | ¥4,000 / 人（通常）・¥3,000 / 人 等（特別契約） | 請求額 = 当月課金対象人数 × companies.price_per_interview。月末締め・月次請求 |
+| 初期費用 | ¥200,000（一括） | 導入セットアップ |
+| 職種追加 | ¥100,000（一括） | 職種別質問設計 |
 
 #### Webhook処理対象イベント
 | イベント | 処理 |
@@ -355,6 +392,8 @@ SENTRY_PROJECT=ai-jinji-24h
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | 開発URL | ステージングURL | 本番URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | 開発Key | ステージングKey | 本番Key |
 | `SUPABASE_SERVICE_ROLE_KEY` | No | 開発Key | ステージングKey | 本番Key |
+| `INTERVIEW_TOKEN_SECRET` | No | 開発用ランダム値 | ステージング用 | 本番用ランダム値 |
+| `AUTH_LOGIN_THROTTLE_SECRET` | No | ランダム値(32B+) | 同左 | 同左（**同一DB接続環境は同じ鍵**） |
 | `OPENAI_API_KEY` | No | テスト用 | テスト用 | 本番Key |
 | `STRIPE_SECRET_KEY` | No | sk_test_ | sk_test_ | sk_live_ |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Yes | pk_test_ | pk_test_ | pk_live_ |
@@ -388,8 +427,8 @@ SENTRY_PROJECT=ai-jinji-24h
 |---|-----------|------|-----|
 | 1 | `companies` | 契約企業 | ✅ |
 | 2 | `job_types` | 企業別職種 | ✅ |
-| 3 | `question_banks` | 質問バンク（パターン） | ✅ |
-| 4 | `questions` | 質問マスタ | ✅ |
+| 3 | `question_banks` | **旧質問スキーマ・コード撤去済み（D-1/D-2）→ 死蔵**。現行は `common_questions` / `job_questions`。`supabase/rls/phase_d3_drop_legacy_question_schema.sql` で DROP 予定（未実行） | - |
+| 4 | `questions` | **旧質問スキーマ・コード撤去済み（D-1/D-2）→ 死蔵**。D-3 で DROP 予定（未実行） | - |
 | 5 | `applicants` | 応募者 | ✅ |
 | 6 | `interviews` | 面接セッション | ✅ |
 | 7 | `interview_logs` | 面接発話ログ | ✅ |
@@ -401,9 +440,9 @@ SENTRY_PROJECT=ai-jinji-24h
 | 13 | `selection_status_histories` | ステータス変更履歴 | ✅ |
 | 14 | `email_templates` | メールテンプレート | ✅ |
 | 15 | `sent_emails` | メール送信履歴 | ✅ |
-| 16 | `satisfaction_ratings` | 満足度評価 | - |
+| 16 | `satisfaction_ratings` | 満足度評価（**死蔵テーブル**：現コード上の書き込み元なし。実データ保存先は `applicants.satisfaction_rating`） | - |
 | 17 | `applicant_feedbacks` | 応募者フィードバック（一時保存） | - |
-| 18 | `invoices` | 請求書 | ✅ |
+| 18 | `billing_records` | 確定請求記録（請求履歴の正。列: billing_month / amount_jpy / tax_jpy / total_jpy / payment_status / invoice_pdf_url 等）。**writer（BATCH-001/Stripe月末締め）未実装のため現状0件**。`invoices` テーブルは実DBに存在しない | - |
 | 19 | `subscription_plans` | プランマスタ | - |
 | 20 | `suspension_requests` | 停止申請 | ✅ |
 | 21 | `admin_users` | 運営ユーザー | - |
@@ -424,17 +463,36 @@ CREATE TABLE companies (
   name TEXT NOT NULL,
   email TEXT NOT NULL,
   interview_slug TEXT NOT NULL UNIQUE,
-  plan TEXT NOT NULL DEFAULT 'A' CHECK (plan IN ('A', 'B', 'C', 'custom')),
-  plan_limit INTEGER NOT NULL DEFAULT 10,
-  auto_upgrade BOOLEAN NOT NULL DEFAULT false,
+  -- 契約種別: pay_per_use(通常) / custom(特別契約・運営のみ設定)。旧 A/B/C は廃止
+  plan TEXT NOT NULL DEFAULT 'pay_per_use' CHECK (plan IN ('pay_per_use', 'custom')),
+  -- 1面接・1人あたり単価（税別）。通常=4000 / 特別契約=運営が任意（例3000）
+  price_per_interview INTEGER NOT NULL DEFAULT 4000,
+  -- 今月の月間上限（最低5人。上限到達で受付停止）
+  monthly_interview_limit INTEGER NOT NULL DEFAULT 5,
+  -- 翌月上限予約（企業側は翌月分のみ変更可。即時反映しない）
+  next_month_interview_limit INTEGER,                 -- null=予約なし
+  next_month_limit_effective_month DATE,              -- 適用月=必ず翌月1日。null=予約なし
+  -- 企業設定変更用パスワード（ログインPWとは別。hash保存・平文禁止）
+  company_setting_password_hash TEXT,
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
+  is_suspended BOOLEAN NOT NULL DEFAULT false,
   onboarding_completed BOOLEAN NOT NULL DEFAULT false,
   stripe_customer_id TEXT,
   stripe_subscription_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 運営管理設定変更用パスワード（ログインPWとは別。単一行運用 id='default'。hash保存・平文禁止）
+CREATE TABLE admin_security_settings (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  setting_password_hash TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- RLS有効・ポリシー無し（anon/authenticated不可、service roleのみアクセス）
 ```
+> 旧カラム `plan_limit` / `auto_upgrade` は廃止。料金計算は `price_per_interview`、上限管理は `monthly_interview_limit` を使用。
 
 #### applicants
 ```sql
@@ -664,7 +722,7 @@ const securityHeaders = [
 | ログ種別 | 保存先 | 保持期間 |
 |---------|--------|---------|
 | アプリケーションログ | Vercel Logs | 7日（Proプラン） |
-| エラーログ | Sentry | 90日 |
+| エラーログ | Sentry | 180日 |
 | DBクエリログ | Supabase Dashboard | 7日 |
 | アクセスログ | Vercel Analytics | 30日 |
 | ログイン試行ログ | login_attempts テーブル | 永年 |

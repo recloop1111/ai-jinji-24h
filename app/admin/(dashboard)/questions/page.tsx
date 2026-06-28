@@ -15,7 +15,7 @@ type QuestionItem = {
 
 // TODO: 実データに差替え
 const COMMON_QUESTIONS = [
-  { id: 'ice-1', label: '冒頭1', category: 'アイスブレイク', question: '本日はお時間をいただきありがとうございます。これから約30〜40分の面接を行います。途中で聞き取りにくい点があれば遠慮なくお知らせください。本日の体調は問題ありませんか？' },
+  { id: 'ice-1', label: '冒頭1', category: 'アイスブレイク', question: '本日はお時間をいただきありがとうございます。これから約30〜60分の面接を行います。途中で聞き取りにくい点があれば遠慮なくお知らせください。本日の体調は問題ありませんか？' },
   { id: 'ice-2', label: '冒頭2', category: 'アイスブレイク', question: 'ありがとうございます。面接を始める前に、最近あった嬉しかったことや、ちょっとした楽しみにしていることがあれば気軽に教えてください。' },
   { id: 'close-1', label: 'クロージング', category: 'クロージング', question: '面接は以上となります。最後に、何かご質問や伝えておきたいことはありますか？本日はお忙しい中、ありがとうございました。' },
 ]
@@ -209,7 +209,7 @@ const PATTERN_LABELS: Record<string, string> = {
 
 const SET_LABELS: Record<string, string> = {
   A: 'セットA：スタンダード',
-  B: 'セットB：カルチャーフィット重視',
+  B: 'セットB：人物・ポテンシャル重視',
   C: 'セットC：スキル・論理性重視',
 }
 
@@ -246,7 +246,7 @@ export default function QuestionsPage() {
             <p className="text-xs text-blue-400 mt-3">おすすめ業界：全業界対応</p>
           </div>
           <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-5 border-t-2 border-t-emerald-500">
-            <p className="text-lg font-semibold text-white">セットB：カルチャーフィット重視</p>
+            <p className="text-lg font-semibold text-white">セットB：人物・ポテンシャル重視</p>
             <p className="text-sm text-gray-400 mt-2 leading-relaxed">人柄・対人スキル・ホスピタリティを深く見る構成。人と接する仕事に最適。</p>
             <p className="text-xs text-emerald-400 mt-3">おすすめ業界：飲食、小売、サービス、医療・介護、教育</p>
           </div>

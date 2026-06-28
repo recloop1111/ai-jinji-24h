@@ -1,91 +1,112 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Link as LinkIcon, User, Info, X, Check } from 'lucide-react'
+import { useParams, useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { ArrowLeft, Link as LinkIcon, User, Info, X } from 'lucide-react'
 import JobManager from '@/components/shared/JobManager'
 import QuestionEditor from '@/components/shared/QuestionEditor'
+import PasswordInput from '@/components/shared/PasswordInput'
+import { normalizeDigits } from '@/lib/utils/normalizeDigits'
 
 const CARD_BASE = 'bg-gradient-to-br from-white/[0.07] to-white/[0.02] backdrop-blur-2xl border border-white/[0.08] rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)]'
 
-const EVALUATION_AXES = [
-  { name: 'コミュニケーション力', weight: 20 },
-  { name: '論理的思考力', weight: 20 },
-  { name: '業界適性・経験値', weight: 15 },
-  { name: '主体性・意欲', weight: 20 },
-  { name: '組織適合性（チームフィット）', weight: 15 },
-  { name: 'ストレス耐性', weight: 10 },
-]
+// 翌月1日（YYYY-MM-01）を JST 基準で返す（表示整合用）。
+// ※ 予約の実値はサーバ(admin PATCH API)が JST で確定するため、ここは表示のみ。
+//    server専用 helper（applyNextMonthLimit.ts は service-role client を import）を
+//    client component に取り込まないよう、ローカルに JST 実装する。
+function firstOfNextMonth(): string {
+  const j = new Date(Date.now() + 9 * 60 * 60 * 1000) // UTC+9（JST）
+  const y = j.getUTCFullYear()
+  const m = j.getUTCMonth()
+  const n = new Date(Date.UTC(y, m + 1, 1))
+  return `${n.getUTCFullYear()}-${String(n.getUTCMonth() + 1).padStart(2, '0')}-01`
+}
 
-const MONTHLY_USAGE = [
-  { month: '2025-02', used: 14, limit: 20, plan: 'スタンダード', atLimit: false },
-  { month: '2025-01', used: 18, limit: 20, plan: 'スタンダード', atLimit: false },
-  { month: '2024-12', used: 12, limit: 20, plan: 'スタンダード', atLimit: false },
-  { month: '2024-11', used: 20, limit: 20, plan: 'スタンダード', atLimit: true },
-  { month: '2024-10', used: 8, limit: 20, plan: 'スタンダード', atLimit: false },
-]
-
-const PLAN_OPTIONS = [
-  { 
-    value: 'light', 
-    label: 'ライト', 
-    interviews: '月1〜10件',
-    price: '¥40,000（税別）/ 月',
-    features: ['CSVダウンロード: 利用可能', 'データ保持: 無期限（動画のみ180日で自動削除）']
-  },
-  { 
-    value: 'standard', 
-    label: 'スタンダード', 
-    interviews: '月11〜20件',
-    price: '¥80,000（税別）/ 月',
-    features: ['CSVダウンロード: 利用可能', 'データ保持: 無期限（動画のみ180日で自動削除）']
-  },
-  { 
-    value: 'pro', 
-    label: 'プロ', 
-    interviews: '月21〜30件',
-    price: '¥120,000（税別）/ 月',
-    features: ['CSVダウンロード: 利用可能', 'データ保持: 無期限（動画のみ180日で自動削除）']
-  },
-  { 
-    value: 'payperuse', 
-    label: '31件目以降', 
-    interviews: '月31件以上',
-    price: '¥3,500/件（従量課金）',
-    features: ['31件目以降は自動的に¥3,500/件で従量課金', 'CSVダウンロード: 利用可能', 'データ保持: 無期限（動画のみ180日で自動削除）']
-  },
+// EBCA（Evidence-based Competency Analysis）の評価6軸（読み取り専用・表示用）。
+// 質問ごとの固定重み設定は行わず、AIが回答内容・根拠・一貫性から総合評価する方針。
+const EBCA_AXES = [
+  { name: 'コミュニケーション', desc: '相手に伝わる説明・対話の的確さ' },
+  { name: '論理的思考', desc: '筋道立てた説明・一貫性' },
+  { name: '主体性', desc: '自ら考え行動する姿勢・当事者意識' },
+  { name: '志望度', desc: '志望理由の具体性・熱意' },
+  { name: 'ストレス耐性', desc: '困難局面での落ち着き・対処' },
+  { name: '誠実性', desc: '回答の正直さ・一貫した態度' },
 ]
 
 const TABS = ['基本情報', 'ブランド設定', 'アバター設定', '質問設定', '評価設定', '求人管理', '利用状況', 'セキュリティ'] as const
 
+// タブ状態を URL query(?tab=<slug>) に保持して、応募者一覧などへ遷移→戻った時に元タブへ復帰させる。
+const TAB_SLUGS: Record<(typeof TABS)[number], string> = {
+  '基本情報': 'basic',
+  'ブランド設定': 'brand',
+  'アバター設定': 'avatar',
+  '質問設定': 'questions',
+  '評価設定': 'evaluation',
+  '求人管理': 'jobs',
+  '利用状況': 'usage',
+  'セキュリティ': 'security',
+}
+const SLUG_TO_TAB: Record<string, (typeof TABS)[number]> = Object.fromEntries(
+  Object.entries(TAB_SLUGS).map(([tab, slug]) => [slug, tab as (typeof TABS)[number]]),
+)
+
 export default function CompanyDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const companyId = params.id as string
   const [company, setCompany] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
-  const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>('基本情報')
+  // 初期タブは URL の ?tab=<slug> から復元（不正/未指定なら基本情報）
+  const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>(
+    () => SLUG_TO_TAB[searchParams.get('tab') ?? ''] ?? '基本情報',
+  )
+
+  // タブ選択は URL(?tab=)も更新する（履歴を増やさず replace）。別ページへ push して戻った時に元タブへ復帰する。
+  const selectTab = (tab: (typeof TABS)[number]) => {
+    setActiveTab(tab)
+    const sp = new URLSearchParams(searchParams.toString())
+    sp.set('tab', TAB_SLUGS[tab])
+    router.replace(`${pathname}?${sp.toString()}`, { scroll: false })
+  }
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
 
   // モーダル state
   const [stopModalOpen, setStopModalOpen] = useState(false)
   const [resumeModalOpen, setResumeModalOpen] = useState(false)
-  const [planModalOpen, setPlanModalOpen] = useState(false)
+  // 停止/再開は重要操作のため運営設定パスワード必須
+  const [contractPw, setContractPw] = useState('')
+  const [contractPwError, setContractPwError] = useState('')
+  const [contractSaving, setContractSaving] = useState(false)
+  const [limitModalOpen, setLimitModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
-  const [selectedPlan, setSelectedPlan] = useState('')
+  const [newLimitStr, setNewLimitStr] = useState('20')
+  const [limitSaving, setLimitSaving] = useState(false)
+  const [monthlyUsedCount, setMonthlyUsedCount] = useState(0)
+  const [adminPassword, setAdminPassword] = useState('')
+  const [limitError, setLimitError] = useState('')
+  const [showAdminPassword, setShowAdminPassword] = useState(false)
+
+  // 契約・上限設定（重要設定）state
+  const [csPlan, setCsPlan] = useState<'pay_per_use' | 'custom'>('pay_per_use')
+  const [csPrice, setCsPrice] = useState('')
+  const [csMonthlyLimit, setCsMonthlyLimit] = useState('')
+  const [csNextLimit, setCsNextLimit] = useState('')
+  const [csStatus, setCsStatus] = useState<'active' | 'suspended'>('active')
+  const [csSettingPw, setCsSettingPw] = useState('')
+  const [csError, setCsError] = useState('')
+  const [csSaving, setCsSaving] = useState(false)
+  const [csConfirmOpen, setCsConfirmOpen] = useState(false)
 
   // 企業情報編集 state
   const [editName, setEditName] = useState('')
-  const [editRepresentativeName, setEditRepresentativeName] = useState('')
   const [editContactName, setEditContactName] = useState('')
   const [editContactEmail, setEditContactEmail] = useState('')
   const [editContactPhone, setEditContactPhone] = useState('')
-  const [editAddress, setEditAddress] = useState('')
   const [editIndustry, setEditIndustry] = useState('')
-  const [editEmployeeCount, setEditEmployeeCount] = useState('')
 
   // ブランド設定 state
   const [displayName, setDisplayName] = useState('')
@@ -100,19 +121,33 @@ export default function CompanyDetailPage() {
   const [voiceType, setVoiceType] = useState<'alloy' | 'nova' | 'echo'>('alloy')
   const [toneTemplate, setToneTemplate] = useState('です・ます調（丁寧）')
 
-  // 評価設定 state
-  const [axes, setAxes] = useState(EVALUATION_AXES.map((a) => ({ ...a })))
-  const totalWeight = axes.reduce((sum, a) => sum + a.weight, 0)
-
   useEffect(() => {
     async function fetchCompany() {
-      const supabase = createClient()
-      const { data } = await supabase.from('companies').select('*').eq('id', companyId).single()
-      if (data) {
-        setCompany(data)
-        setDisplayName(data.name || '')
-        setSelectedPlan(data.plan || 'free')
-        setLogoPreview(data.logo_url || null)
+      try {
+        const res = await fetch(`/api/admin/companies/${companyId}`)
+        const json = await res.json()
+        if (res.ok && json.company) {
+          const data = json.company
+          setCompany(data)
+          setDisplayName(data.name || '')
+          setLogoPreview(data.logo_url || null)
+          setMonthlyUsedCount(data.monthly_interview_count_actual ?? data.monthly_interview_count ?? 0)
+          // 契約・上限設定フォームの初期化
+          setCsPlan(data.plan === 'custom' ? 'custom' : 'pay_per_use')
+          setCsPrice(String(data.price_per_interview ?? 4000))
+          setCsMonthlyLimit(String(data.monthly_interview_limit ?? 5))
+          setCsNextLimit(data.next_month_interview_limit != null ? String(data.next_month_interview_limit) : '')
+          setCsStatus(data.is_suspended ? 'suspended' : 'active')
+          // アバター設定（companies.avatar_config jsonb）から復元（保存値がリロードで残るように）
+          const ac = (data.avatar_config ?? null) as { name?: string; voice?: string; tone?: string } | null
+          if (ac) {
+            if (typeof ac.name === 'string' && ac.name) setAvatarName(ac.name)
+            if (ac.voice === 'alloy' || ac.voice === 'nova' || ac.voice === 'echo') setVoiceType(ac.voice)
+            if (typeof ac.tone === 'string' && ac.tone) setToneTemplate(ac.tone)
+          }
+        }
+      } catch {
+        // fetch failed
       }
       setLoading(false)
     }
@@ -147,95 +182,185 @@ export default function CompanyDetailPage() {
 
   const openEditModal = () => {
     setEditName(company?.name || '')
-    setEditRepresentativeName(company?.representative_name || '')
-    setEditContactName(company?.contact_name || company?.contact_person || '')
+    setEditContactName(company?.contact_person || '')
     setEditContactEmail(company?.contact_email || company?.email || '')
-    setEditContactPhone(company?.contact_phone || company?.phone || '')
-    setEditAddress(company?.address || '')
+    setEditContactPhone(company?.phone || '')
     setEditIndustry(company?.industry || '')
-    setEditEmployeeCount(company?.employee_count?.toString() || '')
     setEditModalOpen(true)
   }
 
-  async function saveCompanyInfo() {
-    const supabase = createClient()
-    await supabase
-      .from('companies')
-      .update({
-        name: editName,
-        representative_name: editRepresentativeName,
-        contact_name: editContactName,
-        contact_email: editContactEmail,
-        contact_phone: editContactPhone,
-        address: editAddress,
-        industry: editIndustry,
-        employee_count: editEmployeeCount ? parseInt(editEmployeeCount) : null,
-        updated_at: new Date().toISOString(),
+  async function patchCompany(updates: Record<string, any>): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const res = await fetch(`/api/admin/companies/${companyId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
       })
-      .eq('id', companyId)
+      if (!res.ok) {
+        const json = await res.json().catch(() => null)
+        return { ok: false, error: json?.error?.message || '更新に失敗しました' }
+      }
+      return { ok: true }
+    } catch {
+      return { ok: false, error: '通信エラーが発生しました' }
+    }
+  }
+
+  async function saveCompanyInfo() {
+    const result = await patchCompany({
+      name: editName,
+      contact_person: editContactName,
+      contact_email: editContactEmail,
+      phone: editContactPhone,
+      industry: editIndustry,
+    })
+    if (!result.ok) {
+      showToast(result.error || '保存に失敗しました')
+      return
+    }
     setEditModalOpen(false)
     showToast('企業情報を保存しました')
     setRefreshTrigger((t) => t + 1)
   }
 
-  async function savePlanChange(planValue?: string) {
-    const newPlan = planValue || selectedPlan
-    const supabase = createClient()
-    await supabase
-      .from('companies')
-      .update({
-        plan: newPlan,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', companyId)
-    setSelectedPlan(newPlan)
-    setPlanModalOpen(false)
-    showToast('プランを変更しました')
+  // 契約・上限設定（重要設定）の保存
+  function openContractConfirm() {
+    setCsError('')
+    const price = parseInt(csPrice, 10)
+    const monthly = parseInt(csMonthlyLimit, 10)
+    if (!Number.isInteger(price) || price < 0) {
+      setCsError('単価は0以上の整数で入力してください')
+      return
+    }
+    if (!Number.isInteger(monthly) || monthly < 5) {
+      setCsError('今月の月間上限は5以上の整数で入力してください')
+      return
+    }
+    if (csNextLimit.trim() !== '') {
+      const n = parseInt(normalizeDigits(csNextLimit), 10)
+      if (!Number.isInteger(n) || n < 5) {
+        setCsError('翌月上限は5以上の整数、または空欄にしてください')
+        return
+      }
+    }
+    if (!csSettingPw) {
+      setCsError('運営管理設定変更用パスワードを入力してください')
+      return
+    }
+    setCsConfirmOpen(true)
+  }
+
+  async function saveContractSettings() {
+    const price = parseInt(csPrice, 10)
+    const monthly = parseInt(csMonthlyLimit, 10)
+    const nextLimit = csNextLimit.trim() === '' ? null : parseInt(normalizeDigits(csNextLimit), 10)
+    // 翌月上限の適用開始日は必ず翌月1日（任意日入力は採用しない）。予約なしなら null。
+    const effMonth = nextLimit != null ? firstOfNextMonth() : null
+
+    setCsSaving(true)
+    const result = await patchCompany({
+      plan: csPlan,
+      price_per_interview: price,
+      monthly_interview_limit: monthly,
+      next_month_interview_limit: nextLimit,
+      next_month_limit_effective_month: effMonth,
+      status: csStatus,
+      is_suspended: csStatus === 'suspended',
+      adminSettingPassword: csSettingPw,
+    })
+    setCsSaving(false)
+    if (!result.ok) {
+      setCsConfirmOpen(false)
+      setCsError(result.error || '保存に失敗しました')
+      return
+    }
+    setCsConfirmOpen(false)
+    setCsSettingPw('')
+    showToast('重要設定を保存しました')
     setRefreshTrigger((t) => t + 1)
+  }
+
+  async function saveLimitChange() {
+    const parsedLimit = parseInt(newLimitStr, 10)
+    if (isNaN(parsedLimit) || parsedLimit < 5) {
+      setLimitError('月間上限は5件以上の数値を入力してください')
+      return
+    }
+    if (parsedLimit < monthlyUsedCount) {
+      setLimitError(`当月利用人数（${monthlyUsedCount}件）未満には設定できません`)
+      return
+    }
+    if (!adminPassword) {
+      setLimitError('設定変更用パスワードを入力してください')
+      return
+    }
+    setLimitError('')
+    setLimitSaving(true)
+    try {
+      const res = await fetch(`/api/admin/companies/${companyId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ monthly_interview_limit: parsedLimit, adminSettingPassword: adminPassword }),
+      })
+      const json = await res.json()
+      setLimitSaving(false)
+      if (!res.ok) {
+        setLimitError(json.error?.message || '更新に失敗しました')
+        return
+      }
+      setLimitModalOpen(false)
+      setAdminPassword('')
+      setLimitError('')
+      showToast('月間上限を変更しました')
+      setRefreshTrigger((t) => t + 1)
+    } catch {
+      setLimitSaving(false)
+      setLimitError('通信エラーが発生しました')
+    }
   }
 
   async function saveBrandSettings() {
-    const supabase = createClient()
-    await supabase
-      .from('companies')
-      .update({
-        name: displayName,
-        logo_url: logoPreview,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', companyId)
-    showToast('ブランド設定を保存しました')
-    setRefreshTrigger((t) => t + 1)
+    const result = await patchCompany({ name: displayName, logo_url: logoPreview })
+    showToast(result.ok ? 'ブランド設定を保存しました' : (result.error || '保存に失敗しました'))
+    if (result.ok) setRefreshTrigger((t) => t + 1)
   }
 
   async function handleStopContract() {
-    const supabase = createClient()
-    await supabase
-      .from('companies')
-      .update({
-        is_suspended: true,
-        status: 'suspended',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', companyId)
-    setStopModalOpen(false)
-    showToast('契約を停止しました')
-    setRefreshTrigger((t) => t + 1)
+    if (!contractPw) {
+      setContractPwError('運営管理設定変更用パスワードを入力してください')
+      return
+    }
+    setContractPwError('')
+    setContractSaving(true)
+    const result = await patchCompany({ is_suspended: true, status: 'suspended', adminSettingPassword: contractPw })
+    setContractSaving(false)
+    if (result.ok) {
+      setStopModalOpen(false)
+      setContractPw('')
+      showToast('契約を停止しました')
+      setRefreshTrigger((t) => t + 1)
+    } else {
+      setContractPwError(result.error || '停止に失敗しました')
+    }
   }
 
   async function handleResumeContract() {
-    const supabase = createClient()
-    await supabase
-      .from('companies')
-      .update({
-        is_suspended: false,
-        status: 'active',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', companyId)
-    setResumeModalOpen(false)
-    showToast('契約を再開しました')
-    setRefreshTrigger((t) => t + 1)
+    if (!contractPw) {
+      setContractPwError('運営管理設定変更用パスワードを入力してください')
+      return
+    }
+    setContractPwError('')
+    setContractSaving(true)
+    const result = await patchCompany({ is_suspended: false, status: 'active', adminSettingPassword: contractPw })
+    setContractSaving(false)
+    if (result.ok) {
+      setResumeModalOpen(false)
+      setContractPw('')
+      showToast('契約を再開しました')
+      setRefreshTrigger((t) => t + 1)
+    } else {
+      setContractPwError(result.error || '再開に失敗しました')
+    }
   }
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -259,23 +384,15 @@ export default function CompanyDetailPage() {
   }
 
   async function saveAvatarSettings() {
-    const supabase = createClient()
-    await supabase
-      .from('companies')
-      .update({
-        avatar_url: avatarPreview,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', companyId)
-    showToast('アバター設定を保存しました')
+    // 保存先は companies.avatar_config（jsonb）。画像は R2/Storage 導入まで保存せず UI プレビューのみ。
+    const result = await patchCompany({
+      avatar_config: { name: avatarName, voice: voiceType, tone: toneTemplate },
+    })
+    showToast(result.ok ? 'アバター設定を保存しました' : (result.error || '保存に失敗しました'))
   }
 
-  async function deleteAvatarImage() {
-    const supabase = createClient()
-    await supabase
-      .from('companies')
-      .update({ avatar_url: null, updated_at: new Date().toISOString() })
-      .eq('id', companyId)
+  function deleteAvatarImage() {
+    // 画像は未保存（一時プレビュー扱い）。削除はローカルのプレビュー解除のみ。
     setAvatarPreview(null)
     showToast('アバター画像を削除しました')
   }
@@ -338,7 +455,7 @@ export default function CompanyDetailPage() {
             <button
               key={tab}
               type="button"
-              onClick={() => setActiveTab(tab)}
+              onClick={() => selectTab(tab)}
               className={`shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
                 activeTab === tab
                   ? 'bg-white/10 text-white'
@@ -359,12 +476,8 @@ export default function CompanyDetailPage() {
                 <p className="text-sm text-white mt-1">{company?.name || '未設定'}</p>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">代表者名</label>
-                <p className="text-sm text-white mt-1">{company?.representative_name || '未設定'}</p>
-              </div>
-              <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">担当者名</label>
-                <p className="text-sm text-white mt-1">{company?.contact_name || company?.contact_person || '未設定'}</p>
+                <p className="text-sm text-white mt-1">{company?.contact_person || '未設定'}</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">担当者メール</label>
@@ -372,31 +485,35 @@ export default function CompanyDetailPage() {
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">担当者電話</label>
-                <p className="text-sm text-white mt-1">{company?.contact_phone || company?.phone || '未設定'}</p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">所在地</label>
-                <p className="text-sm text-white mt-1">{company?.address || '未設定'}</p>
+                <p className="text-sm text-white mt-1">{company?.phone || '未設定'}</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">業種</label>
                 <p className="text-sm text-white mt-1">{company?.industry || '未設定'}</p>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">従業員数</label>
-                <p className="text-sm text-white mt-1">{company?.employee_count ? `${company.employee_count}名` : '未設定'}</p>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">契約種別（内部）</label>
+                <p className="text-sm text-white mt-1">
+                  {company?.plan === 'custom' ? '特別契約（custom）' : '通常契約（pay_per_use）'}
+                  <span className="text-xs text-gray-400 ml-2">¥{(company?.price_per_interview ?? 4000).toLocaleString()} / 面接・人（税別）</span>
+                </p>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">契約プラン</label>
-                <p className="text-sm text-white mt-1">{PLAN_OPTIONS.find(p => p.value === company?.plan)?.label || company?.plan || '未設定'}</p>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">月間面接上限</label>
+                <p className="text-sm text-white mt-1">{company?.monthly_interview_limit ?? 0}件</p>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">契約開始日</label>
-                <p className="text-sm text-white mt-1">{company?.contract_start_date || '未設定'}</p>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">当月利用人数</label>
+                <p className="text-sm text-white mt-1">{monthlyUsedCount}件</p>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">次回更新日</label>
-                <p className="text-sm text-white mt-1">{company?.next_renewal_date || '未設定'}</p>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">ステータス</label>
+                <p className="text-sm mt-1">
+                  <span className={`inline-flex items-center gap-1 border rounded-full px-2.5 py-0.5 text-xs ${statusConfig.className}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${statusType === 'active' ? 'bg-emerald-400' : statusType === 'suspended' ? 'bg-red-400' : 'bg-gray-500'}`} />
+                    {statusConfig.label}
+                  </span>
+                </p>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">面接URL</label>
@@ -404,19 +521,23 @@ export default function CompanyDetailPage() {
                   {interviewUrl || '未設定'}
                 </button>
               </div>
+              <div>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">作成日</label>
+                <p className="text-sm text-white mt-1">{company?.created_at ? new Date(company.created_at).toLocaleDateString('ja-JP') : '未設定'}</p>
+              </div>
             </div>
             <div className="flex flex-wrap gap-3 pt-4 border-t border-white/[0.06]">
               <button
                 type="button"
-                onClick={() => { setSelectedPlan(company?.plan || 'free'); setPlanModalOpen(true) }}
+                onClick={() => { setNewLimitStr(String(company?.monthly_interview_limit ?? 20)); setAdminPassword(''); setLimitError(''); setShowAdminPassword(false); setLimitModalOpen(true) }}
                 className="bg-blue-500/10 text-blue-400 hover:bg-blue-500/15 border border-blue-500/20 rounded-xl px-4 py-2 text-sm transition-colors"
               >
-                プラン変更
+                上限人数を変更
               </button>
               {statusType === 'active' ? (
                 <button
                   type="button"
-                  onClick={() => setStopModalOpen(true)}
+                  onClick={() => { setContractPw(''); setContractPwError(''); setStopModalOpen(true) }}
                   className="bg-red-500/10 text-red-400 hover:bg-red-500/15 border border-red-500/20 rounded-xl px-4 py-2 text-sm transition-colors"
                 >
                   契約停止
@@ -424,7 +545,7 @@ export default function CompanyDetailPage() {
               ) : statusType === 'suspended' ? (
                 <button
                   type="button"
-                  onClick={() => setResumeModalOpen(true)}
+                  onClick={() => { setContractPw(''); setContractPwError(''); setResumeModalOpen(true) }}
                   className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15 border border-emerald-500/20 rounded-xl px-4 py-2 text-sm transition-colors"
                 >
                   停止を解除する
@@ -436,6 +557,121 @@ export default function CompanyDetailPage() {
                 className="bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-2 text-sm transition-colors"
               >
                 企業情報編集
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 契約・上限設定（重要設定） */}
+        {activeTab === '基本情報' && (
+          <div className={`${CARD_BASE} p-6 mt-6`}>
+            <h2 className="text-lg font-semibold text-white mb-1">契約・上限設定</h2>
+            <p className="text-xs text-gray-400 mb-5">
+              契約種別・単価・月間上限・翌月上限予約・ステータスを変更します。保存には運営管理設定変更用パスワード（ログインパスワードとは別）が必要です。
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 max-w-3xl">
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">契約種別</label>
+                <select
+                  value={csPlan}
+                  onChange={(e) => {
+                    const v = e.target.value as 'pay_per_use' | 'custom'
+                    setCsPlan(v)
+                    if (!csPrice.trim()) setCsPrice(v === 'custom' ? '3000' : '4000')
+                  }}
+                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
+                >
+                  <option value="pay_per_use">通常契約（pay_per_use）</option>
+                  <option value="custom">特別契約（custom）</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">通常は4,000円 / 特別契約は3,000円が基本（単価は任意変更可）</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">1人あたり単価（税別）</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={csPrice}
+                  onChange={(e) => setCsPrice(e.target.value)}
+                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">今月の月間上限（人）</label>
+                <input
+                  type="number"
+                  min={5}
+                  step={1}
+                  value={csMonthlyLimit}
+                  onChange={(e) => setCsMonthlyLimit(e.target.value)}
+                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
+                />
+                <p className="text-xs text-gray-500 mt-1">当月利用人数（{monthlyUsedCount}件）未満には設定できません</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">企業ステータス</label>
+                <select
+                  value={csStatus}
+                  onChange={(e) => setCsStatus(e.target.value as 'active' | 'suspended')}
+                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
+                >
+                  <option value="active">稼働中（active）</option>
+                  <option value="suspended">停止中（suspended）</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">翌月の月間上限予約（人・空欄で予約なし）</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={csNextLimit}
+                  onChange={(e) => setCsNextLimit(normalizeDigits(e.target.value))}
+                  placeholder="未予約"
+                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">翌月上限の適用開始月</label>
+                <div className="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl text-gray-300 px-4 py-2.5 text-sm">
+                  {csNextLimit.trim() !== ''
+                    ? `${firstOfNextMonth()} から自動適用`
+                    : '翌月予約なし'}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">適用日は常に翌月1日です（任意日の指定はできません）</p>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-gray-400 mb-1">運営管理設定変更用パスワード</label>
+                <div className="max-w-md">
+                  <PasswordInput
+                    value={csSettingPw}
+                    onChange={(v) => { setCsSettingPw(v); setCsError('') }}
+                    placeholder="運営管理設定変更用パスワードを入力"
+                    className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
+                    iconClassName="text-gray-400 hover:text-gray-200"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">ログインパスワードとは別のパスワードです</p>
+              </div>
+            </div>
+            {csError && (
+              <div className="mt-4">
+                <p className="text-sm text-red-400">{csError}</p>
+                {csError.includes('未設定') && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    <a href="/admin/settings" className="text-blue-400 hover:text-blue-300 underline">システム設定</a> で運営管理設定変更用パスワードを先に設定してください。
+                  </p>
+                )}
+              </div>
+            )}
+            <div className="mt-5">
+              <button
+                type="button"
+                onClick={openContractConfirm}
+                disabled={csSaving}
+                className="bg-blue-600 text-white hover:bg-blue-700 rounded-xl px-5 py-2.5 text-sm transition-colors disabled:opacity-50"
+              >
+                重要設定を保存
               </button>
             </div>
           </div>
@@ -486,13 +722,13 @@ export default function CompanyDetailPage() {
                           <button
                             type="button"
                             onClick={async () => {
-                              const supabase = createClient()
-                              await supabase
-                                .from('companies')
-                                .update({ logo_url: null, updated_at: new Date().toISOString() })
-                                .eq('id', companyId)
-                              setLogoPreview(null)
-                              showToast('ロゴ画像を削除しました')
+                              const result = await patchCompany({ logo_url: null })
+                              if (result.ok) {
+                                setLogoPreview(null)
+                                showToast('ロゴ画像を削除しました')
+                              } else {
+                                showToast(result.error || '削除に失敗しました')
+                              }
                             }}
                             className="text-red-400 text-xs cursor-pointer hover:text-red-300"
                           >
@@ -548,7 +784,7 @@ export default function CompanyDetailPage() {
                         { step: 2, text: '本人確認' },
                         { step: 3, text: 'カメラ・マイクの確認' },
                         { step: 4, text: '面接練習（約3分）' },
-                        { step: 5, text: 'AI面接（最大40分）' },
+                        { step: 5, text: 'AI面接（最大60分）' },
                       ].map((item) => (
                         <div key={item.step} className="flex items-center gap-2">
                           <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px] font-bold shrink-0">
@@ -718,64 +954,40 @@ export default function CompanyDetailPage() {
         {/* タブ4: 質問設定 */}
         {activeTab === '質問設定' && (
           <div className={`${CARD_BASE} p-6`}>
-            <QuestionEditor companyId={companyId} theme="dark" onNavigateToJobs={() => setActiveTab('求人管理')} />
+            <QuestionEditor companyId={companyId} theme="dark" onNavigateToJobs={() => selectTab('求人管理')} />
           </div>
         )}
 
         {/* タブ5: 評価設定 */}
         {activeTab === '評価設定' && (
           <div className={`${CARD_BASE} p-6`}>
-            <h2 className="text-base font-semibold text-white mb-1">評価軸設定</h2>
-            <p className="text-sm text-gray-400 mb-6">各評価軸の名称と重み（合計100%）を設定してください</p>
-            <div className="space-y-0">
-              {axes.map((ax, i) => (
-                <div key={i} className="flex items-center gap-4 py-3 border-b border-white/[0.04]">
-                  <span className="text-sm text-gray-500 w-6 shrink-0">{i + 1}.</span>
-                  <input
-                    type="text"
-                    value={ax.name}
-                    onChange={(e) => {
-                      const next = [...axes]
-                      next[i] = { ...next[i], name: e.target.value }
-                      setAxes(next)
-                    }}
-                    className="bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-3 py-2 text-sm w-56 focus:border-blue-500/50 outline-none"
-                  />
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      value={ax.weight}
-                      onChange={(e) => {
-                        const next = [...axes]
-                        next[i] = { ...next[i], weight: Number(e.target.value) || 0 }
-                        setAxes(next)
-                      }}
-                      min={0}
-                      max={100}
-                      className="bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-3 py-2 text-sm w-20 text-center focus:border-blue-500/50 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                    <span className="text-sm text-gray-400">%</span>
+            <h2 className="text-base font-semibold text-white mb-1">評価設定</h2>
+            <p className="text-sm text-gray-400 mb-4">
+              評価は <span className="text-gray-200">EBCA（エビデンスベース・コンピテンシー分析）</span> 方式です。
+              質問ごとに固定の重みを設定するのではなく、AIが面接全体の回答内容・根拠・具体性・一貫性をもとに
+              下記6軸を総合的に評価します。
+            </p>
+            <div className="rounded-xl border border-white/[0.06] divide-y divide-white/[0.04]">
+              {EBCA_AXES.map((ax, i) => (
+                <div key={i} className="flex items-start gap-4 px-4 py-3">
+                  <span className="text-sm text-gray-500 w-6 shrink-0 mt-0.5">{i + 1}.</span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white">{ax.name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{ax.desc}</p>
                   </div>
                 </div>
               ))}
             </div>
-            <p className={`mt-4 text-sm ${totalWeight === 100 ? 'text-gray-400' : 'text-red-400'}`}>
-              合計: {totalWeight}%{totalWeight !== 100 && '（100%にしてください）'}
+            <p className="mt-4 text-xs text-gray-500">
+              ※ 評価軸の重みづけ設定は現フェーズでは提供していません（AIによる総合評価のため）。
             </p>
-            <button
-              type="button"
-              onClick={() => showToast('評価設定を保存しました')}
-              className="mt-6 bg-gradient-to-r from-blue-600 to-blue-600 hover:from-blue-500 hover:to-blue-500 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-all shadow-[0_4px_16px_rgba(59,130,246,0.3)]"
-            >
-              保存する
-            </button>
           </div>
         )}
 
         {/* タブ6: 求人管理 */}
         {activeTab === '求人管理' && (
           <div className={`${CARD_BASE} p-6`}>
-            <JobManager companyId={companyId} theme="dark" />
+            <JobManager companyId={companyId} theme="dark" onNavigateToQuestions={() => selectTab('質問設定')} />
           </div>
         )}
 
@@ -784,70 +996,38 @@ export default function CompanyDetailPage() {
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className={`${CARD_BASE} p-5`}>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">面接実施数</p>
-                <p className="text-2xl font-bold text-white mb-2">{company?.monthly_interview_count ?? 0}/{company?.monthly_interview_limit ?? 0}件</p>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">当月面接実施数</p>
+                <p className="text-2xl font-bold text-white mb-2">{monthlyUsedCount}/{company?.monthly_interview_limit ?? 0}件</p>
                 <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
                   <div
                     className="h-full bg-blue-500 rounded-full"
                     style={{
-                      width: `${(company?.monthly_interview_limit ?? 0) > 0 ? Math.min(100, ((company?.monthly_interview_count ?? 0) / (company?.monthly_interview_limit ?? 1)) * 100) : 0}%`,
+                      width: `${(company?.monthly_interview_limit ?? 0) > 0 ? Math.min(100, (monthlyUsedCount / (company?.monthly_interview_limit ?? 1)) * 100) : 0}%`,
                     }}
                   />
                 </div>
               </div>
               <div className={`${CARD_BASE} p-5`}>
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">残り面接枠</p>
-                <p className="text-2xl font-bold text-white">{Math.max(0, (company?.monthly_interview_limit ?? 0) - (company?.monthly_interview_count ?? 0))}件</p>
+                <p className="text-2xl font-bold text-white">{Math.max(0, (company?.monthly_interview_limit ?? 0) - monthlyUsedCount)}件</p>
               </div>
               <div className={`${CARD_BASE} p-5`}>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">プラン消化率</p>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">消化率</p>
                 <p className="text-2xl font-bold text-white">
                   {(company?.monthly_interview_limit ?? 0) > 0
-                    ? Math.round(((company?.monthly_interview_count ?? 0) / (company?.monthly_interview_limit ?? 1)) * 100)
+                    ? Math.round((monthlyUsedCount / (company?.monthly_interview_limit ?? 1)) * 100)
                     : 0}%
                 </p>
               </div>
             </div>
-            <div className={`${CARD_BASE} overflow-hidden`}>
-              <div className="p-6 pb-0">
-                <h2 className="text-base font-semibold text-white mb-4">月別利用推移</h2>
-                <p className="text-xs text-amber-400/70 px-4 pb-2">※ 現在はサンプルデータを表示しています。実データは今後のアップデートで反映されます。</p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[400px]">
-                  <thead>
-                    <tr className="border-b border-white/[0.06]">
-                      <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4 text-left">月</th>
-                      <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4 text-left">利用件数</th>
-                      <th className="text-xs font-medium text-gray-500 uppercase tracking-wider py-3 px-4 text-left">プラン</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {MONTHLY_USAGE.map((m) => (
-                      <tr
-                        key={m.month}
-                        className={`border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors ${m.atLimit ? 'bg-yellow-500/5' : ''}`}
-                      >
-                        <td className="py-3 px-4 text-sm text-gray-300">{m.month}</td>
-                        <td className="py-3 px-4 text-sm text-gray-300">
-                          {m.used}/{m.limit}件
-                          {m.atLimit && <span className="text-yellow-400 text-xs ml-1">上限到達</span>}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-400">({m.plan})</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="p-6 pt-4 border-t border-white/[0.04]">
-                <button
-                  type="button"
-                  onClick={() => router.push(`/admin/applicants?company=${companyId}`)}
-                  className="text-sm text-blue-400 hover:text-blue-300"
-                >
-                  この企業の応募者一覧を見る →
-                </button>
-              </div>
+            <div className={`${CARD_BASE} p-6`}>
+              <button
+                type="button"
+                onClick={() => router.push(`/admin/applicants?company=${companyId}`)}
+                className="text-sm text-blue-400 hover:text-blue-300"
+              >
+                この企業の応募者一覧を見る →
+              </button>
             </div>
           </div>
         )}
@@ -861,30 +1041,28 @@ export default function CompanyDetailPage() {
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
                   <h3 className="text-sm font-medium text-blue-400 mb-2">パスワードポリシー</h3>
                   <p className="text-xs text-gray-300 leading-relaxed">
-                    企業アカウントのパスワードは12文字以上（大文字・小文字・数字・特殊文字を各1文字以上）が必要です。
-                    NISTガイドラインに準拠し、定期的なパスワード変更は求めません。
-                    漏洩が検知された場合のみ変更を要求します。
+                    現在、ログインパスワード・管理者設定用パスワードともに最低8文字を強制しています。
+                    大文字・小文字・数字・特殊文字の混在や有効期限・定期変更の強制は未実装です（推奨にとどまります）。
                   </p>
                 </div>
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
                   <h3 className="text-sm font-medium text-blue-400 mb-2">セッション管理</h3>
                   <p className="text-xs text-gray-300 leading-relaxed">
-                    企業アカウント: 最終操作から24時間でタイムアウト。同時ログイン制限なし。
-                    運営管理者: 最終操作から8時間でタイムアウト。同時ログイン制限なし。
+                    運営・企業のセッションは別cookieで分離済みです。
+                    無操作タイムアウトの独自制御は未実装で、セッション期限は Supabase Auth の既定に依存します
+                    （企業24時間・運営8時間といった独自のタイムアウトや同時ログイン制限は強制していません）。
                   </p>
                 </div>
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
                   <h3 className="text-sm font-medium text-blue-400 mb-2">MFA（多要素認証）</h3>
                   <p className="text-xs text-gray-300 leading-relaxed">
-                    運営管理者: TOTP必須。企業アカウント: 推奨（任意）。
-                    Google AuthenticatorやAuthyなどのアプリで6桁コードを生成します。
+                    TOTP等の多要素認証は未実装です（今後実装予定）。
                   </p>
                 </div>
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
                   <h3 className="text-sm font-medium text-blue-400 mb-2">異常検知・ログイン通知</h3>
                   <p className="text-xs text-gray-300 leading-relaxed">
-                    通常と異なる国やIPアドレスからのログインが検知された場合、
-                    登録メールアドレスに自動通知が送信されます。
+                    異常ログインの自動検知・メール通知は未実装です（今後実装予定）。
                   </p>
                 </div>
               </div>
@@ -893,37 +1071,13 @@ export default function CompanyDetailPage() {
             <div className={`${CARD_BASE} p-6`}>
               <h2 className="text-base font-semibold text-white mb-2">アカウントロック管理</h2>
               <p className="text-sm text-gray-400 mb-4">
-                企業アカウントが10回連続ログイン失敗でロックされた場合、ここから手動で解除できます。
-                通常は30分後に自動解除されます。
+                ログイン失敗に基づく自動ブロックは「アカウント単位（ログインメール）」で管理します。企業単位ではありません。
+                現在ブロック中のアカウントの確認・手動解除は、運営の「セキュリティ」画面の「ログインスロットル管理」で行えます。
               </p>
               <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-white">アカウント状態</p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {company?.is_locked
-                        ? `ロック中（${company?.locked_at ? new Date(company.locked_at).toLocaleString('ja-JP') : ''}）`
-                        : 'ロックなし（正常）'}
-                    </p>
-                  </div>
-                  {company?.is_locked && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const supabase = createClient()
-                        await supabase
-                          .from('companies')
-                          .update({ is_locked: false, locked_at: null, login_fail_count: 0, updated_at: new Date().toISOString() })
-                          .eq('id', companyId)
-                        showToast('アカウントロックを解除しました')
-                        setRefreshTrigger((t) => t + 1)
-                      }}
-                      className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15 border border-emerald-500/20 rounded-xl px-4 py-2 text-sm transition-colors"
-                    >
-                      ロック解除
-                    </button>
-                  )}
-                </div>
+                <p className="text-xs text-gray-400">
+                  ブロックはログインメールのハッシュ（scope_key）単位のため、企業詳細からの直接解除は提供していません。
+                </p>
               </div>
             </div>
           </div>
@@ -933,14 +1087,25 @@ export default function CompanyDetailPage() {
       {/* 契約停止確認モーダル */}
       {stopModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setStopModalOpen(false)} aria-hidden />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setStopModalOpen(false); setContractPw(''); setContractPwError('') }} aria-hidden />
           <div className={`relative ${CARD_BASE} p-6 max-w-md w-full`}>
             <h3 className="text-lg font-semibold text-white mb-2">契約停止の確認</h3>
-            <p className="text-sm text-gray-400 mb-6">本当に停止しますか？停止すると新規面接の受付が停止されます。</p>
+            <p className="text-sm text-gray-400 mb-4">本当に停止しますか？停止すると新規面接の受付が停止されます。</p>
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-gray-400 mb-1">運営管理設定変更用パスワード</label>
+              <PasswordInput
+                value={contractPw}
+                onChange={(v) => { setContractPw(v); setContractPwError('') }}
+                placeholder="運営管理設定変更用パスワードを入力"
+                iconClassName="text-gray-400 hover:text-gray-200"
+                className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none pr-16"
+              />
+              {contractPwError && <p className="text-xs text-red-400 mt-1">{contractPwError}</p>}
+            </div>
             <div className="flex gap-3 justify-end">
               <button
                 type="button"
-                onClick={() => setStopModalOpen(false)}
+                onClick={() => { setStopModalOpen(false); setContractPw(''); setContractPwError('') }}
                 className="bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-2 text-sm transition-colors"
               >
                 キャンセル
@@ -948,7 +1113,8 @@ export default function CompanyDetailPage() {
               <button
                 type="button"
                 onClick={handleStopContract}
-                className="bg-red-500/10 text-red-400 hover:bg-red-500/15 border border-red-500/20 rounded-xl px-4 py-2 text-sm transition-colors"
+                disabled={contractSaving || !contractPw}
+                className="bg-red-500/10 text-red-400 hover:bg-red-500/15 border border-red-500/20 rounded-xl px-4 py-2 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 停止する
               </button>
@@ -960,14 +1126,25 @@ export default function CompanyDetailPage() {
       {/* 契約再開確認モーダル */}
       {resumeModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setResumeModalOpen(false)} aria-hidden />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setResumeModalOpen(false); setContractPw(''); setContractPwError('') }} aria-hidden />
           <div className={`relative ${CARD_BASE} p-6 max-w-md w-full`}>
             <h3 className="text-lg font-semibold text-white mb-2">契約再開の確認</h3>
-            <p className="text-sm text-gray-400 mb-6">契約を再開しますか？再開すると面接の受付が再開されます。</p>
+            <p className="text-sm text-gray-400 mb-4">契約を再開しますか？再開すると面接の受付が再開されます。</p>
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-gray-400 mb-1">運営管理設定変更用パスワード</label>
+              <PasswordInput
+                value={contractPw}
+                onChange={(v) => { setContractPw(v); setContractPwError('') }}
+                placeholder="運営管理設定変更用パスワードを入力"
+                iconClassName="text-gray-400 hover:text-gray-200"
+                className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none pr-16"
+              />
+              {contractPwError && <p className="text-xs text-red-400 mt-1">{contractPwError}</p>}
+            </div>
             <div className="flex gap-3 justify-end">
               <button
                 type="button"
-                onClick={() => setResumeModalOpen(false)}
+                onClick={() => { setResumeModalOpen(false); setContractPw(''); setContractPwError('') }}
                 className="bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-2 text-sm transition-colors"
               >
                 キャンセル
@@ -975,7 +1152,8 @@ export default function CompanyDetailPage() {
               <button
                 type="button"
                 onClick={handleResumeContract}
-                className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15 border border-emerald-500/20 rounded-xl px-4 py-2 text-sm transition-colors"
+                disabled={contractSaving || !contractPw}
+                className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15 border border-emerald-500/20 rounded-xl px-4 py-2 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 再開する
               </button>
@@ -984,59 +1162,85 @@ export default function CompanyDetailPage() {
         </div>
       )}
 
-      {/* プラン変更モーダル */}
-      {planModalOpen && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setPlanModalOpen(false)}>
-          <div className="bg-gray-900 rounded-xl p-6 max-w-3xl w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      {/* 月間上限変更モーダル */}
+      {limitModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setLimitModalOpen(false)} aria-hidden />
+          <div className={`relative ${CARD_BASE} p-6 max-w-md w-full`}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-white">プラン変更</h3>
-              <button type="button" onClick={() => setPlanModalOpen(false)} className="text-gray-400 hover:text-white">
+              <h3 className="text-lg font-semibold text-white">月間上限人数を変更</h3>
+              <button type="button" onClick={() => setLimitModalOpen(false)} className="text-gray-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="grid grid-cols-4 gap-3">
-              {PLAN_OPTIONS.map((plan) => {
-                const isCurrent = company?.plan === plan.value
-                return (
-                  <div
-                    key={plan.value}
-                    className={`relative bg-gray-800 rounded-lg p-3 ${
-                      isCurrent ? 'border border-blue-500' : 'border border-gray-700'
-                    }`}
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 mb-4">
+              <p className="text-xs text-amber-400">上限変更は料金に影響するため、管理者パスワードの再確認が必要です</p>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs text-gray-400 mb-1">現在の上限</p>
+                <p className="text-sm text-white">{company?.monthly_interview_limit ?? 0}件</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-1">当月利用人数</p>
+                <p className="text-sm text-white">{monthlyUsedCount}件</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">新しい上限</label>
+                <input
+                  type="number"
+                  min={5}
+                  value={newLimitStr}
+                  onChange={(e) => setNewLimitStr(e.target.value)}
+                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                {parseInt(newLimitStr, 10) > 0 && parseInt(newLimitStr, 10) < 5 && (
+                  <p className="text-xs text-red-400 mt-1">最低5件以上に設定してください</p>
+                )}
+                {parseInt(newLimitStr, 10) >= 5 && parseInt(newLimitStr, 10) < monthlyUsedCount && (
+                  <p className="text-xs text-red-400 mt-1">当月利用人数（{monthlyUsedCount}件）未満には設定できません</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">設定変更用パスワード</label>
+                <div className="relative">
+                  <input
+                    type={showAdminPassword ? 'text' : 'password'}
+                    value={adminPassword}
+                    onChange={(e) => { setAdminPassword(e.target.value); setLimitError('') }}
+                    placeholder="運営管理設定変更用パスワードを入力"
+                    className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none pr-16"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminPassword(!showAdminPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-300"
                   >
-                    {isCurrent && (
-                      <span className="absolute -top-2 left-2 bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded">
-                        現在のプラン
-                      </span>
-                    )}
-                    <h4 className="text-sm font-bold text-white mb-1 mt-1">{plan.label}</h4>
-                    <p className="text-xs text-gray-400">{plan.interviews}</p>
-                    <p className="text-sm font-bold text-blue-400 my-2">{plan.price}</p>
-                    <div className="space-y-1 mb-3">
-                      {plan.features.map((feature, idx) => (
-                        <p key={idx} className="text-[10px] text-gray-400 leading-tight">{feature}</p>
-                      ))}
-                    </div>
-                    {isCurrent ? (
-                      <button
-                        type="button"
-                        disabled
-                        className="w-full bg-gray-700 text-gray-400 cursor-not-allowed text-xs py-1.5 rounded-lg"
-                      >
-                        現在のプラン
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => savePlanChange(plan.value)}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg py-1.5 transition-colors"
-                      >
-                        このプランに変更
-                      </button>
-                    )}
-                  </div>
-                )
-              })}
+                    {showAdminPassword ? '隠す' : '表示'}
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">料金: ¥{(company?.price_per_interview ?? 4000).toLocaleString()} / 面接・人（税別）</p>
+              {limitError && (
+                <p className="text-xs text-red-400">{limitError}</p>
+              )}
+            </div>
+            <div className="flex gap-3 justify-end mt-6">
+              <button
+                type="button"
+                onClick={() => setLimitModalOpen(false)}
+                className="bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-2 text-sm transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={saveLimitChange}
+                disabled={limitSaving || !newLimitStr || isNaN(parseInt(newLimitStr, 10)) || parseInt(newLimitStr, 10) < 5 || parseInt(newLimitStr, 10) < monthlyUsedCount || !adminPassword}
+                className="bg-blue-600 text-white hover:bg-blue-700 rounded-xl px-4 py-2 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {limitSaving ? '確認中...' : '変更する'}
+              </button>
             </div>
           </div>
         </div>
@@ -1060,15 +1264,6 @@ export default function CompanyDetailPage() {
                   type="text"
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">代表者名</label>
-                <input
-                  type="text"
-                  value={editRepresentativeName}
-                  onChange={(e) => setEditRepresentativeName(e.target.value)}
                   className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
                 />
               </div>
@@ -1100,29 +1295,11 @@ export default function CompanyDetailPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">所在地</label>
-                <input
-                  type="text"
-                  value={editAddress}
-                  onChange={(e) => setEditAddress(e.target.value)}
-                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
-                />
-              </div>
-              <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">業種</label>
                 <input
                   type="text"
                   value={editIndustry}
                   onChange={(e) => setEditIndustry(e.target.value)}
-                  className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">従業員数</label>
-                <input
-                  type="number"
-                  value={editEmployeeCount}
-                  onChange={(e) => setEditEmployeeCount(e.target.value)}
                   className="w-full bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm focus:border-blue-500/50 outline-none"
                 />
               </div>
@@ -1141,6 +1318,37 @@ export default function CompanyDetailPage() {
                 className="bg-blue-600 text-white hover:bg-blue-700 rounded-xl px-4 py-2 text-sm transition-colors"
               >
                 保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 契約・上限設定の確認ダイアログ */}
+      {csConfirmOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !csSaving && setCsConfirmOpen(false)} aria-hidden />
+          <div className={`relative ${CARD_BASE} p-6 w-full max-w-md`}>
+            <h3 className="text-lg font-semibold text-white mb-3">重要設定の変更確認</h3>
+            <p className="text-sm text-gray-300 leading-relaxed mb-5">
+              この企業の重要設定を変更します。請求単価・月間上限・契約種別に影響します。よろしいですか？
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                disabled={csSaving}
+                onClick={() => setCsConfirmOpen(false)}
+                className="bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-2 text-sm transition-colors disabled:opacity-50"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                disabled={csSaving}
+                onClick={saveContractSettings}
+                className="bg-blue-600 text-white hover:bg-blue-700 rounded-xl px-4 py-2 text-sm transition-colors disabled:opacity-50"
+              >
+                {csSaving ? '保存中...' : '変更を保存する'}
               </button>
             </div>
           </div>

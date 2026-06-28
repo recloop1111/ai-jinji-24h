@@ -1,6 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { successJson, apiError } from '@/lib/api/response'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,15 +11,23 @@ export async function POST(request: NextRequest) {
       return apiError('UNAUTHORIZED', '認証に失敗しました')
     }
 
-    const supabase = await createClient()
+    // service-role で実行（companies / suspension_requests を RLS 下でも更新するため。
+    // 内部バッチは INTERNAL_BATCH_SECRET で認証済み・anon クライアントでは RLS で更新失敗する）。
+    const supabase = createServiceRoleClient()
     const now = new Date().toISOString()
 
-    // scheduled_stop_at <= now() かつ status = 'approved' の停止申請を取得
+    // 予定停止日カラムが無いため、申請日（created_at）の1ヶ月後に達した通常停止を対象とする
+    const cutoff = new Date()
+    cutoff.setMonth(cutoff.getMonth() - 1)
+    const cutoffIso = cutoff.toISOString()
+
+    // request_type='temporary' かつ status='pending' かつ created_at <= (現在 - 1ヶ月) の停止申請を取得
     const { data: requests, error: fetchError } = await supabase
       .from('suspension_requests')
       .select('id, company_id')
-      .eq('status', 'approved')
-      .lte('scheduled_stop_at', now)
+      .eq('request_type', 'temporary')
+      .eq('status', 'pending')
+      .lte('created_at', cutoffIso)
 
     if (fetchError) {
       return apiError('INTERNAL_ERROR', '停止申請の取得に失敗しました')
@@ -29,7 +37,7 @@ export async function POST(request: NextRequest) {
     const suspendedCompanies: string[] = []
 
     for (const req of targets) {
-      // 企業を停止状態に変更
+      // 企業を停止状態に変更（停止状態の正は companies.is_suspended に統一）
       const { error: updateError } = await supabase
         .from('companies')
         .update({
@@ -40,10 +48,10 @@ export async function POST(request: NextRequest) {
 
       if (updateError) continue
 
-      // 停止申請ステータスを executed に更新
+      // 停止処理済みとして status='approved' に更新（CHECK 制約上 'executed' は使用不可。再実行対象から外れる）
       await supabase
         .from('suspension_requests')
-        .update({ status: 'executed', executed_at: now })
+        .update({ status: 'approved' })
         .eq('id', req.id)
 
       suspendedCompanies.push(req.company_id)
