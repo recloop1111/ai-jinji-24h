@@ -9,17 +9,90 @@ import { jstDueDate } from '@/lib/billing/dueDate'
 // pdfkit の標準フォント(.afm)を一切読まないよう font:'' で生成し、日本語TTFを埋め込む
 // （serverless での .afm 同梱漏れ回避）。フォントは outputFileTracingIncludes で各ルートに同梱必須。
 
+// 請求先（宛名）の表示用フィールド。company_billing_profiles / invoice_snapshot / companies の
+// いずれかから resolveBillTo で解決した確定形。companyName は 御中、contactName は 様 で表示。
+export type InvoiceBillTo = {
+  companyName: string
+  department: string | null
+  contactName: string | null
+  postalCode: string | null
+  address: string | null
+  building: string | null
+  phone: string | null
+}
+
 export type InvoiceInput = {
   invoiceNumber: string // INV-YYYYMM-<id8>
   issueDate: string // 請求日（JST YYYY/MM/DD）
   dueDate: string | null // 支払期限（JST YYYY-MM-DD）
   billingMonth: string // 請求対象月（YYYY年MM月）
-  billTo: { companyName: string; contactName: string | null }
+  billTo: InvoiceBillTo
   interviewCount: number
   unitPrice: number // 表示用（amount_jpy / interview_count）
   subtotal: number // amount_jpy（税抜・確定値）
   tax: number // tax_jpy（確定値）
   total: number // total_jpy（確定値）
+}
+
+// 請求先情報（company_billing_profiles）の宛名関連列。contact_email/note はPDF不使用。
+export type BillToProfileRow = {
+  billing_name: string | null
+  department: string | null
+  contact_name: string | null
+  postal_code: string | null
+  address: string | null
+  building: string | null
+  phone: string | null
+} | null
+
+// billing_records.invoice_snapshot（確定時に凍結する請求先・発行者・振込先）。
+// 本フェーズの writer は未実装のため通常 null。bill_to があれば最優先で使用する。
+export type InvoiceSnapshot = {
+  bill_to?: Partial<InvoiceBillTo> | null
+} | null
+
+// 請求先（宛名）の解決優先順位:
+//   1. invoice_snapshot.bill_to（確定時に凍結された値。過去請求書は不変）
+//   2. company_billing_profiles（企業/運営が登録した請求先情報・live）
+//   3. companies.name / contact_person（未登録時の fallback）
+// companyName（御中）は常に何か表示されるよう company.name へ最終 fallback する。
+export function resolveBillTo(
+  company: { name: string | null; contact_person: string | null },
+  profile: BillToProfileRow,
+  snapshot: InvoiceSnapshot,
+): InvoiceBillTo {
+  if (snapshot?.bill_to) {
+    const s = snapshot.bill_to
+    return {
+      companyName: s.companyName ?? company.name ?? '',
+      department: s.department ?? null,
+      contactName: s.contactName ?? null,
+      postalCode: s.postalCode ?? null,
+      address: s.address ?? null,
+      building: s.building ?? null,
+      phone: s.phone ?? null,
+    }
+  }
+  if (profile) {
+    return {
+      companyName: profile.billing_name || company.name || '',
+      department: profile.department ?? null,
+      contactName: profile.contact_name ?? company.contact_person ?? null,
+      postalCode: profile.postal_code ?? null,
+      address: profile.address ?? null,
+      building: profile.building ?? null,
+      phone: profile.phone ?? null,
+    }
+  }
+  return {
+    companyName: company.name ?? '',
+    department: null,
+    contactName: company.contact_person ?? null,
+    postalCode: null,
+    address: null,
+    building: null,
+    phone: null,
+  }
 }
 
 const FONT_PATH = path.join(process.cwd(), 'assets', 'fonts', 'IPAexGothic.ttf')
@@ -51,6 +124,8 @@ function jstDate(iso: string | null | undefined): string {
 export function toInvoiceInput(
   record: BillingRecordRow,
   company: { name: string | null; contact_person: string | null },
+  profile: BillToProfileRow = null,
+  snapshot: InvoiceSnapshot = null,
 ): InvoiceInput {
   const ym = record.billing_month ? String(record.billing_month).slice(0, 7) : '' // YYYY-MM
   const [y, m] = ym.split('-')
@@ -64,7 +139,7 @@ export function toInvoiceInput(
     issueDate: jstDate(record.created_at),
     dueDate: jstDueDate(record.created_at),
     billingMonth: billingMonthLabel,
-    billTo: { companyName: company.name ?? '', contactName: company.contact_person ?? null },
+    billTo: resolveBillTo(company, profile, snapshot),
     interviewCount: count,
     unitPrice,
     subtotal,
@@ -100,15 +175,23 @@ export function buildInvoicePdf(input: InvoiceInput): Promise<Buffer> {
       doc.text(`支払期限: ${input.dueDate ?? '—'}`, { align: 'right' })
       doc.moveDown(1)
 
-      // 請求先（左）
+      // 請求先（左ブロック）。宛名は resolveBillTo（snapshot→profile→companies）の確定値。
+      // 右の発行者ブロックと重ならないよう幅を contentWidth/2 に制限。
       const billToY = doc.y
-      doc.fontSize(12).text(`${input.billTo.companyName}　御中`, left, billToY)
-      if (input.billTo.contactName) {
-        doc.fontSize(10).text(`${input.billTo.contactName} 様`, left, doc.y)
+      const billToW = contentWidth / 2
+      const bt = input.billTo
+      doc.fontSize(12).text(`${bt.companyName}　御中`, left, billToY, { width: billToW })
+      doc.fontSize(10)
+      if (bt.department) doc.text(bt.department, left, doc.y, { width: billToW })
+      if (bt.contactName) doc.text(`${bt.contactName} 様`, left, doc.y, { width: billToW })
+      if (bt.postalCode) doc.text(`〒${bt.postalCode}`, left, doc.y, { width: billToW })
+      if (bt.address) {
+        doc.text(`${bt.address}${bt.building ? ' ' + bt.building : ''}`, left, doc.y, { width: billToW })
       }
-      doc.moveDown(1)
+      if (bt.phone) doc.text(`TEL: ${bt.phone}`, left, doc.y, { width: billToW })
+      const billToBottom = doc.y
 
-      // 発行者（右ブロック）
+      // 発行者（右ブロック）。BILLING_ISSUER（config）から。発行者のDB化は本フェーズ対象外。
       const issuerTop = billToY
       const issuerX = left + contentWidth / 2
       const issuerW = contentWidth / 2
@@ -130,6 +213,8 @@ export function buildInvoicePdf(input: InvoiceInput): Promise<Buffer> {
         })
       }
 
+      // 請求先・発行者のうち下端が低い方へ移動してから次セクションへ（重なり防止）。
+      doc.y = Math.max(billToBottom, doc.y)
       doc.moveDown(2)
 
       // 件名（請求対象月）
