@@ -114,6 +114,10 @@ export default function ClientLoginPage() {
               )}
             </button>
           </form>
+
+          <p className="mt-4 text-xs text-slate-500 text-center leading-relaxed">
+            ログイン情報をお忘れの場合は、導入時にご案内した運営担当者までお問い合わせください。
+          </p>
         </div>
       </div>
     </div>
