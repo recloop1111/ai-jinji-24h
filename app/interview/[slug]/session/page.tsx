@@ -253,6 +253,24 @@ export default function SessionPage() {
       setAiSpeechText(DEFAULT_QUESTION)
     }
 
+    // /questions 失敗時に当該 in_progress を非課金で中断確定する（P2 #2）。
+    // applicant.status は変えず、サーバが is_billable=false を強制（質問未提示は課金しない）。
+    async function abortForQuestionsFailure() {
+      const token = sessionStorage.getItem(`interview_${slug}_token`)
+      const applicant_id = sessionStorage.getItem(`interview_${slug}_applicant_id`)
+      const interview_id = interviewId ?? sessionStorage.getItem(`interview_${slug}_interview_id`)
+      if (!token || !applicant_id || !interview_id) return
+      try {
+        await fetch(`/api/interview/${slug}/abort`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, applicant_id, interview_id }),
+        })
+      } catch {
+        // abort 失敗時もブロッキング表示は維持（pagehide beacon 等の追加緩和は別タスク）
+      }
+    }
+
     async function fetchQuestions() {
       if (!jobId || !companyId) return
 
@@ -272,8 +290,9 @@ export default function SessionPage() {
         const json = await res.json().catch(() => null)
 
         // non-OK（QUESTION_LIMIT_EXCEEDED 等のAPIエラー）はデフォルトに落とさずブロッキング。
-        // ※ end API は叩かない（応募者ステータス/結果を不用意に変更しない）。
+        // ※ end API は叩かない（応募者ステータス/結果を不用意に変更しない）。abort で非課金確定のみ行う。
         if (!res.ok || !Array.isArray(json?.questions)) {
+          await abortForQuestionsFailure()
           setBlockingError('面接質問の取得に失敗しました。管理者にお問い合わせください。')
           return
         }
@@ -290,7 +309,8 @@ export default function SessionPage() {
           setDefaultQuestions()
         }
       } catch {
-        // 通信失敗もデフォルトに落とさずブロッキング（取得不能のため続行しない）
+        // 通信失敗もデフォルトに落とさずブロッキング（取得不能のため続行しない）。abort で非課金確定。
+        await abortForQuestionsFailure()
         setBlockingError('面接質問の取得に失敗しました。管理者にお問い合わせください。')
       }
     }
