@@ -87,7 +87,9 @@ export async function POST(
         ended_at: endedAtIso,
         duration_seconds: durationSeconds,
         is_billable: false,
-        end_reason: 'questions_unavailable',
+        // end_reason は interviews_end_reason_check の許可値のみ。'questions_unavailable' は未許可で
+        // CHECK 違反になり UPDATE が落ちるため null にする（DB変更不可・status/is_billable で識別可能）。
+        end_reason: null,
       })
       .eq('id', interviewId)
       .eq('status', 'in_progress')
