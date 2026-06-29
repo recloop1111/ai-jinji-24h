@@ -61,12 +61,16 @@ export async function POST(request: NextRequest) {
 
     // 発行者/振込先/支払案内文は全社共通の単一設定（id='default'）。ループ前に1回だけ取得し
     // 各社の invoice_snapshot.issuer/bank/payment_note を固める（空項目は config fallback）。
-    // 未作成/未設定なら null → snapshot は config 値で固まる。
-    const { data: issuerRow } = await supabase
+    // 取得 error 時は config fallback で続行せずバッチ全体を中断する（全社の snapshot に誤った
+    // 発行者/振込先を永久凍結するのを防ぐ）。error なしで data=null（未作成/未設定）は fallback で続行。
+    const { data: issuerRow, error: issuerError } = await supabase
       .from('billing_issuer_settings')
       .select('issuer_name, postal_code, address, building, tel, registration_number, bank_name, branch_name, account_type, account_number, account_holder, payment_note')
       .eq('id', 'default')
       .maybeSingle()
+    if (issuerError) {
+      return apiError('INTERNAL_ERROR', '請求書設定の取得に失敗しました')
+    }
 
     let created = 0
     let updated = 0
@@ -117,11 +121,17 @@ export async function POST(request: NextRequest) {
         const willWrite = !existing || existing.payment_status === 'pending'
         let invoiceSnapshot: ReturnType<typeof buildInvoiceSnapshot> | null = null
         if (willWrite) {
-          const { data: profile } = await supabase
+          const { data: profile, error: profileError } = await supabase
             .from('company_billing_profiles')
             .select('billing_name, department, contact_name, postal_code, address, building, phone')
             .eq('company_id', company.id)
             .maybeSingle()
+          // 取得 error は「profile無し」と同一視しない（誤って会社名 fallback を凍結しないため）。
+          // 当該 company のみスキップし、他社の確定は継続する。error なしの data=null は未登録＝fallback。
+          if (profileError) {
+            errors++
+            continue
+          }
           invoiceSnapshot = buildInvoiceSnapshot(
             { name: company.name, contact_person: company.contact_person },
             profile ?? null,
