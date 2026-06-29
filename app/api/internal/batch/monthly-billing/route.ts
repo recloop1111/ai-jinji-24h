@@ -4,6 +4,7 @@ import { successJson, apiError } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { jstPreviousMonthRange } from '@/lib/companies/applyNextMonthLimit'
 import { PRICE_PER_INTERVIEW } from '@/types/database'
+import { buildInvoiceSnapshot } from '@/lib/billing/invoice-snapshot'
 
 // node:crypto（timing-safe比較）を使うため Node runtime を明示
 export const runtime = 'nodejs'
@@ -34,14 +35,20 @@ export async function POST(request: NextRequest) {
     // 確定対象＝JST 前月（半開区間 [startIso, endIso) で created_at を絞る）。billing_month は前月1日。
     const { startIso, endIso, billingMonth } = jstPreviousMonthRange()
 
-    // 対象企業（確定に必要な列のみ）。PostgREST の1ページ上限（通常1000行）で
-    // 後続テナントが請求漏れしないよう range() で全件ページング取得する。
+    // 対象企業（確定に必要な列のみ）。name/contact_person は invoice_snapshot の bill_to fallback 用。
+    // PostgREST の1ページ上限（通常1000行）で後続テナントが請求漏れしないよう range() で全件ページング取得する。
     const PAGE_SIZE = 1000
-    const companies: { id: string; plan: string | null; price_per_interview: number | null }[] = []
+    const companies: {
+      id: string
+      name: string | null
+      contact_person: string | null
+      plan: string | null
+      price_per_interview: number | null
+    }[] = []
     for (let from = 0; ; from += PAGE_SIZE) {
       const { data: page, error: compError } = await supabase
         .from('companies')
-        .select('id, plan, price_per_interview')
+        .select('id, name, contact_person, plan, price_per_interview')
         .order('id', { ascending: true })
         .range(from, from + PAGE_SIZE - 1)
       if (compError) {
@@ -50,6 +57,19 @@ export async function POST(request: NextRequest) {
       if (!page || page.length === 0) break
       companies.push(...page)
       if (page.length < PAGE_SIZE) break
+    }
+
+    // 発行者/振込先/支払案内文は全社共通の単一設定（id='default'）。ループ前に1回だけ取得し
+    // 各社の invoice_snapshot.issuer/bank/payment_note を固める（空項目は config fallback）。
+    // 取得 error 時は config fallback で続行せずバッチ全体を中断する（全社の snapshot に誤った
+    // 発行者/振込先を永久凍結するのを防ぐ）。error なしで data=null（未作成/未設定）は fallback で続行。
+    const { data: issuerRow, error: issuerError } = await supabase
+      .from('billing_issuer_settings')
+      .select('issuer_name, postal_code, address, building, tel, registration_number, bank_name, branch_name, account_type, account_number, account_holder, payment_note')
+      .eq('id', 'default')
+      .maybeSingle()
+    if (issuerError) {
+      return apiError('INTERNAL_ERROR', '請求書設定の取得に失敗しました')
     }
 
     let created = 0
@@ -96,6 +116,29 @@ export async function POST(request: NextRequest) {
           continue
         }
 
+        // 新規確定 or pending 再計算の時だけ snapshot を組む（paid/failed/refunded の skip では作らない＝余計な取得をしない）。
+        // snapshot は確定時点のライブ値を凍結: bill_to=profile→companies、issuer/bank/note=billing_issuer_settings→config。
+        const willWrite = !existing || existing.payment_status === 'pending'
+        let invoiceSnapshot: ReturnType<typeof buildInvoiceSnapshot> | null = null
+        if (willWrite) {
+          const { data: profile, error: profileError } = await supabase
+            .from('company_billing_profiles')
+            .select('billing_name, department, contact_name, postal_code, address, building, phone')
+            .eq('company_id', company.id)
+            .maybeSingle()
+          // 取得 error は「profile無し」と同一視しない（誤って会社名 fallback を凍結しないため）。
+          // 当該 company のみスキップし、他社の確定は継続する。error なしの data=null は未登録＝fallback。
+          if (profileError) {
+            errors++
+            continue
+          }
+          invoiceSnapshot = buildInvoiceSnapshot(
+            { name: company.name, contact_person: company.contact_person },
+            profile ?? null,
+            issuerRow ?? null,
+          )
+        }
+
         if (!existing) {
           // 新規確定
           const { error: insError } = await supabase.from('billing_records').insert({
@@ -111,6 +154,7 @@ export async function POST(request: NextRequest) {
             paid_at: null,
             stripe_invoice_id: null,
             invoice_pdf_url: null,
+            invoice_snapshot: invoiceSnapshot, // 確定時点を凍結
           })
           if (insError) {
             errors++
@@ -119,6 +163,7 @@ export async function POST(request: NextRequest) {
           created++
         } else if (existing.payment_status === 'pending') {
           // 未入金のみ再計算更新（遅延 finalize を反映）。paid/failed/refunded は上書きしない。
+          // snapshot も再計算時点で更新（pending は未確定のため許容）。
           const { error: updError } = await supabase
             .from('billing_records')
             .update({
@@ -127,16 +172,17 @@ export async function POST(request: NextRequest) {
               tax_jpy: taxJpy,
               total_jpy: totalJpy,
               plan_at_billing: company.plan,
+              invoice_snapshot: invoiceSnapshot,
             })
             .eq('id', existing.id)
-            .eq('payment_status', 'pending')
+            .eq('payment_status', 'pending') // ← paid/failed/refunded への二重ガード（snapshot も含め上書きしない）
           if (updError) {
             errors++
             continue
           }
           updated++
         } else {
-          // paid / failed / refunded は確定済みとして保護
+          // paid / failed / refunded は確定済みとして保護（invoice_snapshot を含め一切 UPDATE しない）
           skipped++
         }
       } catch {
