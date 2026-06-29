@@ -12,24 +12,14 @@ import {
   type InvoiceBank,
   type BillingIssuerSettingsDbRow,
 } from '@/lib/billing/issuer-settings'
+// 宛名（bill-to）の型・解決は pdfkit 非依存の純モジュールへ分離（writer と共有）。
+import { resolveBillTo, type InvoiceBillTo, type BillToProfileRow } from '@/lib/billing/bill-to'
 import { jstDueDate } from '@/lib/billing/dueDate'
 
 // 請求書PDFのビルダー（client/admin の invoice API が共有する純関数）。
 // 金額は billing_records の確定値（subtotal/tax/total）をそのまま使用し再計算しない。
 // pdfkit の標準フォント(.afm)を一切読まないよう font:'' で生成し、日本語TTFを埋め込む
 // （serverless での .afm 同梱漏れ回避）。フォントは outputFileTracingIncludes で各ルートに同梱必須。
-
-// 請求先（宛名）の表示用フィールド。company_billing_profiles / invoice_snapshot / companies の
-// いずれかから resolveBillTo で解決した確定形。companyName は 御中、contactName は 様 で表示。
-export type InvoiceBillTo = {
-  companyName: string
-  department: string | null
-  contactName: string | null
-  postalCode: string | null
-  address: string | null
-  building: string | null
-  phone: string | null
-}
 
 export type InvoiceInput = {
   invoiceNumber: string // INV-YYYYMM-<id8>
@@ -47,17 +37,6 @@ export type InvoiceInput = {
   total: number // total_jpy（確定値）
 }
 
-// 請求先情報（company_billing_profiles）の宛名関連列。contact_email/note はPDF不使用。
-export type BillToProfileRow = {
-  billing_name: string | null
-  department: string | null
-  contact_name: string | null
-  postal_code: string | null
-  address: string | null
-  building: string | null
-  phone: string | null
-} | null
-
 // billing_records.invoice_snapshot（確定時に凍結する請求先・発行者・振込先・支払案内文）。
 // snapshot の各部があれば最優先で使用する（確定済み請求書の不変性）。
 // ※ snapshot を書き込む writer（monthly-billing）は別フェーズ。現状は通常 null。
@@ -67,50 +46,6 @@ export type InvoiceSnapshot = {
   bank?: Partial<InvoiceBank> | null
   payment_note?: string | null
 } | null
-
-// 請求先（宛名）の解決優先順位:
-//   1. invoice_snapshot.bill_to（確定時に凍結された値。過去請求書は不変）
-//   2. company_billing_profiles（企業/運営が登録した請求先情報・live）
-//   3. companies.name / contact_person（未登録時の fallback）
-// companyName（御中）は常に何か表示されるよう company.name へ最終 fallback する。
-export function resolveBillTo(
-  company: { name: string | null; contact_person: string | null },
-  profile: BillToProfileRow,
-  snapshot: InvoiceSnapshot,
-): InvoiceBillTo {
-  if (snapshot?.bill_to) {
-    const s = snapshot.bill_to
-    return {
-      companyName: s.companyName ?? company.name ?? '',
-      department: s.department ?? null,
-      contactName: s.contactName ?? null,
-      postalCode: s.postalCode ?? null,
-      address: s.address ?? null,
-      building: s.building ?? null,
-      phone: s.phone ?? null,
-    }
-  }
-  if (profile) {
-    return {
-      companyName: profile.billing_name || company.name || '',
-      department: profile.department ?? null,
-      contactName: profile.contact_name ?? company.contact_person ?? null,
-      postalCode: profile.postal_code ?? null,
-      address: profile.address ?? null,
-      building: profile.building ?? null,
-      phone: profile.phone ?? null,
-    }
-  }
-  return {
-    companyName: company.name ?? '',
-    department: null,
-    contactName: company.contact_person ?? null,
-    postalCode: null,
-    address: null,
-    building: null,
-    phone: null,
-  }
-}
 
 const FONT_PATH = path.join(process.cwd(), 'assets', 'fonts', 'IPAexGothic.ttf')
 
@@ -157,7 +92,7 @@ export function toInvoiceInput(
     issueDate: jstDate(record.created_at),
     dueDate: jstDueDate(record.created_at),
     billingMonth: billingMonthLabel,
-    billTo: resolveBillTo(company, profile, snapshot),
+    billTo: resolveBillTo(company, profile, snapshot?.bill_to),
     // 発行者/振込先/支払案内文: snapshot（凍結）→ billing_issuer_settings(DB) → config fallback。
     issuer: resolveIssuer(issuerSettings, snapshot?.issuer),
     bank: resolveBank(issuerSettings, snapshot?.bank),
