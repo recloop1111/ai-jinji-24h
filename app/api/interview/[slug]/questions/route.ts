@@ -153,6 +153,18 @@ export async function POST(
       )
     }
 
+    // 計算した questions をサーバ側で snapshot 固定（クライアントの /snapshot 未送＝クラッシュ/通信断でも
+    // 再開時のライブ再計算による質問変化を防ぐ）。ベストエフォート：
+    //   条件付き UPDATE（in_progress かつ questions_snapshot IS NULL のときだけ書く）＝既存snapshotは絶対に上書きしない・
+    //   completed/cancelled は触らない・レース時は先勝ち（後発0行）。失敗/0行でも questions 返却は継続する。
+    // ※ questions は非空（evaluation.length===0 の場合は上流で return 済み）。
+    await supabase
+      .from('interviews')
+      .update({ questions_snapshot: questions })
+      .eq('id', interviewId)
+      .eq('status', 'in_progress')
+      .is('questions_snapshot', null)
+
     return successJson({ questions })
   } catch {
     return apiError('INTERNAL_ERROR')

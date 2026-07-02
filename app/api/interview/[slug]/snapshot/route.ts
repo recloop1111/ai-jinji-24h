@@ -67,10 +67,16 @@ export async function POST(
     if (interview.applicant_id !== applicantId) return apiError('FORBIDDEN', '不正なリクエストです')
     if (interview.status !== 'in_progress') return apiError('VALIDATION_ERROR', 'この面接は進行中ではありません')
 
+    // 既存 snapshot は上書きしない（サーバ側 /questions が先に固定していれば、その値を権威とする）。
+    // `.is('questions_snapshot', null)` で未設定のときだけ保存。status='in_progress' も維持し
+    // completed/cancelled は触らない。既存ありで0行更新でも後方互換のため成功扱いにする
+    // （クライアントは同一内容を送っており、無視して問題ない）。
     const { error: updError } = await supabase
       .from('interviews')
       .update({ questions_snapshot: snapshot })
       .eq('id', interviewId)
+      .eq('status', 'in_progress')
+      .is('questions_snapshot', null)
     if (updError) return apiError('INTERNAL_ERROR', 'スナップショットの保存に失敗しました')
 
     return successJson({ interview_id: interviewId })
