@@ -52,10 +52,11 @@ const EMPLOYMENT_TYPE_FROM_DB: Record<string, string> = {
   other: 'その他',
 }
 
-// 雇用形態ごとの質問パターン説明（QuestionEditor の getPatternTabs と整合）。
-// fulltime / contract / temporary は 新卒・中途経験者・中途未経験者 の3区分、それ以外は 経験者・未経験者 の2区分。
+// 雇用形態ごとの質問パターン説明（QuestionEditor の getPatternTabs / patternKey.ts と整合）。
+// 新卒区分を持つのは正社員(fulltime)のみ＝新卒・中途経験者・中途未経験者の3区分。
+// それ以外（contract / temporary / parttime 等）は 経験者・未経験者 の2区分。
 function getPatternDescription(employmentType: string): string {
-  const threeTab = ['fulltime', 'contract', 'temporary']
+  const threeTab = ['fulltime']
   return threeTab.includes(employmentType)
     ? '新卒・中途経験者・中途未経験者の3パターンで質問を設定できます'
     : '経験者・未経験者の2パターンで質問を設定できます'

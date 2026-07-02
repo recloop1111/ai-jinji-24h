@@ -54,17 +54,17 @@ function getPatternTabs(employmentType: string): { label: string; patternKey: st
         { label: '経験者', patternKey: 'parttime-experienced' },
         { label: '未経験', patternKey: 'parttime-inexperienced' },
       ]
+    // contract / temporary は新卒区分を持たない（5区分モデル・patternKey.ts と一致）。
+    // 経験者/未経験の2区分（derivePatternKey の branch B と同じ `${jobET}-experienced/-inexperienced`）。
     case 'contract':
       return [
-        { label: '新卒', patternKey: 'contract-new-graduate' },
-        { label: '中途（経験者）', patternKey: 'contract-mid-career-experienced' },
-        { label: '中途（未経験）', patternKey: 'contract-mid-career-inexperienced' },
+        { label: '経験者', patternKey: 'contract-experienced' },
+        { label: '未経験', patternKey: 'contract-inexperienced' },
       ]
     case 'temporary':
       return [
-        { label: '新卒', patternKey: 'temporary-new-graduate' },
-        { label: '中途（経験者）', patternKey: 'temporary-mid-career-experienced' },
-        { label: '中途（未経験）', patternKey: 'temporary-mid-career-inexperienced' },
+        { label: '経験者', patternKey: 'temporary-experienced' },
+        { label: '未経験', patternKey: 'temporary-inexperienced' },
       ]
     case 'freelance':
       return [
