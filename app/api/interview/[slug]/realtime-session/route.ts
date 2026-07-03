@@ -92,6 +92,16 @@ export async function POST(
     }
 
     // 9) OpenAI（GA client_secrets）へエフェメラル発行。beta header は付けない。timeout・no-store。
+    //
+    // 【重要・PR-1 のスコープと session 設定の非権威性（Codex P2 対応）】
+    //   - ここで client_secret に添付する session 設定（instructions / model）は PR-1 時点では
+    //     「デフォルト」であり、ブラウザの Realtime 接続時に上書きされ得る（OpenAI 仕様）。
+    //     ＝サーバー側で完全な強制を保証するものではない。PR-1 のスコープは client_secret 発行までとする。
+    //   - 本番有効化（フラグ on）前に、OpenAI プロジェクト/APIキー側で「使用可能モデルの制限」＋
+    //     「月次利用上限（ハードリミット）」を設定することをコスト防御の前提条件とする。
+    //   - PR-2 で、browser 直 WebRTC のまま進めるか、サーバー中継（自社WS↔OpenAI）で session 設定を
+    //     権威化するかを判断する。
+    //   - 評価時には transcript と questions_snapshot の逸脱検知（実際に質問が改変されていないか）も検討する。
     const model = resolveRealtimeModel()
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), OPENAI_FETCH_TIMEOUT_MS)
