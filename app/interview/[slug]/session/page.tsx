@@ -54,6 +54,8 @@ export default function SessionPage() {
   const snapshotSaved = useRef(false)
   // 面接モード: connecting=Realtime試行中 / realtime=AI音声面接 / mock=既存モック自動進行。
   const [mode, setMode] = useState<'connecting' | 'realtime' | 'mock'>('connecting')
+  // カメラ/マイク取得が失敗（権限拒否等）したら Realtime 不可 → モックへ落とすためのフラグ。
+  const [mediaFailed, setMediaFailed] = useState(false)
   const realtimeRef = useRef<{ close: () => void } | null>(null)
   const realtimeAttemptedRef = useRef(false)
   const remoteAudioRef = useRef<HTMLAudioElement>(null)
@@ -144,6 +146,8 @@ export default function SessionPage() {
         streamRef.current = stream
         setHasStream(true)
       } catch {
+        // カメラ/マイク拒否・取得失敗。Realtime（音声）は不可なのでモックへ落とす合図。
+        setMediaFailed(true)
       }
     }
 
@@ -411,20 +415,24 @@ export default function SessionPage() {
   // 既定（フラグOFF/allowlist外/demo）は realtime-call が 503/403 を返すため静かにモックへフォールバック。
   useEffect(() => {
     if (mode !== 'connecting') return
-    if (!interviewId || questionList.length === 0 || !hasStream) return
+    if (!interviewId || questionList.length === 0) return
     if (realtimeAttemptedRef.current) return
+    // メディア取得が未解決（権限プロンプト応答待ち）なら待つ。成功(hasStream) or 失敗(mediaFailed)で前進。
+    if (!hasStream && !mediaFailed) return
     realtimeAttemptedRef.current = true
 
     const token = sessionStorage.getItem(`interview_${slug}_token`)
     const applicant_id = sessionStorage.getItem(`interview_${slug}_applicant_id`)
     const stream = streamRef.current
-    if (!token || !applicant_id || !stream) {
-      setMode('mock')
-      return
-    }
 
     let cancelled = false
     ;(async () => {
+      // メディア失敗（カメラ/マイク拒否）or 前提欠落 → 既存モックへ（詰まり防止）。
+      // setMode は async 内で呼び、effect 本体での同期 setState（cascading render）を避ける。
+      if (mediaFailed || !hasStream || !token || !applicant_id || !stream) {
+        if (!cancelled) setMode('mock')
+        return
+      }
       const result = await connectRealtimeCall({
         slug,
         token,
@@ -471,7 +479,21 @@ export default function SessionPage() {
     }
     // handleEndInterview は他 effect 同様 deps に含めない（ref で二重起動防止済み）
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, interviewId, questionList, hasStream, slug, totalQuestions])
+  }, [mode, interviewId, questionList, hasStream, mediaFailed, slug, totalQuestions])
+
+  // 安全網: メディア取得が解決しない（権限プロンプト放置等）まま connecting が続いても
+  // 面接が詰まらないよう、一定時間で必ずモックへ落とす（Realtime 試行が始まっていれば何もしない）。
+  useEffect(() => {
+    if (mode !== 'connecting') return
+    if (!interviewId || questionList.length === 0) return
+    const t = setTimeout(() => {
+      if (!realtimeAttemptedRef.current) {
+        realtimeAttemptedRef.current = true
+        setMode('mock')
+      }
+    }, 10000)
+    return () => clearTimeout(t)
+  }, [mode, interviewId, questionList])
 
   // アンマウント時に Realtime 接続を確実に切断（ダングリング課金防止）。
   useEffect(() => {
