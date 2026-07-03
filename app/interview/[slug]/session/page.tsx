@@ -451,12 +451,12 @@ export default function SessionPage() {
           onTranscript: (t) => {
             transcriptRef.current.push(t) // PR-2 はメモリ保持のみ（DB保存は PR-3）
           },
-          onApplicantTurnComplete: () => {
-            // P2-b: 進捗表示のみ。transcription 完了だけで /end は自動発火しない
-            // （follow-up / VAD 分割で過剰カウントし早期終了する恐れ）。厳密な自動終了は後続PR。
-            // 終了は手動終了＋60分タイマーが backstop。total で cap（表示が上限を超えない）。
-            setAnsweredQuestions((prev) => (totalQuestions > 0 ? Math.min(prev + 1, totalQuestions) : prev + 1))
-          },
+          // P2-b / 追加P1: realtime のターン数は answeredQuestions に反映しない。
+          // ターン数（follow-up / VAD 分割 / ノイズ）は「回答済み質問数」ではないため、これで完了判定
+          // （answeredQuestions >= totalQuestions → completed）を駆動すると、切断/時間切れ/手動終了で
+          // 面接を誤って completed 化し applicant/interview status を汚染し得る。
+          // → PR-2 は realtime 進捗を完了判定に使わない（＝realtime 終了は cancelled 扱い）。
+          //   質問境界に基づく確実な進捗/完了検知は後続PRで対応する。
           onDisconnect: () => {
             // P2-a: 確立後の切断は終了処理へ（モックへ戻さず・ハングさせない）。二重終了は endTriggeredRef で防止。
             // 最新の回答数は ref から渡す（クロージャの answeredQuestions は陳腐化し 0/N になり得るため）。
