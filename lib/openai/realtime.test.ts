@@ -4,7 +4,9 @@ import {
   resolveRealtimeModel,
   isCompanyAllowed,
   buildRealtimeInstructions,
+  buildRealtimeSessionConfig,
   buildClientSecretPayload,
+  computeSafetyIdentifier,
 } from './realtime'
 import { DEMO_COMPANY_ID } from '@/lib/config/demo'
 
@@ -75,20 +77,44 @@ describe('buildRealtimeInstructions', () => {
   })
 })
 
-describe('buildClientSecretPayload (GA shape)', () => {
-  it('wraps a realtime session with nested audio config', () => {
-    const p = buildClientSecretPayload({ model: 'gpt-realtime', instructions: 'X' }) as {
-      session: {
-        type: string
-        model: string
-        instructions: string
-        audio: { input: { transcription: { model: string }; turn_detection: { type: string } }; output: { voice: string } }
-      }
-    }
+type SessionShape = {
+  type: string
+  model: string
+  instructions: string
+  audio: { input: { transcription: { model: string }; turn_detection: { type: string } }; output: { voice: string } }
+}
+
+describe('buildRealtimeSessionConfig (server-authoritative session)', () => {
+  it('returns the realtime session config (no client_secret wrapper)', () => {
+    const s = buildRealtimeSessionConfig({ model: 'gpt-realtime', instructions: 'X' }) as unknown as SessionShape
+    expect(s.type).toBe('realtime')
+    expect(s.model).toBe('gpt-realtime')
+    expect(s.instructions).toBe('X')
+    expect(s.audio.input.transcription.model).toBeTruthy()
+    expect(s.audio.input.turn_detection.type).toBe('server_vad')
+    expect(s.audio.output.voice).toBeTruthy()
+  })
+})
+
+describe('buildClientSecretPayload (GA shape, wraps session config)', () => {
+  it('wraps buildRealtimeSessionConfig under session', () => {
+    const p = buildClientSecretPayload({ model: 'gpt-realtime-2', instructions: 'Y' }) as { session: SessionShape }
     expect(p.session.type).toBe('realtime')
-    expect(p.session.model).toBe('gpt-realtime')
-    expect(p.session.instructions).toBe('X')
-    expect(p.session.audio.input.turn_detection.type).toBe('server_vad')
-    expect(p.session.audio.output.voice).toBeTruthy()
+    expect(p.session.model).toBe('gpt-realtime-2')
+    expect(p.session.instructions).toBe('Y')
+  })
+})
+
+describe('computeSafetyIdentifier', () => {
+  it('is stable for the same seed and never leaks the raw id', () => {
+    const seed = '11111111-2222-3333-4444-555555555555'
+    const a = computeSafetyIdentifier(seed)
+    const b = computeSafetyIdentifier(seed)
+    expect(a).toBe(b) // 安定
+    expect(a.startsWith('aj_')).toBe(true)
+    expect(a).not.toContain(seed) // 生IDを含まない（不可逆hash）
+  })
+  it('differs for different seeds', () => {
+    expect(computeSafetyIdentifier('a')).not.toBe(computeSafetyIdentifier('b'))
   })
 })

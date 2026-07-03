@@ -1,6 +1,7 @@
 // OpenAI Realtime（GA・音声AI面接）の純関数群。fetch はルート側が行い、ここは副作用なし＝単体テスト可能。
 // フラグ/モデル/企業ガード/instructions/payload を提供する。API キーはここでは扱わない。
 
+import { createHash } from 'node:crypto'
 import {
   REALTIME_DEFAULT_MODEL,
   REALTIME_ALLOWED_MODELS,
@@ -68,24 +69,41 @@ export function buildRealtimeInstructions(
   ].join('\n')
 }
 
-// GA /v1/realtime/client_secrets のリクエスト payload（session ラッパー・audio 入出力ネスト）。
-export function buildClientSecretPayload(input: {
+// サーバー確定の Realtime session 設定（model/instructions/audio/transcription/turn_detection）。
+// realtime-call（SDP proxy）と realtime-session（client_secret・代替経路）が共有する。
+// これをサーバー側で確定して OpenAI へ渡すことで、クライアントによる model/instructions の
+// 作成時上書きを排除する（残余の接続後 session.update はアカウント側モデル制限＋評価側逸脱検知で担保）。
+export function buildRealtimeSessionConfig(input: {
   model: string
   instructions: string
   voice?: string
 }): Record<string, unknown> {
   return {
-    session: {
-      type: 'realtime',
-      model: input.model,
-      instructions: input.instructions,
-      audio: {
-        input: {
-          transcription: { model: REALTIME_TRANSCRIPTION_MODEL },
-          turn_detection: { type: 'server_vad' },
-        },
-        output: { voice: input.voice ?? REALTIME_VOICE },
+    type: 'realtime',
+    model: input.model,
+    instructions: input.instructions,
+    audio: {
+      input: {
+        transcription: { model: REALTIME_TRANSCRIPTION_MODEL },
+        turn_detection: { type: 'server_vad' },
       },
+      output: { voice: input.voice ?? REALTIME_VOICE },
     },
   }
+}
+
+// GA /v1/realtime/client_secrets のリクエスト payload（session ラッパー）。realtime-session（PR-1・代替経路）用。
+export function buildClientSecretPayload(input: {
+  model: string
+  instructions: string
+  voice?: string
+}): Record<string, unknown> {
+  return { session: buildRealtimeSessionConfig(input) }
+}
+
+// OpenAI-Safety-Identifier 用の安定・不可逆ID。applicant_id/interview_id をそのまま出さず sha256 で秘匿。
+// 同一応募者で安定（＝OpenAI 側のレート/濫用検知に使える）だが、生の内部IDは復元不可。
+export function computeSafetyIdentifier(seed: string): string {
+  const h = createHash('sha256').update(`ai-jinji:${seed}`).digest('hex')
+  return `aj_${h.slice(0, 32)}`
 }

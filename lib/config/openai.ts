@@ -1,8 +1,11 @@
 // OpenAI Realtime（GA・音声AI面接）の定数。API キーはここには置かない（server env のみ）。
 // 実際の有効化は OPENAI_REALTIME_ENABLED='true' ＋ OPENAI_API_KEY（未設定なら 503）。
 
-// GA のエフェメラル・クライアントシークレット発行エンドポイント（beta の /v1/realtime/sessions は使わない）。
+// GA のエフェメラル・クライアントシークレット発行エンドポイント（realtime-session・代替経路用）。
 export const OPENAI_REALTIME_CLIENT_SECRETS_URL = 'https://api.openai.com/v1/realtime/client_secrets'
+
+// GA の WebRTC 通話作成エンドポイント（PR-2 本命: realtime-call が SDP proxy でここへ送る）。
+export const OPENAI_REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls'
 
 // モデルは OPENAI_REALTIME_MODEL で切替。初期値 gpt-realtime。許可候補のみ採用（不正値は既定へ）。
 export const REALTIME_DEFAULT_MODEL = 'gpt-realtime'
