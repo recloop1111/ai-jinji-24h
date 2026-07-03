@@ -450,15 +450,15 @@ export default function SessionPage() {
             transcriptRef.current.push(t) // PR-2 はメモリ保持のみ（DB保存は PR-3）
           },
           onApplicantTurnComplete: () => {
-            setAnsweredQuestions((prev) => {
-              const next = prev + 1
-              if (totalQuestions > 0 && next >= totalQuestions) {
-                handleEndInterview('全質問完了', next)
-              }
-              return next
-            })
+            // P2-b: 進捗表示のみ。transcription 完了だけで /end は自動発火しない
+            // （follow-up / VAD 分割で過剰カウントし早期終了する恐れ）。厳密な自動終了は後続PR。
+            // 終了は手動終了＋60分タイマーが backstop。total で cap（表示が上限を超えない）。
+            setAnsweredQuestions((prev) => (totalQuestions > 0 ? Math.min(prev + 1, totalQuestions) : prev + 1))
           },
-          onDone: () => handleEndInterview('全質問完了', totalQuestions),
+          onDisconnect: () => {
+            // P2-a: 確立後の切断は終了処理へ（モックへ戻さず・ハングさせない）。二重終了は endTriggeredRef で防止。
+            handleEndInterview('自主終了')
+          },
         },
       })
       if (cancelled) {

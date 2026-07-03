@@ -8,11 +8,9 @@ export type RealtimeCallbacks = {
   onRemoteStream?: (stream: MediaStream) => void
   // 文字起こし（PR-2 はメモリ保持のみ。永続化は PR-3）。
   onTranscript?: (t: { role: 'applicant' | 'ai'; text: string }) => void
-  // 応募者ターンの完了（進行カウント用）。
+  // 応募者ターンの完了（進捗表示用。PR-2 では /end を自動発火しない）。
   onApplicantTurnComplete?: () => void
-  // 面接全体の完了シグナル（AI クローズ）。
-  onDone?: () => void
-  // 予期せぬ切断。
+  // 確立後の切断（呼び出し側で handleEndInterview 終了処理）。
   onDisconnect?: () => void
 }
 
@@ -29,6 +27,8 @@ type ConnectInput = {
   micStream: MediaStream
   callbacks?: RealtimeCallbacks
   iceTimeoutMs?: number
+  fetchTimeoutMs?: number // realtime-call POST の上限（超過→abort→fallback）
+  connectTimeoutMs?: number // WebRTC が connected になるまでの上限（超過→fallback）
 }
 
 function dispatchEvent(raw: string, cb: RealtimeCallbacks | undefined): void {
@@ -57,6 +57,8 @@ function dispatchEvent(raw: string, cb: RealtimeCallbacks | undefined): void {
 
 export async function connectRealtimeCall(input: ConnectInput): Promise<RealtimeConnectResult> {
   const { slug, token, applicantId, interviewId, micStream, callbacks } = input
+  const fetchTimeoutMs = input.fetchTimeoutMs ?? 12000
+  const connectTimeoutMs = input.connectTimeoutMs ?? 12000
   let pc: RTCPeerConnection | null = null
   try {
     pc = new RTCPeerConnection()
@@ -69,15 +71,18 @@ export async function connectRealtimeCall(input: ConnectInput): Promise<Realtime
     pc.ontrack = (e) => {
       if (e.streams && e.streams[0]) callbacks?.onRemoteStream?.(e.streams[0])
     }
-    pc.onconnectionstatechange = () => {
-      if (pc && (pc.connectionState === 'failed' || pc.connectionState === 'disconnected')) {
-        callbacks?.onDisconnect?.()
-      }
-    }
 
     // イベント用 data channel。
     const dc = pc.createDataChannel('oai-events')
     dc.onmessage = (e) => dispatchEvent(typeof e.data === 'string' ? e.data : '', callbacks)
+    // P1-a: open 時に response.create を送り、AI 面接官が最初の質問を音声で開始する。
+    dc.onopen = () => {
+      try {
+        dc.send(JSON.stringify({ type: 'response.create' }))
+      } catch {
+        /* noop */
+      }
+    }
 
     // offer 生成 ＋ ICE 収集（trickle 不要・最大 iceTimeoutMs で打ち切り）。
     const offer = await pc.createOffer()
@@ -86,12 +91,24 @@ export async function connectRealtimeCall(input: ConnectInput): Promise<Realtime
 
     const offerSdp = pc.localDescription?.sdp ?? offer.sdp ?? ''
 
-    // 自社 SDP proxy へ。成功時 application/sdp の answer、失敗時 JSON error。
-    const res = await fetch(`/api/interview/${slug}/realtime-call`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, applicant_id: applicantId, interview_id: interviewId, sdp: offerSdp }),
-    })
+    // P1-b: 自社 SDP proxy へ。AbortController で必ず時間内に解決させ、abort/障害は fallback。
+    const ctrl = new AbortController()
+    const fetchTimer = setTimeout(() => ctrl.abort(), fetchTimeoutMs)
+    let res: Response
+    try {
+      res = await fetch(`/api/interview/${slug}/realtime-call`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, applicant_id: applicantId, interview_id: interviewId, sdp: offerSdp }),
+        signal: ctrl.signal,
+      })
+    } catch {
+      // abort/通信障害 → fallback（mode='connecting' で止めない）。
+      pc.close()
+      return { ok: false, reason: 'fallback' }
+    } finally {
+      clearTimeout(fetchTimer)
+    }
     if (!res.ok) {
       pc.close()
       // 401/404 は flow/token 異常＝ブロッキング。それ以外（503/403/409/5xx）はモックへ。
@@ -106,10 +123,25 @@ export async function connectRealtimeCall(input: ConnectInput): Promise<Realtime
     }
     await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp })
 
+    // P2-a: connected を待ってから成功扱い。接続前の失敗/timeout はモックへ fallback。
+    const connected = await waitConnected(pc, connectTimeoutMs)
+    if (!connected) {
+      pc.close()
+      return { ok: false, reason: 'fallback' }
+    }
+
     const peer = pc
+    // 確立後の切断は onDisconnect で通知（呼び出し側が handleEndInterview で終了処理）。
+    peer.onconnectionstatechange = () => {
+      const s = peer.connectionState
+      if (s === 'failed' || s === 'disconnected' || s === 'closed') {
+        callbacks?.onDisconnect?.()
+      }
+    }
     return {
       ok: true,
       close: () => {
+        peer.onconnectionstatechange = null
         try {
           dc.close()
         } catch {
@@ -131,6 +163,27 @@ export async function connectRealtimeCall(input: ConnectInput): Promise<Realtime
     }
     return { ok: false, reason: 'fallback' }
   }
+}
+
+// connected になるまで待つ（bounded）。failed/closed/timeout は false。
+function waitConnected(pc: RTCPeerConnection, timeoutMs: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    if (pc.connectionState === 'connected') return resolve(true)
+    let settled = false
+    const finish = (v: boolean) => {
+      if (settled) return
+      settled = true
+      pc.removeEventListener('connectionstatechange', check)
+      resolve(v)
+    }
+    const check = () => {
+      const s = pc.connectionState
+      if (s === 'connected') finish(true)
+      else if (s === 'failed' || s === 'closed') finish(false)
+    }
+    pc.addEventListener('connectionstatechange', check)
+    setTimeout(() => finish(false), timeoutMs)
+  })
 }
 
 function waitIceGathering(pc: RTCPeerConnection, timeoutMs: number): Promise<void> {
