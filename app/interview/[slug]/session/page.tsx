@@ -58,6 +58,8 @@ export default function SessionPage() {
   const [mediaFailed, setMediaFailed] = useState(false)
   const realtimeRef = useRef<{ close: () => void } | null>(null)
   const realtimeAttemptedRef = useRef(false)
+  // onDisconnect から /end する際に最新の回答数を渡すための ref（effect クロージャの陳腐化対策）。
+  const answeredRef = useRef(0)
   const remoteAudioRef = useRef<HTMLAudioElement>(null)
   // transcript は PR-2 ではメモリ保持のみ（DB保存は PR-3）。
   const transcriptRef = useRef<{ role: 'applicant' | 'ai'; text: string }[]>([])
@@ -457,7 +459,8 @@ export default function SessionPage() {
           },
           onDisconnect: () => {
             // P2-a: 確立後の切断は終了処理へ（モックへ戻さず・ハングさせない）。二重終了は endTriggeredRef で防止。
-            handleEndInterview('自主終了')
+            // 最新の回答数は ref から渡す（クロージャの answeredQuestions は陳腐化し 0/N になり得るため）。
+            handleEndInterview('自主終了', answeredRef.current)
           },
         },
       })
@@ -494,6 +497,11 @@ export default function SessionPage() {
     }, 10000)
     return () => clearTimeout(t)
   }, [mode, interviewId, questionList])
+
+  // 最新の回答数を ref に同期（onDisconnect からの /end で正しい answered_questions を渡すため）。
+  useEffect(() => {
+    answeredRef.current = answeredQuestions
+  }, [answeredQuestions])
 
   // アンマウント時に Realtime 接続を確実に切断（ダングリング課金防止）。
   useEffect(() => {

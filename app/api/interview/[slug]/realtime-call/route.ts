@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server'
 import { apiError, errorJson } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifyInterviewToken } from '@/lib/interview/capability-token'
+import { assembleInterviewQuestions } from '@/lib/interview/assembleQuestions'
 import { OPENAI_REALTIME_CALLS_URL, OPENAI_FETCH_TIMEOUT_MS } from '@/lib/config/openai'
 import {
   isRealtimeEnabled,
@@ -77,27 +78,37 @@ export async function POST(
       return errorJson('REALTIME_DISABLED_FOR_DEMO', 'この企業ではAI音声面接を利用できません', 403)
     }
 
-    // 7) applicant 実在＆当該企業所属
+    // 7) applicant 実在＆当該企業所属（質問導出に job_id / employment_type / industry_experience も取得）
     const { data: applicant, error: appError } = await supabase
       .from('applicants')
-      .select('id, company_id')
+      .select('id, company_id, job_id, employment_type, industry_experience')
       .eq('id', applicantId)
       .single()
     if (appError || !applicant) return apiError('NOT_FOUND', '応募者が見つかりません')
     if (applicant.company_id !== company.id) return apiError('FORBIDDEN', '不正なリクエストです')
 
-    // 8) interview 実在＆applicant 一致＆in_progress のみ（snapshot も取得）
+    // 8) interview 実在＆applicant 一致＆in_progress のみ
     const { data: interview, error: ivError } = await supabase
       .from('interviews')
-      .select('id, applicant_id, status, questions_snapshot')
+      .select('id, applicant_id, status')
       .eq('id', interviewId)
       .single()
     if (ivError || !interview) return apiError('NOT_FOUND', '面接が見つかりません')
     if (interview.applicant_id !== applicantId) return apiError('FORBIDDEN', '不正なリクエストです')
     if (interview.status !== 'in_progress') return apiError('CONFLICT', 'この面接は進行中ではありません')
 
-    // 9) 質問 snapshot（凍結）→ instructions。未確定なら OpenAI を呼ばず 409。
-    const instructions = buildRealtimeInstructions(interview.questions_snapshot)
+    // 9) 質問はサーバー側で再導出（クライアント書き込み可能な questions_snapshot は AI 指示に信用しない・改竄防止）。
+    const assembled = await assembleInterviewQuestions(supabase, company.id, applicant)
+    if (!assembled.ok) {
+      if (assembled.kind === 'limit_exceeded') {
+        return apiError('QUESTION_LIMIT_EXCEEDED', 'この求人・区分の質問数が上限を超えています')
+      }
+      if (assembled.kind === 'job_not_found') return apiError('NOT_FOUND', '求人が見つかりません')
+      if (assembled.kind === 'forbidden') return apiError('FORBIDDEN', '不正なリクエストです')
+      return apiError('INTERNAL_ERROR', '質問の取得に失敗しました')
+    }
+    // 当該 pattern に質問未設定（空）＝AI音声面接の対象外 → 409（呼び出し側はモックへフォールバック）。
+    const instructions = buildRealtimeInstructions(assembled.questions)
     if (!instructions) {
       return errorJson('SNAPSHOT_NOT_READY', '面接質問がまだ準備できていません', 409)
     }
