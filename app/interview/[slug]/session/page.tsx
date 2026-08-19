@@ -414,6 +414,9 @@ export default function SessionPage() {
     // この試行が mode/blocking を確定（settle）したか。確定前に破棄された場合は下の cleanup で
     // guard(realtimeAttemptedRef) を戻し、再setup で再試行できるようにする（'connecting' 固着防止）。
     let settled = false
+    // 追加P2（Codex）: 破棄された古い試行を中断するための controller。cleanup で abort し、
+    // 古い試行が SDP proxy へ POST（＝ロック取得/有料呼び出し）に進むのを止める（並行二重接続防止）。
+    const attemptController = new AbortController()
     ;(async () => {
       // メディア失敗（カメラ/マイク拒否）or 前提欠落 → 既存モックへ（詰まり防止）。
       // setMode は async 内で呼び、effect 本体での同期 setState（cascading render）を避ける。
@@ -430,6 +433,7 @@ export default function SessionPage() {
         applicantId: applicant_id,
         interviewId,
         micStream: stream,
+        signal: attemptController.signal,
         callbacks: {
           onRemoteStream: (rs) => {
             if (remoteAudioRef.current) {
@@ -474,10 +478,13 @@ export default function SessionPage() {
     })()
     return () => {
       cancelled = true
-      // 追加P2（Codex）: mode を確定する前に破棄された試行（React Strict Mode の二重実行や、
-      // in-flight 中の依存変化による再setup）では guard を戻し、再setup で再試行できるようにする。
-      // これをしないと、破棄された試行が後から解決しても mode を設定せず、10秒安全網も
-      // guard=true を見て fallback しないため mode が 'connecting' に固着し得る。
+      // 追加P2（Codex）: 破棄する古い試行を中断する。これをしないと、guard を戻した直後に再setupが
+      // 2本目の接続を並行起動し、破棄した1本目が先に 65分DBロック取得＋有料 OpenAI 呼び出しを行い、
+      // 生きている2本目が 409 で mock に落ちる（無駄な有料呼び出し＋ロック占有）。abort で SDP proxy への
+      // POST を止め、1本目が副作用に進む前に切る。
+      attemptController.abort()
+      // mode を確定する前に破棄された試行（Strict Mode 二重実行 / in-flight 中の依存変化）では guard を
+      // 戻し、再setup で再試行できるようにする（'connecting' 固着防止）。確定済みなら戻さない。
       if (!settled) realtimeAttemptedRef.current = false
     }
     // handleEndInterview は他 effect 同様 deps に含めない（ref で二重起動防止済み）

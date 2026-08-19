@@ -202,6 +202,44 @@ describe('postOfferAndReadAnswer', () => {
     const r = await postOfferAndReadAnswer(URL, INIT, 5000, fetchImpl as unknown as typeof fetch)
     expect(r).toEqual({ ok: false, reason: 'fallback', status: 200 })
   })
+
+  // 追加P2（Codex）: 外部signalが既に abort 済みなら、fetch は即 abort されて fallback（POST しない=ロック取得/有料呼び出しに至らない）。
+  it('外部signalが事前に aborted → fetch が abort されて fallback', async () => {
+    vi.useRealTimers() // このテストは fake timer 不要（signal 経由の即時 abort）
+    const ac = new AbortController()
+    ac.abort() // 事前に破棄
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      // 実 fetch 同様、signal が aborted なら reject する
+      if (init?.signal?.aborted) throw new Error('aborted')
+      return makeRes({ ok: true, status: 200, text: async () => 'sdp' })
+    })
+    const r = await postOfferAndReadAnswer(URL, INIT, 5000, fetchImpl as unknown as typeof fetch, ac.signal)
+    expect(r).toEqual({ ok: false, reason: 'fallback' })
+  })
+
+  // 外部signalが body 読み取り中に abort → fallback。
+  it('外部signalが in-flight で abort → fallback', async () => {
+    vi.useRealTimers()
+    const ac = new AbortController()
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const signal = init?.signal
+      return makeRes({
+        ok: true,
+        status: 200,
+        text: () =>
+          new Promise<string>((_resolve, reject) => {
+            // 実 fetch 同様、既に abort 済みなら即 reject、以降の abort でも reject。
+            if (signal?.aborted) return reject(new Error('aborted'))
+            signal?.addEventListener('abort', () => reject(new Error('aborted')))
+          }),
+      })
+    })
+    const p = postOfferAndReadAnswer(URL, INIT, 60_000, fetchImpl as unknown as typeof fetch, ac.signal)
+    await new Promise((r) => setTimeout(r, 10)) // fetch 解決 & text() 開始まで待つ
+    ac.abort() // in-flight で破棄
+    const r = await p
+    expect(r).toEqual({ ok: false, reason: 'fallback', status: 200 })
+  })
 })
 
 // 追加P1（Codex）: 全質問完了は complete_interview tool の明示シグナルでのみ発火（発話数に非依存）。

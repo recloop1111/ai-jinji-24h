@@ -39,15 +39,23 @@ export async function postOfferAndReadAnswer(
   init: RequestInit,
   timeoutMs: number,
   fetchImpl: typeof fetch = fetch,
+  externalSignal?: AbortSignal,
 ): Promise<SdpAnswerResult> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  // 追加P2（Codex）: 呼び出し側が試行を破棄したら（Strict Mode/依存変化での再setup）、この POST も
+  // 中断してサーバのロック取得/有料 OpenAI 呼び出しに至らせない。外部signalを内部controllerへ橋渡し。
+  const onExtAbort = () => ctrl.abort()
+  if (externalSignal) {
+    if (externalSignal.aborted) ctrl.abort()
+    else externalSignal.addEventListener('abort', onExtAbort, { once: true })
+  }
   try {
     let res: Response
     try {
       res = await fetchImpl(url, { ...init, signal: ctrl.signal })
     } catch {
-      // abort（ヘッダ待ちで timeout）/通信障害 → fallback。
+      // abort（ヘッダ待ちで timeout / 外部中断）/通信障害 → fallback。
       return { ok: false, reason: 'fallback' }
     }
     if (!res.ok) {
@@ -59,13 +67,14 @@ export async function postOfferAndReadAnswer(
     try {
       sdp = await res.text()
     } catch {
-      // body 読み取り中の abort（timeout）/中断 → fallback。
+      // body 読み取り中の abort（timeout / 外部中断）→ fallback。
       return { ok: false, reason: 'fallback', status: res.status }
     }
     if (!sdp) return { ok: false, reason: 'fallback', status: res.status }
     return { ok: true, sdp }
   } finally {
     clearTimeout(timer) // 全経路で timer を解除（成功/失敗/例外いずれも）
+    externalSignal?.removeEventListener('abort', onExtAbort)
   }
 }
 
@@ -80,6 +89,7 @@ type ConnectInput = {
   fetchTimeoutMs?: number // realtime-call POST の上限（超過→abort→fallback）
   connectTimeoutMs?: number // WebRTC が connected になるまでの上限（超過→fallback）
   disconnectGraceMs?: number // 'disconnected' 復旧待ちの猶予（超過→onDisconnect）。既定 8000ms
+  signal?: AbortSignal // 呼び出し側が試行を破棄したら中断（fetch=ロック取得/有料呼び出し前に abort）
 }
 
 // 確立後の connectionState 変化から onDisconnect 発火を管理するコントローラ。
@@ -189,10 +199,12 @@ export function dispatchEvent(raw: string, cb: RealtimeCallbacks | undefined): v
 }
 
 export async function connectRealtimeCall(input: ConnectInput): Promise<RealtimeConnectResult> {
-  const { slug, token, applicantId, interviewId, micStream, callbacks } = input
+  const { slug, token, applicantId, interviewId, micStream, callbacks, signal } = input
   const fetchTimeoutMs = input.fetchTimeoutMs ?? 12000
   const connectTimeoutMs = input.connectTimeoutMs ?? 12000
   const disconnectGraceMs = input.disconnectGraceMs ?? 8000
+  // 追加P2（Codex）: 破棄済み試行は副作用（SDP proxy への POST＝ロック取得/有料呼び出し）を起こさない。
+  if (signal?.aborted) return { ok: false, reason: 'fallback' }
   let pc: RTCPeerConnection | null = null
   try {
     pc = new RTCPeerConnection()
@@ -225,7 +237,14 @@ export async function connectRealtimeCall(input: ConnectInput): Promise<Realtime
 
     const offerSdp = pc.localDescription?.sdp ?? offer.sdp ?? ''
 
+    // 破棄済みなら POST を投げない（ロック取得/有料呼び出しを避ける）。
+    if (signal?.aborted) {
+      pc.close()
+      return { ok: false, reason: 'fallback' }
+    }
+
     // P1-b: 自社 SDP proxy へ。timeout は answer SDP の body 読み取り完了まで有効（ヘッダ受信で解除しない）。
+    // 追加P2: 外部signalでも中断（破棄された古い試行が並行してロック取得/有料呼び出しに進むのを防ぐ）。
     const answer = await postOfferAndReadAnswer(
       `/api/interview/${slug}/realtime-call`,
       {
@@ -234,16 +253,22 @@ export async function connectRealtimeCall(input: ConnectInput): Promise<Realtime
         body: JSON.stringify({ token, applicant_id: applicantId, interview_id: interviewId, sdp: offerSdp }),
       },
       fetchTimeoutMs,
+      fetch,
+      signal,
     )
     if (!answer.ok) {
       pc.close()
       return { ok: false, reason: answer.reason, status: answer.status }
     }
+    if (signal?.aborted) {
+      pc.close()
+      return { ok: false, reason: 'fallback' }
+    }
     await pc.setRemoteDescription({ type: 'answer', sdp: answer.sdp })
 
     // P2-a: connected を待ってから成功扱い。接続前の失敗/timeout はモックへ fallback。
     const connected = await waitConnected(pc, connectTimeoutMs)
-    if (!connected) {
+    if (!connected || signal?.aborted) {
       pc.close()
       return { ok: false, reason: 'fallback' }
     }
