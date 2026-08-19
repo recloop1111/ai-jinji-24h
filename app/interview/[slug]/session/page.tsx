@@ -434,7 +434,9 @@ export default function SessionPage() {
         interviewId,
         micStream: stream,
         signal: attemptController.signal,
-        language: selectedLanguage,
+        // 追加P2（Codex）: 言語は初期画面で選ばれ sessionStorage に保存された値を単一の真実として使う
+        //（session の state は表示用。接続時の取り違えを避けるため保存値を直接読む）。未保存は state→'ja'。
+        language: sessionStorage.getItem(`interview_${slug}_language`) || selectedLanguage,
         callbacks: {
           onRemoteStream: (rs) => {
             if (remoteAudioRef.current) {
@@ -512,6 +514,20 @@ export default function SessionPage() {
     }, 10000)
     return () => clearTimeout(t)
   }, [mode, interviewId, questionList])
+
+  // 追加P2（Codex）: 初期画面で選択され sessionStorage に保存された言語を、session のドロップダウン表示へ
+  // 反映する（クライアントのみ・マウント後に読む＝SSR/hydration 安全）。realtime へ渡す値は接続時に
+  // sessionStorage から直接読む（上記）ため、これは表示同期用。
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(`interview_${slug}_language`)
+      // マウント後に sessionStorage から読む（SSR/hydration 安全）。表示同期のための意図的な setState。
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (saved) setSelectedLanguage(saved)
+    } catch {
+      /* noop */
+    }
+  }, [slug])
 
   // 最新の回答数を ref に同期（onDisconnect からの /end で正しい answered_questions を渡すため）。
   useEffect(() => {
@@ -738,7 +754,15 @@ export default function SessionPage() {
         <div className="fixed top-4 right-4 z-30">
           <select
             value={selectedLanguage}
-            onChange={(e) => setSelectedLanguage(e.target.value)}
+            onChange={(e) => {
+              setSelectedLanguage(e.target.value)
+              // session で変更した場合も保存（接続時に sessionStorage を読むため）。
+              try {
+                sessionStorage.setItem(`interview_${slug}_language`, e.target.value)
+              } catch {
+                /* noop */
+              }
+            }}
             className="bg-slate-800/80 text-white text-sm px-3 py-2 rounded-lg border border-white/20 hover:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
           >
             {LANGUAGES.map((lang) => (

@@ -143,7 +143,15 @@ export default function InterviewPage() {
       <div className="fixed top-4 right-4 z-50">
         <select
           value={selectedLanguage}
-          onChange={(e) => setSelectedLanguage(e.target.value)}
+          onChange={(e) => {
+            setSelectedLanguage(e.target.value)
+            // 追加P2（Codex）: 選択言語をフロー全体で保持し、後段の session（Realtime）まで伝播させる。
+            try {
+              sessionStorage.setItem(`interview_${slug}_language`, e.target.value)
+            } catch {
+              /* noop */
+            }
+          }}
           className="bg-white text-gray-900 text-xs py-1 px-2 rounded-lg border border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-sm"
         >
           {LANGUAGES.map((lang) => (
