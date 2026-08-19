@@ -455,6 +455,12 @@ export default function SessionPage() {
           onInterviewComplete: () => {
             handleEndInterview('全質問完了', totalQuestionsRef.current)
           },
+          // 追加P1（Codex）: OpenAI の致命的 server error（{type:'error'}）→ 無音放置させず終了へ。
+          // WebRTC は接続維持でも AI 応答が始まらない/続かないため、切断と同様に面接を終了する
+          // （PR-2 の realtime 終了は '自主終了'＝途中離脱。二重 /end は endTriggeredRef で防止）。
+          onServerError: () => {
+            handleEndInterview('自主終了', answeredRef.current)
+          },
           onDisconnect: () => {
             // P2-a: 確立後の切断は終了処理へ（モックへ戻さず・ハングさせない）。二重終了は endTriggeredRef で防止。
             // 最新の回答数は ref から渡す（クロージャの answeredQuestions は陳腐化し 0/N になり得るため）。

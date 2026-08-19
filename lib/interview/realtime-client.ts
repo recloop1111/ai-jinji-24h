@@ -15,6 +15,10 @@ export type RealtimeCallbacks = {
   onInterviewComplete?: () => void
   // 確立後の切断（呼び出し側で handleEndInterview 終了処理）。
   onDisconnect?: () => void
+  // OpenAI がデータチャネルに送る致命的な server error（{type:'error'}）。WebRTC は接続維持のまま
+  // OpenAI が初回/後続 response を拒否すると音声が始まらず無音のまま放置され得るため、呼び出し側へ
+  // 通知して終了/フォールバックさせる（黙殺しない）。
+  onServerError?: (info: { code?: string; message?: string }) => void
 }
 
 // 面接完了シグナル用のサーバー定義 function tool 名（realtime.ts の tools 定義と一致させる）。
@@ -170,7 +174,13 @@ export function isInterviewCompleteEvent(evt: {
 export function dispatchEvent(raw: string, cb: RealtimeCallbacks | undefined): void {
   if (!cb) return
   let evt:
-    | { type?: string; transcript?: string; name?: string; item?: { type?: string; name?: string } | null }
+    | {
+        type?: string
+        transcript?: string
+        name?: string
+        item?: { type?: string; name?: string } | null
+        error?: { code?: unknown; message?: unknown } | null
+      }
     | null = null
   try {
     evt = JSON.parse(raw)
@@ -179,6 +189,16 @@ export function dispatchEvent(raw: string, cb: RealtimeCallbacks | undefined): v
   }
   const type = typeof evt?.type === 'string' ? evt.type : ''
   const text = typeof evt?.transcript === 'string' ? evt.transcript : ''
+  // 追加P1（Codex）: OpenAI の致命的 server error（{type:'error'}）。黙殺すると WebRTC 接続維持のまま
+  // 無音で 60分タイムアウトまで放置され得るため、呼び出し側へ通知して終了/フォールバックさせる。
+  if (type === 'error') {
+    const err = evt?.error ?? null
+    cb.onServerError?.({
+      code: typeof err?.code === 'string' ? err.code : undefined,
+      message: typeof err?.message === 'string' ? err.message : undefined,
+    })
+    return
+  }
   // 全質問完了シグナル（サーバー定義 tool complete_interview の呼び出し）。呼び出し側だけが /end する。
   if (isInterviewCompleteEvent(evt ?? {})) {
     cb.onInterviewComplete?.()

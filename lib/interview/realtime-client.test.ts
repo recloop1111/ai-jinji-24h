@@ -296,3 +296,38 @@ describe('isInterviewCompleteEvent / dispatchEvent completion signal', () => {
     expect(cb.onApplicantTurnComplete).toHaveBeenCalledTimes(1)
   })
 })
+
+// 追加P1（Codex）: OpenAI の致命的 server error（{type:'error'}）を黙殺せず onServerError へ surface する。
+describe('dispatchEvent server error ({type:"error"})', () => {
+  it('type=error → onServerError を code/message 付きで1回発火（他コールバックは呼ばない）', () => {
+    const cb = {
+      onServerError: vi.fn(),
+      onInterviewComplete: vi.fn(),
+      onApplicantTurnComplete: vi.fn(),
+      onTranscript: vi.fn(),
+    }
+    dispatchEvent(
+      JSON.stringify({ type: 'error', error: { code: 'invalid_request', message: 'bad response.create' } }),
+      cb,
+    )
+    expect(cb.onServerError).toHaveBeenCalledTimes(1)
+    expect(cb.onServerError).toHaveBeenCalledWith({ code: 'invalid_request', message: 'bad response.create' })
+    expect(cb.onInterviewComplete).not.toHaveBeenCalled()
+    expect(cb.onApplicantTurnComplete).not.toHaveBeenCalled()
+    expect(cb.onTranscript).not.toHaveBeenCalled()
+  })
+
+  it('type=error で error 詳細が無くても onServerError は発火（code/message は undefined）', () => {
+    const cb = { onServerError: vi.fn() }
+    dispatchEvent(JSON.stringify({ type: 'error' }), cb)
+    expect(cb.onServerError).toHaveBeenCalledTimes(1)
+    expect(cb.onServerError).toHaveBeenCalledWith({ code: undefined, message: undefined })
+  })
+
+  it('通常イベントでは onServerError を呼ばない', () => {
+    const cb = { onServerError: vi.fn(), onTranscript: vi.fn() }
+    dispatchEvent(JSON.stringify({ type: 'response.audio_transcript.done', transcript: 'こんにちは' }), cb)
+    expect(cb.onServerError).not.toHaveBeenCalled()
+    expect(cb.onTranscript).toHaveBeenCalledTimes(1)
+  })
+})
