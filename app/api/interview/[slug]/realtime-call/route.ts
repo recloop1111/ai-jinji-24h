@@ -3,6 +3,7 @@ import { apiError, errorJson } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifyInterviewToken } from '@/lib/interview/capability-token'
 import { assembleInterviewQuestions } from '@/lib/interview/assembleQuestions'
+import { REALTIME_CALL_LOCK_TTL_MS, interpretLockClaim } from '@/lib/interview/realtime-call-lock'
 import { OPENAI_REALTIME_CALLS_URL, OPENAI_FETCH_TIMEOUT_MS } from '@/lib/config/openai'
 import {
   isRealtimeEnabled,
@@ -96,6 +97,26 @@ export async function POST(
     if (ivError || !interview) return apiError('NOT_FOUND', '面接が見つかりません')
     if (interview.applicant_id !== applicantId) return apiError('FORBIDDEN', '不正なリクエストです')
     if (interview.status !== 'in_progress') return apiError('CONFLICT', 'この面接は進行中ではありません')
+
+    // 8.5) P1-2（Codex）: 同一 interview への realtime-call 並列/連打で有料 OpenAI 呼び出しが
+    //   多重化するのを防ぐ。OpenAI fetch の前に interviews 行へ短時間TTLロックを原子的にクレーム
+    //   （単一 conditional UPDATE ... RETURNING。serverless インスタンス跨ぎでも DB 行ロックで実効）。
+    //   - acquired（1行）: 続行。TTL(20s)で自動失効＝正常な再接続は失効後に許可（永久禁止にしない）。
+    //   - contended（0行）: 別セッションが保持中 → 409（呼び出し側はモックへフォールバック）。
+    //   - failopen（error）: 列 realtime_call_locked_until 未適用 等 → 阻害しない（段階ロールアウト。
+    //     supabase/rls/phase_h_realtime_call_lock.sql 適用で有効化）。
+    const nowIso = new Date().toISOString()
+    const lockUntilIso = new Date(Date.now() + REALTIME_CALL_LOCK_TTL_MS).toISOString()
+    const claim = await supabase
+      .from('interviews')
+      .update({ realtime_call_locked_until: lockUntilIso })
+      .eq('id', interviewId)
+      .eq('status', 'in_progress')
+      .or(`realtime_call_locked_until.is.null,realtime_call_locked_until.lt.${nowIso}`)
+      .select('id')
+    if (interpretLockClaim(claim.data, claim.error) === 'contended') {
+      return errorJson('REALTIME_CALL_IN_PROGRESS', '別の面接セッションが進行中です', 409)
+    }
 
     // 9) 質問はサーバー側で再導出（クライアント書き込み可能な questions_snapshot は AI 指示に信用しない・改竄防止）。
     const assembled = await assembleInterviewQuestions(supabase, company.id, applicant)

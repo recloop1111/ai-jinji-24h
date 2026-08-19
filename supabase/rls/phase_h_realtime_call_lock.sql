@@ -1,0 +1,51 @@
+-- ============================================================================
+-- phase_h_realtime_call_lock.sql
+--   Phase H: AI音声面接（OpenAI Realtime）の realtime-call エンドポイントに対する
+--   「同一 interview あたりの多重 OpenAI 呼び出し（並列/連打）」を防止するための
+--   短時間TTLロック列を interviews に追加する（Codex P1-2 対応）。
+--
+-- 【重要】
+--   * これは MIGRATION ではない。supabase/migrations には置かない（本番自動適用しない）。
+--   * 手動実行専用（運用者が Supabase SQL Editor / psql で意図的に流す）。本ファイルは未実行。
+--   * 本番=Preview 同一プロジェクトのため、適用＝本番反映。適用は承認後に行う。
+--   * DROP/破壊操作は無い。NULL 許容の列を1本足すだけ（既存行・既存挙動に非影響）。
+--
+-- 背景 / 問題（P1-2）:
+--   有効な capability token を持つ応募者は、interview が in_progress の間、
+--   /api/interview/[slug]/realtime-call へ offer を無制限に POST でき、受理ごとに
+--   有料 OpenAI /v1/realtime/calls が呼ばれる。月間上限は interview レコード数を数える
+--   ため、同一 interview で多数の課金セッションを同時に張れてしまう。
+--
+-- 設計:
+--   - interviews.realtime_call_locked_until (timestamptz, NULL 許容) を追加。
+--   - ルート（app/api/interview/[slug]/realtime-call/route.ts）は OpenAI fetch の前に
+--     単一の条件付き UPDATE で原子的にロックをクレームする（serverless インスタンス跨ぎでも
+--     DB 行ロックで実効。process-local Map では不可）:
+--
+--       UPDATE interviews
+--          SET realtime_call_locked_until = now() + interval '20 seconds'
+--        WHERE id = :interview_id
+--          AND status = 'in_progress'
+--          AND (realtime_call_locked_until IS NULL OR realtime_call_locked_until < now())
+--       RETURNING id;
+--
+--     - 1行返る = ロック取得 → OpenAI 呼び出しへ続行。
+--     - 0行 = 別セッションが保持中 → 409（呼び出し側はモックへフォールバック）。
+--     - TTL(20s)で自動失効 → 正常な再接続は失効後に許可（永久禁止にはしない）。
+--   - コード側は本列が未適用でも安全（fail-open）: UPDATE がエラー（列なし）なら阻害せず続行する。
+--     本 SQL 適用をもってロックが有効化される（段階ロールアウト）。
+--   - RLS: 本列は service-role（RLS bypass）からのみ書かれる。anon/authenticated への
+--     追加 grant/policy は不要（realtime-call は service-role で実行）。
+--
+-- ロールバック:
+--   ALTER TABLE public.interviews DROP COLUMN IF EXISTS realtime_call_locked_until;
+-- ============================================================================
+
+ALTER TABLE public.interviews
+  ADD COLUMN IF NOT EXISTS realtime_call_locked_until timestamptz;
+
+-- 期限切れロックの整理は不要（クレーム時に「NULL or < now()」で上書きするため放置で安全）。
+-- 任意で失効行の可視化を軽くするための部分インデックス（無くても機能する・任意）:
+-- CREATE INDEX IF NOT EXISTS idx_interviews_realtime_lock
+--   ON public.interviews (realtime_call_locked_until)
+--   WHERE realtime_call_locked_until IS NOT NULL;
