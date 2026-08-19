@@ -2,7 +2,7 @@ import { type NextRequest } from 'next/server'
 import { successJson, apiError } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifyInterviewToken } from '@/lib/interview/capability-token'
-import { assembleInterviewQuestions } from '@/lib/interview/assembleQuestions'
+import { assembleInterviewQuestions, DEFAULT_INTERVIEW_QUESTIONS } from '@/lib/interview/assembleQuestions'
 import {
   MAX_TOTAL_QUESTIONS,
   MAX_ICEBREAKER_QUESTIONS,
@@ -88,10 +88,10 @@ export async function POST(
       if (assembled.kind === 'forbidden') return apiError('FORBIDDEN', '不正なリクエストです')
       return apiError('INTERNAL_ERROR', '質問の取得に失敗しました')
     }
-    const questions = assembled.questions
-    if (questions.length === 0) {
-      return successJson({ questions: [] })
-    }
+    // 追加P2（Codex）: job_id 無し / pattern 未設定（空）でも、実際に応募者へ出す既定質問を
+    //   サーバ側で凍結して記録・返却する（client /snapshot 撤去後、既定質問面接の questions_snapshot が
+    //   null のまま記録欠落するのを防ぐ）。既定質問は assembleQuestions の唯一定義を使う。
+    const questions = assembled.questions.length > 0 ? assembled.questions : DEFAULT_INTERVIEW_QUESTIONS
 
     // 計算した questions をサーバ側で snapshot 固定（クライアントの /snapshot 未送＝クラッシュ/通信断でも
     // 再開時のライブ再計算による質問変化を防ぐ）。条件付き UPDATE（in_progress かつ questions_snapshot IS NULL

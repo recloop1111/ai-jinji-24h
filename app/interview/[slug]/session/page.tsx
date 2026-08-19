@@ -296,7 +296,8 @@ export default function SessionPage() {
     }
 
     async function fetchQuestions() {
-      if (!jobId || !companyId) return
+      // 追加P2（Codex）: job_id 無しでも /questions を呼ぶ（サーバが既定質問を凍結して返す＝記録に残す）。
+      if (!companyId) return
 
       try {
         // カスタム質問を取得（token付き service-role API。browser直SELECTは廃止）
@@ -340,13 +341,9 @@ export default function SessionPage() {
     }
 
     // start 成功（interviewId 確定）後に質問を用意する。
+    // 追加P2（Codex）: job_id の有無に関わらず /questions を呼ぶ。job_id 無し/pattern 未設定でも
+    // サーバが既定質問を凍結して返すため、既定質問面接でも questions_snapshot が記録される。
     if (!interviewId || !companyId) return
-
-    // job_id 無し → /questions を呼ばず、明示的に既存デフォルト質問を即セット（totalQuestions=1・最初の質問）
-    if (!jobId) {
-      setDefaultQuestions()
-      return
-    }
 
     // 一度きりの answeredQuestions+1 は撤去（下のオートプログレッションが進行を管理し二重カウントを防ぐ）。
     const t1 = setTimeout(() => {

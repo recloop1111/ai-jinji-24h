@@ -13,6 +13,13 @@ import {
 } from '@/lib/config/interview-policy'
 
 export type AssembledQuestion = { question_text: string; sort_order: number }
+
+// 既定質問（job_id 無し / 当該 pattern 未設定 で assemble が空のとき、実際に応募者へ出す質問）。
+// サーバ側の唯一の定義とし、/questions が空のときこれを凍結して返す（既定質問面接でも記録に残す）。
+// クライアント（session page）の DEFAULT_QUESTION 表示と文言を一致させること。
+export const DEFAULT_INTERVIEW_QUESTIONS: AssembledQuestion[] = [
+  { question_text: '本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？', sort_order: 1 },
+]
 export type AssembleResult =
   | { ok: true; questions: AssembledQuestion[] } // 空配列 = job無し or 当該pattern未設定（既定質問フォールバック）
   | { ok: false; kind: 'db_error' | 'limit_exceeded' | 'job_not_found' | 'forbidden' }
