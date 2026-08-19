@@ -198,6 +198,14 @@ export async function POST(
     //   （ブラウザ側の abort はこの別 fetch には伝播しないため、ここで独立して打ち切る）。
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), OPENAI_FETCH_TIMEOUT_MS)
+    // 追加P2（Codex）: クライアント切断（request.signal・React cleanup/navigation で POST が abort）を
+    //   upstream OpenAI fetch へ伝播する。切断時は fetch が abort されて 502 で抜け、外側 try/finally が
+    //   ロックを解放する（破棄された試行が有料 call 生成/65分ロック占有に進むのを防ぐ）。
+    const onClientAbort = () => controller.abort()
+    if (request.signal) {
+      if (request.signal.aborted) controller.abort()
+      else request.signal.addEventListener('abort', onClientAbort, { once: true })
+    }
     let oaRes: Response
     try {
       oaRes = await fetch(OPENAI_REALTIME_CALLS_URL, {
