@@ -3,6 +3,7 @@
 > ステータス: **設計案のみ（未実装）**。本ドキュメントはコード/インフラ/DB/env を変更しない。
 > 実装・インフラ追加・有料API E2E は別途承認後。Codex P1「Prevent clients from replacing the
 > server-owned session」(realtime.ts:96) への恒久対策の設計。
+> **follow-up: GitHub Issue #19 / 関連: PR #11。**
 >
 > ## ⛔ 本番有効化のブロッカー（必須条件）
 > **本設計 B（サーバ中継）が完了するまで、Realtime 経路を本番で有効化してはならない。**
