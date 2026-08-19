@@ -525,7 +525,10 @@ export default function SessionPage() {
   // 追加P1（Codex）: realtime 確立後「初回 AI 応答」ウォッチドッグ（one-shot）。初回 response.create が
   // recoverable error で失敗する等で AI が話し始めないと無音のまま 60分放置され得るため、一定時間で AI 応答が
   // 無ければ realtime を閉じてモックへフォールバックする（応募者は面接を継続できる）。AI 応答が来ていれば何もしない。
-  // ※ 後続ターンごとの無音検知（response lifecycle ベース・ASR順序に依存しない設計）は follow-up Issue #21。
+  // 【既知の限界（Codex P2）/ follow-up: Issue #21】aiRespondedRef は audio_transcript...done（応答完了）でのみ
+  //   立つため、初回応答が 30秒超（長い opening question 等）だと発話中でも false のまま健全な接続を切り得る。
+  //   厳密には output delta / response-start イベントで「応答開始」を検知すべき。後続ターン別検知と併せて #21。
+  //   realtime は既定 OFF のため本番露出は無く、正確化は本番有効化前に #21 で対応する。
   useEffect(() => {
     if (mode !== 'realtime') return
     const t = setTimeout(() => {

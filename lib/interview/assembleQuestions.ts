@@ -22,8 +22,11 @@ export const DEFAULT_INTERVIEW_QUESTIONS: AssembledQuestion[] = [
 ]
 
 // snapshot が「既定質問のみ」（job無し/pattern未設定の mock 用フォールバック）かを判定する。
-// realtime-call は未設定 interview を有料 Realtime 対象外（mockへ）とするため、これを content 比較で見分ける
-// （provenance 列を使わずに既定 fallback を識別する）。
+// realtime-call は未設定 interview を有料 Realtime 対象外（mockへ）とするため、これを content 比較で見分ける。
+// 【既知の限界（Codex P2）/ follow-up: Issue #20】content 比較のため、企業が「唯一の質問」を偶然この既定
+//   テキストと同一に設定した正当な interview も既定 fallback と誤判定し得る（→ realtime 対象外＝mock 強制）。
+//   厳密には provenance マーカー（DB列）で「既定 fallback か実設定か」を区別すべき。realtime は既定 OFF の
+//   ため本番露出は無く、正確化は本番有効化前に #20 で対応する。
 export function isDefaultQuestionSnapshot(snapshot: unknown): boolean {
   if (!Array.isArray(snapshot) || snapshot.length !== DEFAULT_INTERVIEW_QUESTIONS.length) return false
   return snapshot.every((q, i) => {
