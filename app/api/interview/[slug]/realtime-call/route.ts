@@ -150,15 +150,32 @@ export async function POST(
       if (assembled.questions.length === 0) {
         return errorJson('SNAPSHOT_NOT_READY', '面接質問がまだ準備できていません', 409)
       }
-      // write-once で原子的に凍結（/questions と同一の条件付きUPDATE）。競合で他が先に凍結しても
-      // assemble は決定的（同一入力→同一出力）なので内容は一致する。以降の realtime-call は凍結値を読む。
-      await supabase
+      // write-once で原子的に凍結（/questions と同一の条件付きUPDATE）。
+      // 追加P2（Codex）: 凍結レースに負けた場合の一貫性。読み取り〜UPDATE の間に /questions（や管理者編集を
+      //   挟んだ凍結）が先に「別内容で」凍結すると、この UPDATE は 0行になる。その場合に自分の assemble 版を
+      //   使うと UI/記録（勝った版）と Realtime（負けた版）が食い違う。→ 1行返れば自分が凍結した版、
+      //   0行なら「勝った現在の snapshot」を再読して採用する。
+      const { data: frozenRows } = await supabase
         .from('interviews')
         .update({ questions_snapshot: assembled.questions })
         .eq('id', interviewId)
         .eq('status', 'in_progress')
         .is('questions_snapshot', null)
-      frozenQuestions = assembled.questions
+        .select('questions_snapshot')
+      if (frozenRows && frozenRows.length > 0) {
+        frozenQuestions = frozenRows[0].questions_snapshot // 自分が凍結した（レースに勝った）
+      } else {
+        // レースに負けた/既に凍結済み → 勝った現在の snapshot を再読して採用（不一致を防ぐ）。
+        const { data: current } = await supabase
+          .from('interviews')
+          .select('questions_snapshot')
+          .eq('id', interviewId)
+          .single()
+        frozenQuestions =
+          current && Array.isArray(current.questions_snapshot) && current.questions_snapshot.length > 0
+            ? current.questions_snapshot
+            : assembled.questions // 想定外（再読不能）時のみ自版でフォールバック
+      }
     }
     // 応募者が session UI で選んだ言語で面接する（許可コード以外/未指定は 'ja'）。
     const language = resolveRealtimeLanguage(body.language)
