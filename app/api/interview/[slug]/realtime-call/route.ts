@@ -3,6 +3,7 @@ import { apiError, errorJson } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifyInterviewToken } from '@/lib/interview/capability-token'
 import { assembleInterviewQuestions } from '@/lib/interview/assembleQuestions'
+import { needsFreeze } from '@/lib/interview/frozenQuestions'
 import { REALTIME_CALL_LOCK_TTL_MS, interpretLockClaim } from '@/lib/interview/realtime-call-lock'
 import { OPENAI_REALTIME_CALLS_URL, OPENAI_FETCH_TIMEOUT_MS } from '@/lib/config/openai'
 import {
@@ -88,10 +89,10 @@ export async function POST(
     if (appError || !applicant) return apiError('NOT_FOUND', '応募者が見つかりません')
     if (applicant.company_id !== company.id) return apiError('FORBIDDEN', '不正なリクエストです')
 
-    // 8) interview 実在＆applicant 一致＆in_progress のみ
+    // 8) interview 実在＆applicant 一致＆in_progress のみ（凍結済み設問 questions_snapshot も取得）
     const { data: interview, error: ivError } = await supabase
       .from('interviews')
-      .select('id, applicant_id, status')
+      .select('id, applicant_id, status, questions_snapshot')
       .eq('id', interviewId)
       .single()
     if (ivError || !interview) return apiError('NOT_FOUND', '面接が見つかりません')
@@ -118,18 +119,37 @@ export async function POST(
       return errorJson('REALTIME_CALL_IN_PROGRESS', '別の面接セッションが進行中です', 409)
     }
 
-    // 9) 質問はサーバー側で再導出（クライアント書き込み可能な questions_snapshot は AI 指示に信用しない・改竄防止）。
-    const assembled = await assembleInterviewQuestions(supabase, company.id, applicant)
-    if (!assembled.ok) {
-      if (assembled.kind === 'limit_exceeded') {
-        return apiError('QUESTION_LIMIT_EXCEEDED', 'この求人・区分の質問数が上限を超えています')
+    // 9) 追加P2（Codex）: 設問は「凍結済み questions_snapshot」を単一の真実として使う（/questions と同じ
+    //   write-once 凍結）。既に凍結済みならそれを使い（面接開始後に管理者が求人/共通設問を編集しても、
+    //   AI が尋ねる設問＝応募者が見た設問＝記録された設問 で一貫）、未凍結のときだけサーバ側で assemble し、
+    //   条件付きUPDATE（status='in_progress' かつ questions_snapshot IS NULL）で原子的に凍結してから使う。
+    //   snapshot はサーバ(service-role)だけが書く（client /snapshot 経路は撤去済み）＝改竄不可で信頼できる。
+    let frozenQuestions: unknown = interview.questions_snapshot
+    if (needsFreeze(frozenQuestions)) {
+      const assembled = await assembleInterviewQuestions(supabase, company.id, applicant)
+      if (!assembled.ok) {
+        if (assembled.kind === 'limit_exceeded') {
+          return apiError('QUESTION_LIMIT_EXCEEDED', 'この求人・区分の質問数が上限を超えています')
+        }
+        if (assembled.kind === 'job_not_found') return apiError('NOT_FOUND', '求人が見つかりません')
+        if (assembled.kind === 'forbidden') return apiError('FORBIDDEN', '不正なリクエストです')
+        return apiError('INTERNAL_ERROR', '質問の取得に失敗しました')
       }
-      if (assembled.kind === 'job_not_found') return apiError('NOT_FOUND', '求人が見つかりません')
-      if (assembled.kind === 'forbidden') return apiError('FORBIDDEN', '不正なリクエストです')
-      return apiError('INTERNAL_ERROR', '質問の取得に失敗しました')
+      // 当該 pattern に質問未設定（空）＝AI音声面接の対象外 → 409（呼び出し側はモックへフォールバック）。
+      if (assembled.questions.length === 0) {
+        return errorJson('SNAPSHOT_NOT_READY', '面接質問がまだ準備できていません', 409)
+      }
+      // write-once で原子的に凍結（/questions と同一の条件付きUPDATE）。競合で他が先に凍結しても
+      // assemble は決定的（同一入力→同一出力）なので内容は一致する。以降の realtime-call は凍結値を読む。
+      await supabase
+        .from('interviews')
+        .update({ questions_snapshot: assembled.questions })
+        .eq('id', interviewId)
+        .eq('status', 'in_progress')
+        .is('questions_snapshot', null)
+      frozenQuestions = assembled.questions
     }
-    // 当該 pattern に質問未設定（空）＝AI音声面接の対象外 → 409（呼び出し側はモックへフォールバック）。
-    const instructions = buildRealtimeInstructions(assembled.questions)
+    const instructions = buildRealtimeInstructions(frozenQuestions)
     if (!instructions) {
       return errorJson('SNAPSHOT_NOT_READY', '面接質問がまだ準備できていません', 409)
     }

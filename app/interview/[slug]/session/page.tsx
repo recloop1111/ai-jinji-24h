@@ -51,7 +51,6 @@ export default function SessionPage() {
   // start / questions が失敗した場合のブロッキングエラー（面接UIを描画させない）
   const [blockingError, setBlockingError] = useState<string | null>(null)
   const [questionList, setQuestionList] = useState<string[]>([])
-  const snapshotSaved = useRef(false)
   // 面接モード: connecting=Realtime試行中 / realtime=AI音声面接 / mock=既存モック自動進行。
   const [mode, setMode] = useState<'connecting' | 'realtime' | 'mock'>('connecting')
   // カメラ/マイク取得が失敗（権限拒否等）したら Realtime 不可 → モックへ落とすためのフラグ。
@@ -393,27 +392,9 @@ export default function SessionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [interviewId, blockingError, questionList, mode])
 
-  // interviewIdとquestionListが揃ったら questions_snapshot を1回だけ保存（token付き service-role API）
-  useEffect(() => {
-    if (!interviewId || questionList.length === 0 || snapshotSaved.current) return
-
-    const token = sessionStorage.getItem(`interview_${slug}_token`)
-    const applicant_id = sessionStorage.getItem(`interview_${slug}_applicant_id`)
-    if (!token || !applicant_id) return
-    snapshotSaved.current = true
-
-    const snapshot = questionList.map((q, i) => ({
-      sort_order: i + 1,
-      question_text: q,
-    }))
-
-    // 保存失敗で面接全体が止まらないよう fire-and-forget（後続の質問表示・終了処理に影響させない）
-    fetch(`/api/interview/${slug}/snapshot`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, applicant_id, interview_id: interviewId, questions_snapshot: snapshot }),
-    }).catch(() => {})
-  }, [interviewId, questionList, slug])
+  // 追加P2（Codex）: questions_snapshot の凍結はサーバ側の唯一の権威に一本化した。
+  // /questions が assemble して write-once（IS NULL 条件付きUPDATE）で凍結し、realtime-call も
+  // その凍結値を使う。クライアントからの /snapshot 書き込み（改竄面）は撤去した（旧: ここで保存）。
 
   // AI音声面接（Realtime）を試行。成功→realtime、503/403/409/5xx/接続失敗→mock、401/404→blocking。
   // 既定（フラグOFF/allowlist外/demo）は realtime-call が 503/403 を返すため静かにモックへフォールバック。
