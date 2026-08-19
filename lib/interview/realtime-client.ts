@@ -10,14 +10,64 @@ export type RealtimeCallbacks = {
   onTranscript?: (t: { role: 'applicant' | 'ai'; text: string }) => void
   // 応募者ターンの完了（進捗表示用。PR-2 では /end を自動発火しない）。
   onApplicantTurnComplete?: () => void
+  // 全質問完了シグナル（サーバー定義 tool complete_interview を AI が呼んだとき）。
+  // 呼び出し側だけが handleEndInterview('全質問完了') を発火する（発話数カウントには依存しない）。
+  onInterviewComplete?: () => void
   // 確立後の切断（呼び出し側で handleEndInterview 終了処理）。
   onDisconnect?: () => void
 }
+
+// 面接完了シグナル用のサーバー定義 function tool 名（realtime.ts の tools 定義と一致させる）。
+export const COMPLETE_INTERVIEW_TOOL = 'complete_interview'
 
 export type RealtimeConnectResult =
   | { ok: true; close: () => void }
   // fallback: モック面接へ / blocking: token/flow 異常でブロッキング表示
   | { ok: false; reason: 'fallback' | 'blocking'; status?: number }
+
+// realtime-call POST → answer SDP 読み取りまでの結果。
+export type SdpAnswerResult =
+  | { ok: true; sdp: string }
+  | { ok: false; reason: 'fallback' | 'blocking'; status?: number }
+
+// realtime-call へ offer を POST し answer SDP を読み取る。
+// P1（Codex）: timeout はヘッダ受信時ではなく res.text()（body 読み取り）完了まで有効に保つ。
+// body が stall しても必ず abort されて fallback へ進む（mode='connecting' で無限ハングしない）。
+// 401/404 は blocking、それ以外の非OK（503/403/409/5xx）と通信/abort/空bodyは fallback。
+export async function postOfferAndReadAnswer(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<SdpAnswerResult> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    let res: Response
+    try {
+      res = await fetchImpl(url, { ...init, signal: ctrl.signal })
+    } catch {
+      // abort（ヘッダ待ちで timeout）/通信障害 → fallback。
+      return { ok: false, reason: 'fallback' }
+    }
+    if (!res.ok) {
+      const reason = res.status === 401 || res.status === 404 ? 'blocking' : 'fallback'
+      return { ok: false, reason, status: res.status }
+    }
+    // timer はまだ動かしたまま body を読む（ヘッダは来たが SDP body が stall するケースを timeout で救う）。
+    let sdp: string
+    try {
+      sdp = await res.text()
+    } catch {
+      // body 読み取り中の abort（timeout）/中断 → fallback。
+      return { ok: false, reason: 'fallback', status: res.status }
+    }
+    if (!sdp) return { ok: false, reason: 'fallback', status: res.status }
+    return { ok: true, sdp }
+  } finally {
+    clearTimeout(timer) // 全経路で timer を解除（成功/失敗/例外いずれも）
+  }
+}
 
 type ConnectInput = {
   slug: string
@@ -82,9 +132,36 @@ export function createDisconnectController(
   return { handleStateChange, clear }
 }
 
-function dispatchEvent(raw: string, cb: RealtimeCallbacks | undefined): void {
+// data channel イベントが「complete_interview tool 呼び出し完了」かを判定する。
+// GA Realtime の関数呼び出し完了は response.function_call_arguments.done（name/call_id/arguments）で来るが、
+// スキーマ差異に強くするため、関数呼び出し完了を表す複数形（arguments.done / output_item.done の function_call）
+// と、その name が complete_interview のときだけ true。発話文字起こし数には一切依存しない。
+export function isInterviewCompleteEvent(evt: {
+  type?: unknown
+  name?: unknown
+  item?: { type?: unknown; name?: unknown } | null
+}): boolean {
+  const type = typeof evt?.type === 'string' ? evt.type : ''
+  // 1) response.function_call_arguments.done（name 直下）
+  if (type.includes('function_call') && type.endsWith('done')) {
+    if (evt?.name === COMPLETE_INTERVIEW_TOOL) return true
+    // 2) response.output_item.done で item.type==='function_call' の場合は item.name を見る
+    const item = evt?.item
+    if (item && item.type === 'function_call' && item.name === COMPLETE_INTERVIEW_TOOL) return true
+  }
+  // 3) response.output_item.done（type に function_call を含まない）でも item を確認
+  if (type === 'response.output_item.done') {
+    const item = evt?.item
+    if (item && item.type === 'function_call' && item.name === COMPLETE_INTERVIEW_TOOL) return true
+  }
+  return false
+}
+
+export function dispatchEvent(raw: string, cb: RealtimeCallbacks | undefined): void {
   if (!cb) return
-  let evt: { type?: string; transcript?: string } | null = null
+  let evt:
+    | { type?: string; transcript?: string; name?: string; item?: { type?: string; name?: string } | null }
+    | null = null
   try {
     evt = JSON.parse(raw)
   } catch {
@@ -92,6 +169,11 @@ function dispatchEvent(raw: string, cb: RealtimeCallbacks | undefined): void {
   }
   const type = typeof evt?.type === 'string' ? evt.type : ''
   const text = typeof evt?.transcript === 'string' ? evt.transcript : ''
+  // 全質問完了シグナル（サーバー定義 tool complete_interview の呼び出し）。呼び出し側だけが /end する。
+  if (isInterviewCompleteEvent(evt ?? {})) {
+    cb.onInterviewComplete?.()
+    return
+  }
   // 応募者の発話文字起こし完了 → transcript ＋ ターン完了（進行カウント）。
   if (type.includes('input_audio_transcription') && type.endsWith('completed')) {
     if (text) cb.onTranscript?.({ role: 'applicant', text })
@@ -143,37 +225,21 @@ export async function connectRealtimeCall(input: ConnectInput): Promise<Realtime
 
     const offerSdp = pc.localDescription?.sdp ?? offer.sdp ?? ''
 
-    // P1-b: 自社 SDP proxy へ。AbortController で必ず時間内に解決させ、abort/障害は fallback。
-    const ctrl = new AbortController()
-    const fetchTimer = setTimeout(() => ctrl.abort(), fetchTimeoutMs)
-    let res: Response
-    try {
-      res = await fetch(`/api/interview/${slug}/realtime-call`, {
+    // P1-b: 自社 SDP proxy へ。timeout は answer SDP の body 読み取り完了まで有効（ヘッダ受信で解除しない）。
+    const answer = await postOfferAndReadAnswer(
+      `/api/interview/${slug}/realtime-call`,
+      {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, applicant_id: applicantId, interview_id: interviewId, sdp: offerSdp }),
-        signal: ctrl.signal,
-      })
-    } catch {
-      // abort/通信障害 → fallback（mode='connecting' で止めない）。
+      },
+      fetchTimeoutMs,
+    )
+    if (!answer.ok) {
       pc.close()
-      return { ok: false, reason: 'fallback' }
-    } finally {
-      clearTimeout(fetchTimer)
+      return { ok: false, reason: answer.reason, status: answer.status }
     }
-    if (!res.ok) {
-      pc.close()
-      // 401/404 は flow/token 異常＝ブロッキング。それ以外（503/403/409/5xx）はモックへ。
-      const reason = res.status === 401 || res.status === 404 ? 'blocking' : 'fallback'
-      return { ok: false, reason, status: res.status }
-    }
-
-    const answerSdp = await res.text()
-    if (!answerSdp) {
-      pc.close()
-      return { ok: false, reason: 'fallback', status: res.status }
-    }
-    await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp })
+    await pc.setRemoteDescription({ type: 'answer', sdp: answer.sdp })
 
     // P2-a: connected を待ってから成功扱い。接続前の失敗/timeout はモックへ fallback。
     const connected = await waitConnected(pc, connectTimeoutMs)

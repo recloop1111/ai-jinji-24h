@@ -11,6 +11,9 @@ import {
 } from '@/lib/config/openai'
 import { DEMO_COMPANY_ID } from '@/lib/config/demo'
 
+// 面接完了シグナル用のサーバー定義 function tool 名（realtime-client.ts の COMPLETE_INTERVIEW_TOOL と一致させる）。
+export const COMPLETE_INTERVIEW_TOOL = 'complete_interview'
+
 // フィーチャーフラグ: 厳格に 'true' のときだけ有効（未設定/他値は無効＝既定 OFF）。
 export function isRealtimeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.OPENAI_REALTIME_ENABLED === 'true'
@@ -63,10 +66,28 @@ export function buildRealtimeInstructions(
     `使用言語: ${lang}。丁寧かつ簡潔に、1問ずつ順番に質問してください。`,
     `各質問について、必要に応じて最大${REALTIME_MAX_FOLLOWUPS}回まで自然に深掘りしてください。`,
     '質問を飛ばしたり、勝手に新しい評価質問を追加したりしないでください。',
+    `質問リストは全${questions.length}問です。必ず1番から順に、全ての質問を尋ね終えてください。`,
     '最後の質問が終わったら、丁寧にお礼を述べて面接を締めくくってください。',
+    // 全質問完了シグナル: 発話数ではなく明示的な function 呼び出しで確実に終了を伝える。
+    `締めのお礼を述べた後にのみ、必ず ${COMPLETE_INTERVIEW_TOOL} 関数を1回だけ呼び出して面接の完了を通知してください。`,
+    `${COMPLETE_INTERVIEW_TOOL} は全${questions.length}問を順に尋ね終えるまで絶対に呼び出さないでください。途中で呼び出してはいけません。`,
     '以下の質問リストの順に進めてください:',
     numbered,
   ].join('\n')
+}
+
+// Realtime session に載せる function tool 定義（GA はフラット形 {type:'function', name, description, parameters}）。
+// AI が全質問を尋ね終えて締めのお礼を述べた後に complete_interview を呼ぶ。引数は取らない（誤用面を最小化）。
+export function buildRealtimeTools(): Record<string, unknown>[] {
+  return [
+    {
+      type: 'function',
+      name: COMPLETE_INTERVIEW_TOOL,
+      description:
+        'リストの全質問を順に尋ね終え、締めのお礼を述べた後にのみ呼び出す。面接が正常に完了したことを通知する。途中では呼び出さない。',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  ]
 }
 
 // サーバー確定の Realtime session 設定（model/instructions/audio/transcription/turn_detection）。
@@ -82,6 +103,9 @@ export function buildRealtimeSessionConfig(input: {
     type: 'realtime',
     model: input.model,
     instructions: input.instructions,
+    // 全質問完了を明示シグナル化するサーバー定義 tool（発話数カウントに依存しない終了検知）。
+    tools: buildRealtimeTools(),
+    tool_choice: 'auto',
     audio: {
       input: {
         transcription: { model: REALTIME_TRANSCRIPTION_MODEL },

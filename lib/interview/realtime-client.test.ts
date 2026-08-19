@@ -1,5 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createDisconnectController } from './realtime-client'
+import {
+  createDisconnectController,
+  postOfferAndReadAnswer,
+  isInterviewCompleteEvent,
+  dispatchEvent,
+  COMPLETE_INTERVIEW_TOOL,
+} from './realtime-client'
+
+// fetch/Response をモックするための最小ヘルパ。text() は制御可能（stall を再現できる）。
+function makeRes(opts: {
+  ok: boolean
+  status: number
+  text: () => Promise<string>
+}): Response {
+  return { ok: opts.ok, status: opts.status, text: opts.text } as unknown as Response
+}
 
 // PR-2 実装P2（Codex）: 一時的な WebRTC 'disconnected' で面接を確定終了しないための grace 制御。
 // - 'failed' / 'closed'（終端）→ 即 onDisconnect
@@ -118,5 +133,128 @@ describe('createDisconnectController', () => {
     expect(onDisconnect).not.toHaveBeenCalled()
     vi.advanceTimersByTime(1)
     expect(onDisconnect).toHaveBeenCalledTimes(1)
+  })
+})
+
+// P1（Codex）: fetch timeout は answer SDP の body 読み取り完了まで有効。
+// body stall でも必ず timeout して fallback へ。401/404 は blocking、その他は fallback。
+describe('postOfferAndReadAnswer', () => {
+  const URL = '/api/interview/x/realtime-call'
+  const INIT = { method: 'POST', body: '{}' }
+
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => {
+    vi.clearAllTimers()
+    vi.useRealTimers()
+  })
+
+  it('正常: ok かつ text 解決 → { ok:true, sdp }', async () => {
+    const fetchImpl = vi.fn(async () => makeRes({ ok: true, status: 200, text: async () => 'answer-sdp' }))
+    const r = await postOfferAndReadAnswer(URL, INIT, 5000, fetchImpl as unknown as typeof fetch)
+    expect(r).toEqual({ ok: true, sdp: 'answer-sdp' })
+  })
+
+  it('body stall: ヘッダは来たが text() が止まる → timeout で abort → fallback', async () => {
+    // fetch は即 resolve（ヘッダ受信）。text() は signal.abort でのみ reject（body stall を再現）。
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const signal = init?.signal
+      return makeRes({
+        ok: true,
+        status: 200,
+        text: () =>
+          new Promise<string>((_resolve, reject) => {
+            signal?.addEventListener('abort', () => reject(new Error('aborted')))
+          }),
+      })
+    })
+    const p = postOfferAndReadAnswer(URL, INIT, 5000, fetchImpl as unknown as typeof fetch)
+    await vi.advanceTimersByTimeAsync(5000) // timeout がヘッダ後の body 読み取り中に発火する
+    const r = await p
+    expect(r).toEqual({ ok: false, reason: 'fallback', status: 200 })
+  })
+
+  it('401 → blocking, 404 → blocking', async () => {
+    for (const status of [401, 404]) {
+      const fetchImpl = vi.fn(async () => makeRes({ ok: false, status, text: async () => '' }))
+      const r = await postOfferAndReadAnswer(URL, INIT, 5000, fetchImpl as unknown as typeof fetch)
+      expect(r).toEqual({ ok: false, reason: 'blocking', status })
+    }
+  })
+
+  it('503/403/409/500 → fallback', async () => {
+    for (const status of [503, 403, 409, 500]) {
+      const fetchImpl = vi.fn(async () => makeRes({ ok: false, status, text: async () => '' }))
+      const r = await postOfferAndReadAnswer(URL, INIT, 5000, fetchImpl as unknown as typeof fetch)
+      expect(r).toEqual({ ok: false, reason: 'fallback', status })
+    }
+  })
+
+  it('fetch 自体が reject（通信障害）→ fallback', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('network')
+    })
+    const r = await postOfferAndReadAnswer(URL, INIT, 5000, fetchImpl as unknown as typeof fetch)
+    expect(r).toEqual({ ok: false, reason: 'fallback' })
+  })
+
+  it('空 body → fallback', async () => {
+    const fetchImpl = vi.fn(async () => makeRes({ ok: true, status: 200, text: async () => '' }))
+    const r = await postOfferAndReadAnswer(URL, INIT, 5000, fetchImpl as unknown as typeof fetch)
+    expect(r).toEqual({ ok: false, reason: 'fallback', status: 200 })
+  })
+})
+
+// 追加P1（Codex）: 全質問完了は complete_interview tool の明示シグナルでのみ発火（発話数に非依存）。
+describe('isInterviewCompleteEvent / dispatchEvent completion signal', () => {
+  it('response.function_call_arguments.done + name=complete_interview → true', () => {
+    expect(
+      isInterviewCompleteEvent({ type: 'response.function_call_arguments.done', name: COMPLETE_INTERVIEW_TOOL }),
+    ).toBe(true)
+  })
+
+  it('response.output_item.done + item.type=function_call + item.name=complete_interview → true', () => {
+    expect(
+      isInterviewCompleteEvent({
+        type: 'response.output_item.done',
+        item: { type: 'function_call', name: COMPLETE_INTERVIEW_TOOL },
+      }),
+    ).toBe(true)
+  })
+
+  it('別 tool 名の function 呼び出し → false（誤終了しない）', () => {
+    expect(
+      isInterviewCompleteEvent({ type: 'response.function_call_arguments.done', name: 'other_tool' }),
+    ).toBe(false)
+  })
+
+  it('発話文字起こし完了イベントは completion ではない → false', () => {
+    expect(
+      isInterviewCompleteEvent({ type: 'conversation.item.input_audio_transcription.completed' }),
+    ).toBe(false)
+  })
+
+  it('dispatchEvent: completion シグナルで onInterviewComplete のみ発火（turn/transcript は呼ばれない）', () => {
+    const cb = {
+      onInterviewComplete: vi.fn(),
+      onApplicantTurnComplete: vi.fn(),
+      onTranscript: vi.fn(),
+    }
+    dispatchEvent(
+      JSON.stringify({ type: 'response.function_call_arguments.done', name: COMPLETE_INTERVIEW_TOOL, call_id: 'c1' }),
+      cb,
+    )
+    expect(cb.onInterviewComplete).toHaveBeenCalledTimes(1)
+    expect(cb.onApplicantTurnComplete).not.toHaveBeenCalled()
+    expect(cb.onTranscript).not.toHaveBeenCalled()
+  })
+
+  it('dispatchEvent: 応募者発話完了では onInterviewComplete を呼ばない（発話数で終了しない）', () => {
+    const cb = { onInterviewComplete: vi.fn(), onApplicantTurnComplete: vi.fn() }
+    dispatchEvent(
+      JSON.stringify({ type: 'conversation.item.input_audio_transcription.completed', transcript: 'はい' }),
+      cb,
+    )
+    expect(cb.onInterviewComplete).not.toHaveBeenCalled()
+    expect(cb.onApplicantTurnComplete).toHaveBeenCalledTimes(1)
   })
 })

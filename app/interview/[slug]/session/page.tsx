@@ -60,6 +60,8 @@ export default function SessionPage() {
   const realtimeAttemptedRef = useRef(false)
   // onDisconnect から /end する際に最新の回答数を渡すための ref（effect クロージャの陳腐化対策）。
   const answeredRef = useRef(0)
+  // onInterviewComplete（全質問完了 tool シグナル）から /end する際に全質問数を渡すための ref。
+  const totalQuestionsRef = useRef(0)
   const remoteAudioRef = useRef<HTMLAudioElement>(null)
   // transcript は PR-2 ではメモリ保持のみ（DB保存は PR-3）。
   const transcriptRef = useRef<{ role: 'applicant' | 'ai'; text: string }[]>([])
@@ -455,8 +457,13 @@ export default function SessionPage() {
           // ターン数（follow-up / VAD 分割 / ノイズ）は「回答済み質問数」ではないため、これで完了判定
           // （answeredQuestions >= totalQuestions → completed）を駆動すると、切断/時間切れ/手動終了で
           // 面接を誤って completed 化し applicant/interview status を汚染し得る。
-          // → PR-2 は realtime 進捗を完了判定に使わない（＝realtime 終了は cancelled 扱い）。
-          //   質問境界に基づく確実な進捗/完了検知は後続PRで対応する。
+          // → realtime 進捗を発話数で完了判定しない。
+          // 追加P1（Codex）: 全質問完了は AI が呼ぶサーバー定義 tool（complete_interview）の
+          // 明示シグナルでのみ確定する。このシグナルを受けたときだけ '全質問完了' で正常終了させる
+          // （発話数ではなく明示イベント。二重 /end は endTriggeredRef で防止）。
+          onInterviewComplete: () => {
+            handleEndInterview('全質問完了', totalQuestionsRef.current)
+          },
           onDisconnect: () => {
             // P2-a: 確立後の切断は終了処理へ（モックへ戻さず・ハングさせない）。二重終了は endTriggeredRef で防止。
             // 最新の回答数は ref から渡す（クロージャの answeredQuestions は陳腐化し 0/N になり得るため）。
@@ -502,6 +509,11 @@ export default function SessionPage() {
   useEffect(() => {
     answeredRef.current = answeredQuestions
   }, [answeredQuestions])
+
+  // 全質問数を ref に同期（onInterviewComplete からの /end で正しい total を渡すため）。
+  useEffect(() => {
+    totalQuestionsRef.current = totalQuestions
+  }, [totalQuestions])
 
   // アンマウント時に Realtime 接続を確実に切断（ダングリング課金防止）。
   useEffect(() => {
