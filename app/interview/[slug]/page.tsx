@@ -39,6 +39,19 @@ export default function InterviewPage() {
     fetchCompany()
   }, [slug])
 
+  // 追加P2（Codex）: 同一タブで以前この slug の言語を選んでいれば、その保存値で state を初期化する
+  //（表示と sessionStorage の値を一致させ、後段 session が stale 値を読むズレを防ぐ）。マウント後に読む
+  // （SSR/hydration 安全）。表示同期のための意図的な setState。
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(`interview_${slug}_language`)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (saved) setSelectedLanguage(saved)
+    } catch {
+      /* noop */
+    }
+  }, [slug])
+
   async function fetchCompany() {
     setLoading(true)
     try {

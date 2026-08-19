@@ -26,6 +26,9 @@ const LANGUAGES = [
 const QUESTION_INTERVAL_MS = 8000
 const CLOSING_HOLD_MS = 4000
 const CLOSING_MESSAGE = 'すべての質問が完了しました。面接を終了します。'
+// 追加P1（Codex）: realtime 確立後、この時間内に AI が一度も応答しなければ（初回 response.create 失敗等）、
+// 無音放置を避けて realtime を閉じ、既存モックへフォールバックする（応募者は面接を継続できる）。
+const REALTIME_FIRST_RESPONSE_TIMEOUT_MS = 30000
 
 export default function SessionPage() {
   const params = useParams()
@@ -57,6 +60,9 @@ export default function SessionPage() {
   const [mediaFailed, setMediaFailed] = useState(false)
   const realtimeRef = useRef<{ close: () => void } | null>(null)
   const realtimeAttemptedRef = useRef(false)
+  // 追加P1（Codex）: AI が一度でも応答（transcript）したか。初回 response.create が失敗すると
+  // AI が話し始めず無音のまま放置され得るため、realtime 確立後の無応答ウォッチドッグで使う。
+  const aiRespondedRef = useRef(false)
   // onDisconnect から /end する際に最新の回答数を渡すための ref（effect クロージャの陳腐化対策）。
   const answeredRef = useRef(0)
   // onInterviewComplete（全質問完了 tool シグナル）から /end する際に全質問数を渡すための ref。
@@ -446,6 +452,8 @@ export default function SessionPage() {
           },
           onTranscript: (t) => {
             transcriptRef.current.push(t) // PR-2 はメモリ保持のみ（DB保存は PR-3）
+            // AI が応答したら無応答ウォッチドッグを解除（初回応答が来た＝セッションは生きている）。
+            if (t.role === 'ai') aiRespondedRef.current = true
           },
           // P2-b / 追加P1: realtime のターン数は answeredQuestions に反映しない。
           // ターン数（follow-up / VAD 分割 / ノイズ）は「回答済み質問数」ではないため、これで完了判定
@@ -514,6 +522,21 @@ export default function SessionPage() {
     }, 10000)
     return () => clearTimeout(t)
   }, [mode, interviewId, questionList])
+
+  // 追加P1（Codex）: realtime 無応答ウォッチドッグ。確立後に AI が一度も応答しない（初回 response.create が
+  // recoverable error で失敗した等）と無音のまま 60分放置され得るため、一定時間で realtime を閉じてモックへ
+  // フォールバックする（応募者は面接を継続できる）。AI 応答（aiRespondedRef）が来ていれば何もしない。
+  useEffect(() => {
+    if (mode !== 'realtime') return
+    const t = setTimeout(() => {
+      if (!aiRespondedRef.current) {
+        realtimeRef.current?.close()
+        realtimeRef.current = null
+        setMode('mock')
+      }
+    }, REALTIME_FIRST_RESPONSE_TIMEOUT_MS)
+    return () => clearTimeout(t)
+  }, [mode])
 
   // 追加P2（Codex）: 初期画面で選択され sessionStorage に保存された言語を、session のドロップダウン表示へ
   // 反映する（クライアントのみ・マウント後に読む＝SSR/hydration 安全）。realtime へ渡す値は接続時に

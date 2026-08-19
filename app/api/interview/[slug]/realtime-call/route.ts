@@ -125,6 +125,11 @@ export async function POST(
       return errorJson('REALTIME_CALL_IN_PROGRESS', '別の面接セッションが進行中です', 409)
     }
 
+    // 追加P2（Codex）: クレーム後・確立前の失敗（OpenAI timeout/reject/空SDP・snapshot準備失敗・例外）で
+    //   ロックを保持したまま抜けると、実セッション不在でも同一面接の再試行が最大65分 409 になり mock 強制。
+    //   → 確立できなかった全経路（return/throw）でロックを解放し、成功時のみ保持する（成功時解放は /end）。
+    let realtimeEstablished = false
+    try {
     // 9) 追加P2（Codex）: 設問は「凍結済み questions_snapshot」を単一の真実として使う（/questions と同じ
     //   write-once 凍結）。既に凍結済みならそれを使い（面接開始後に管理者が求人/共通設問を編集しても、
     //   AI が尋ねる設問＝応募者が見た設問＝記録された設問 で一貫）、未凍結のときだけサーバ側で assemble し、
@@ -213,10 +218,22 @@ export async function POST(
     if (!answerSdp) {
       return errorJson('REALTIME_UPSTREAM_ERROR', 'AI音声面接の初期化に失敗しました', 502)
     }
+    // ここまで来たら call は確立（answer SDP 取得）＝ロックは保持し、/end で解放する。
+    realtimeEstablished = true
     return new Response(answerSdp, {
       status: 200,
       headers: { 'Content-Type': 'application/sdp', 'Cache-Control': 'no-store' },
     })
+    } finally {
+      // 確立できなかった全経路（error return / 例外）でロックを解放し、即再試行を許可する（best-effort）。
+      if (!realtimeEstablished) {
+        try {
+          await supabase.from('interviews').update({ realtime_call_locked_until: null }).eq('id', interviewId)
+        } catch {
+          /* noop: 解放失敗は TTL(65分) で自然回復 */
+        }
+      }
+    }
   } catch {
     return apiError('INTERNAL_ERROR')
   }
