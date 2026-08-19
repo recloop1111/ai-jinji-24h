@@ -94,17 +94,32 @@ export async function POST(
     }
 
     // 計算した questions をサーバ側で snapshot 固定（クライアントの /snapshot 未送＝クラッシュ/通信断でも
-    // 再開時のライブ再計算による質問変化を防ぐ）。ベストエフォート：
-    //   条件付き UPDATE（in_progress かつ questions_snapshot IS NULL のときだけ書く）＝既存snapshotは絶対に上書きしない・
-    //   completed/cancelled は触らない・レース時は先勝ち（後発0行）。失敗/0行でも questions 返却は継続する。
-    // ※ questions は非空（evaluation.length===0 の場合は上流で return 済み）。
-    await supabase
+    // 再開時のライブ再計算による質問変化を防ぐ）。条件付き UPDATE（in_progress かつ questions_snapshot IS NULL
+    // のときだけ書く）＝既存snapshotは絶対に上書きしない・completed/cancelled は触らない・レース時は先勝ち。
+    // 追加P2（Codex）: 凍結レースに負けた場合の一貫性。読み取り〜UPDATE の間に realtime-call（や管理者編集を
+    //   挟んだ凍結）が先に「別内容で」凍結すると 0行になる。その場合ローカルの questions を返すと UI（この
+    //   レスポンス表示）と永続/Realtime が食い違う。→ 1行返れば自分の版、0行なら勝った現在の snapshot を再読
+    //   して返す（realtime-call と同一パターン）。
+    const { data: frozenRows } = await supabase
       .from('interviews')
       .update({ questions_snapshot: questions })
       .eq('id', interviewId)
       .eq('status', 'in_progress')
       .is('questions_snapshot', null)
-
+      .select('questions_snapshot')
+    if (frozenRows && frozenRows.length > 0) {
+      return successJson({ questions }) // 自分が凍結した（レースに勝った）
+    }
+    // 0行（レース敗北/既凍結）→ 勝った現在の snapshot を再読して返す。取れなければローカルの questions を返す
+    // （UI 表示のためのベストエフォート。realtime-call 側は fail-closed だが、こちらは表示専用のため継続）。
+    const { data: current } = await supabase
+      .from('interviews')
+      .select('questions_snapshot')
+      .eq('id', interviewId)
+      .single()
+    if (current && Array.isArray(current.questions_snapshot) && current.questions_snapshot.length > 0) {
+      return successJson({ questions: current.questions_snapshot })
+    }
     return successJson({ questions })
   } catch {
     return apiError('INTERNAL_ERROR')
