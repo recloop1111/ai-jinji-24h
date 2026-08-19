@@ -26,9 +26,9 @@ const LANGUAGES = [
 const QUESTION_INTERVAL_MS = 8000
 const CLOSING_HOLD_MS = 4000
 const CLOSING_MESSAGE = 'すべての質問が完了しました。面接を終了します。'
-// 追加P1（Codex）: AI の応答を待つウォッチドッグの猶予。realtime 確立後の初回応答、および応募者ターン
-// 完了後の各「次の質問」応答を、この時間内に AI が返さなければ（初回/後続の recoverable error 等で無音放置）
-// realtime を閉じて既存モックへフォールバックする（応募者は面接を継続できる）。AI 応答が来れば解除。
+// 追加P1（Codex）: realtime 確立後、この時間内に AI が一度も応答しなければ（初回 response.create 失敗等）、
+// 無音放置を避けて realtime を閉じ既存モックへフォールバックする（one-shot・初回応答のみ）。
+// 後続ターンごとの無音検知（response lifecycle ベース）は follow-up Issue #21。
 const REALTIME_RESPONSE_TIMEOUT_MS = 30000
 
 export default function SessionPage() {
@@ -61,9 +61,10 @@ export default function SessionPage() {
   const [mediaFailed, setMediaFailed] = useState(false)
   const realtimeRef = useRef<{ close: () => void } | null>(null)
   const realtimeAttemptedRef = useRef(false)
-  // 追加P1（Codex）: AI 応答待ちウォッチドッグの timer。realtime 確立後の初回応答・応募者ターン後の
-  // 次の質問応答を待ち、期限内に AI 応答（transcript）が来なければモックへフォールバックする。
-  const responseWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 追加P1（Codex）: AI が一度でも応答（transcript）したか。初回 response.create が失敗すると AI が話し始めず
+  // 無音のまま放置され得るため、realtime 確立後の「初回応答」ウォッチドッグで使う（one-shot）。
+  // ※ 後続ターンごとの無音検知（response lifecycle ベース）は follow-up Issue #21 に切り出し。
+  const aiRespondedRef = useRef(false)
   // onDisconnect から /end する際に最新の回答数を渡すための ref（effect クロージャの陳腐化対策）。
   const answeredRef = useRef(0)
   // onInterviewComplete（全質問完了 tool シグナル）から /end する際に全質問数を渡すための ref。
@@ -453,13 +454,8 @@ export default function SessionPage() {
           },
           onTranscript: (t) => {
             transcriptRef.current.push(t) // PR-2 はメモリ保持のみ（DB保存は PR-3）
-            // AI が応答したら応答ウォッチドッグを解除（このターンの AI 応答が来た＝無音ではない）。
-            if (t.role === 'ai') disarmResponseWatchdog()
-          },
-          // 追加P1（Codex）: 応募者ターン完了後は AI の「次の質問」を待つ。期限内に AI 応答が無ければ
-          // （後続ターンの recoverable error 等で無音放置）モックへフォールバックする（ターン別ウォッチドッグ）。
-          onApplicantTurnComplete: () => {
-            armResponseWatchdog()
+            // AI が一度でも応答したら初回応答ウォッチドッグを解除（セッションは生きている）。
+            if (t.role === 'ai') aiRespondedRef.current = true
           },
           // P2-b / 追加P1: realtime のターン数は answeredQuestions に反映しない。
           // ターン数（follow-up / VAD 分割 / ノイズ）は「回答済み質問数」ではないため、これで完了判定
@@ -529,15 +525,20 @@ export default function SessionPage() {
     return () => clearTimeout(t)
   }, [mode, interviewId, questionList])
 
-  // 追加P1（Codex）: realtime 確立時に「初回 AI 応答」ウォッチドッグを武装する。以後は応募者ターン完了
-  // （onApplicantTurnComplete）ごとに再武装し、AI 応答（onTranscript role='ai'）で解除する。期限内に AI が
-  // 応答しなければ（初回/後続ターンの recoverable error 等で無音放置）realtime を閉じてモックへフォールバック。
+  // 追加P1（Codex）: realtime 確立後「初回 AI 応答」ウォッチドッグ（one-shot）。初回 response.create が
+  // recoverable error で失敗する等で AI が話し始めないと無音のまま 60分放置され得るため、一定時間で AI 応答が
+  // 無ければ realtime を閉じてモックへフォールバックする（応募者は面接を継続できる）。AI 応答が来ていれば何もしない。
+  // ※ 後続ターンごとの無音検知（response lifecycle ベース・ASR順序に依存しない設計）は follow-up Issue #21。
   useEffect(() => {
     if (mode !== 'realtime') return
-    armResponseWatchdog()
-    return () => disarmResponseWatchdog()
-    // arm/disarm は ref ベースで安定。deps は mode のみ（関数を deps に入れると毎レンダー再実行になる）。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const t = setTimeout(() => {
+      if (!aiRespondedRef.current) {
+        realtimeRef.current?.close()
+        realtimeRef.current = null
+        setMode('mock')
+      }
+    }, REALTIME_RESPONSE_TIMEOUT_MS)
+    return () => clearTimeout(t)
   }, [mode])
 
   // 追加P2（Codex）: 初期画面で選択され sessionStorage に保存された言語を、session のドロップダウン表示へ
@@ -640,24 +641,6 @@ export default function SessionPage() {
   }, [interviewId, applicantId, elapsedSeconds, totalQuestions, answeredQuestions, isEnding, slug, blockingError])
 
   // answeredOverride: 自動完了時など、最新の回答数をクロージャの古い値ではなく明示的に渡すための上書き。
-  // 追加P1（Codex）: AI 応答待ちウォッチドッグの武装/解除。
-  function disarmResponseWatchdog() {
-    if (responseWatchdogRef.current) {
-      clearTimeout(responseWatchdogRef.current)
-      responseWatchdogRef.current = null
-    }
-  }
-  function armResponseWatchdog() {
-    disarmResponseWatchdog()
-    responseWatchdogRef.current = setTimeout(() => {
-      responseWatchdogRef.current = null
-      // 期待した AI 応答（初回 or 次の質問）が期限内に来なかった → 無音放置を避けてモックへフォールバック。
-      realtimeRef.current?.close()
-      realtimeRef.current = null
-      setMode('mock')
-    }, REALTIME_RESPONSE_TIMEOUT_MS)
-  }
-
   async function handleEndInterview(
     endReason: '全質問完了' | '時間切れ' | '自主終了' = '自主終了',
     answeredOverride?: number,
@@ -665,8 +648,6 @@ export default function SessionPage() {
     // ref で同期的に二重 /end を弾く（自動完了・手動終了・時間切れが競合しても1回だけ送る）。
     if (endTriggeredRef.current) return
     endTriggeredRef.current = true
-    // 終了時はウォッチドッグを解除（終了後に setMode('mock') が走らないように）。
-    disarmResponseWatchdog()
     if (isEnding) return // 重複実行を防止（UI状態）
     setIsEnding(true)
 

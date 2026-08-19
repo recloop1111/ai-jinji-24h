@@ -108,10 +108,10 @@ export async function POST(
     // 8.5) P1-2（Codex）: 同一 interview への realtime-call 並列/連打で有料 OpenAI 呼び出しが
     //   多重化するのを防ぐ。OpenAI fetch の前に interviews 行へ短時間TTLロックを原子的にクレーム
     //   （単一 conditional UPDATE ... RETURNING。serverless インスタンス跨ぎでも DB 行ロックで実効）。
-    //   - acquired（1行）: 続行。TTL(20s)で自動失効＝正常な再接続は失効後に許可（永久禁止にしない）。
+    //   - acquired（1行）: 続行。TTL で自動失効＝正常な再接続は失効後に許可（永久禁止にしない）。
     //   - contended（0行）: 別セッションが保持中 → 409（呼び出し側はモックへフォールバック）。
-    //   - failopen（error）: 列 realtime_call_locked_until 未適用 等 → 阻害しない（段階ロールアウト。
-    //     supabase/rls/phase_h_realtime_call_lock.sql 適用で有効化）。
+    //   - error（DB書き込み失敗）: 追加P1（Codex）fail-closed。取得が確定しない限り有料呼び出しへ進めない
+    //     （列は本番適用済みのため以前の failopen は撤回）→ 503（呼び出し側はモックへフォールバック）。
     const nowIso = new Date().toISOString()
     const lockUntilIso = new Date(Date.now() + REALTIME_CALL_LOCK_TTL_MS).toISOString()
     const claim = await supabase
@@ -121,8 +121,13 @@ export async function POST(
       .eq('status', 'in_progress')
       .or(`realtime_call_locked_until.is.null,realtime_call_locked_until.lt.${nowIso}`)
       .select('id')
-    if (interpretLockClaim(claim.data, claim.error) === 'contended') {
+    const lockOutcome = interpretLockClaim(claim.data, claim.error)
+    if (lockOutcome === 'contended') {
       return errorJson('REALTIME_CALL_IN_PROGRESS', '別の面接セッションが進行中です', 409)
+    }
+    if (lockOutcome === 'error') {
+      // ロック取得が確定しない（DB障害）→ fail-closed。有料呼び出しには進まない。
+      return errorJson('REALTIME_LOCK_ERROR', 'AI音声面接の初期化に失敗しました', 503)
     }
 
     // 追加P2（Codex）: クレーム後・確立前の失敗（OpenAI timeout/reject/空SDP・snapshot準備失敗・例外）で
