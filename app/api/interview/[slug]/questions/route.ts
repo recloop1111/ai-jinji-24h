@@ -2,7 +2,11 @@ import { type NextRequest } from 'next/server'
 import { successJson, apiError } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifyInterviewToken } from '@/lib/interview/capability-token'
-import { derivePatternKey } from '@/lib/interview/patternKey'
+import {
+  assembleInterviewQuestions,
+  DEFAULT_INTERVIEW_QUESTIONS,
+  type AssembledQuestion,
+} from '@/lib/interview/assembleQuestions'
 import {
   MAX_TOTAL_QUESTIONS,
   MAX_ICEBREAKER_QUESTIONS,
@@ -74,98 +78,69 @@ export async function POST(
       return successJson({ questions: interview.questions_snapshot })
     }
 
-    // job_id 無しは質問無し扱い（呼び出し側の既定質問フォールバックを維持）
-    if (!applicant.job_id) {
-      return successJson({ questions: [] })
+    // 質問組み立てはサーバー側の唯一の権威（assembleInterviewQuestions）。
+    // job_id 無し / 当該 pattern 未設定 → 空配列（既定質問フォールバック）。
+    const assembled = await assembleInterviewQuestions(supabase, company.id, applicant)
+    if (!assembled.ok) {
+      if (assembled.kind === 'limit_exceeded') {
+        return apiError(
+          'QUESTION_LIMIT_EXCEEDED',
+          `この求人・区分の質問数が上限（アイスブレイク${MAX_ICEBREAKER_QUESTIONS}・評価${MAX_EVALUATION_QUESTIONS}・クロージング${MAX_CLOSING_QUESTIONS}・合計${MAX_TOTAL_QUESTIONS}問）を超えているため面接を開始できません。企業の質問設定を見直してください。`,
+        )
+      }
+      if (assembled.kind === 'job_not_found') return apiError('NOT_FOUND', '求人が見つかりません')
+      if (assembled.kind === 'forbidden') return apiError('FORBIDDEN', '不正なリクエストです')
+      return apiError('INTERNAL_ERROR', '質問の取得に失敗しました')
+    }
+    // 追加P2（Codex）: job_id 無し / pattern 未設定（空）でも、実際に応募者へ出す既定質問を
+    //   サーバ側で凍結して記録・返却する（client /snapshot 撤去後、既定質問面接の questions_snapshot が
+    //   null のまま記録欠落するのを防ぐ）。既定質問は assembleQuestions の唯一定義を使う。
+    const questions = assembled.questions.length > 0 ? assembled.questions : DEFAULT_INTERVIEW_QUESTIONS
+
+    // 計算した questions をサーバ側で snapshot 固定（条件付き UPDATE＝in_progress かつ questions_snapshot IS NULL
+    // のときだけ書く。既存snapshotは上書きしない・completed/cancelled は触らない・レース時は先勝ち）。
+    // 追加P2（Codex）: /questions は client /snapshot 撤去後の唯一の snapshot writer。
+    //   - 凍結レースに勝てば自分の版、負けたら勝った現在の snapshot を再読して返す（UI と永続/Realtime を一致）。
+    //   - 凍結できない（UPDATE/再読とも権威 snapshot を返さない）まま 200 でローカル版を返すと、mock 面接が
+    //     questions_snapshot=null で完了し記録喪失する。→ 一過性ブリップ用に一度リトライし、それでも権威
+    //     snapshot が取れなければ fail-closed（non-OK＝クライアントはブロッキング。記録なしの面接を走らせない）。
+    const nonEmptySnapshot = (v: unknown): AssembledQuestion[] | null =>
+      Array.isArray(v) && v.length > 0 ? (v as AssembledQuestion[]) : null
+
+    async function claimAuthoritativeSnapshot(): Promise<AssembledQuestion[] | null> {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const { data: rows, error: updErr } = await supabase
+          .from('interviews')
+          .update({ questions_snapshot: questions })
+          .eq('id', interviewId)
+          .eq('status', 'in_progress')
+          .is('questions_snapshot', null)
+          .select('questions_snapshot')
+        if (!updErr && rows && rows.length > 0) {
+          const won = nonEmptySnapshot(rows[0].questions_snapshot)
+          if (won) return won // 自分が凍結した（レースに勝った）
+        }
+        // 勝てなかった/エラー → 現在の権威 snapshot を再読（別writer が既に凍結済みなら採用）。
+        const { data: current, error: reErr } = await supabase
+          .from('interviews')
+          .select('questions_snapshot')
+          .eq('id', interviewId)
+          .single()
+        if (!reErr) {
+          const existing = nonEmptySnapshot(current?.questions_snapshot)
+          if (existing) return existing
+        }
+        if (attempt === 0) await new Promise((r) => setTimeout(r, 200)) // 一過性ブリップ用に一度だけ再試行
+      }
+      return null
     }
 
-    // job が当該企業のものであることを検証（求人の雇用形態も取得）
-    const { data: job, error: jobError } = await supabase
-      .from('jobs')
-      .select('id, company_id, employment_type')
-      .eq('id', applicant.job_id)
-      .single()
-    if (jobError || !job) return apiError('NOT_FOUND', '求人が見つかりません')
-    if (job.company_id !== company.id) return apiError('FORBIDDEN', '不正なリクエストです')
-
-    // 応募者区分から pattern_key を導出（jobの雇用形態 × 応募者の新卒/中途 × 経験有無）
-    const patternKey = derivePatternKey({
-      jobEmploymentType: job.employment_type,
-      applicantEmploymentType: applicant.employment_type,
-      industryExperience: applicant.industry_experience,
-    })
-
-    // job_questions を取得（当該 job_id + pattern_key のみ・昇順）。category で評価質問とアイスブレイクに振り分ける。
-    // 他求人・他 pattern は混ぜない。
-    const { data: jqRows, error: jqError } = await supabase
-      .from('job_questions')
-      .select('question_text, sort_order, category')
-      .eq('job_id', applicant.job_id)
-      .eq('pattern_key', patternKey)
-      .order('sort_order', { ascending: true })
-
-    // DB/query エラーは握りつぶさず非OKで返す。
-    // ※「該当0件＝正当な空（200+空配列→既定質問フォールバック）」とは明確に分離する。
-    //   error を空扱いにすると、誤った既定質問で面接続行＆スナップショットしてしまう（クライアントのブロッキング経路を発火させる）。
-    if (jqError) return apiError('INTERNAL_ERROR', '質問の取得に失敗しました')
-
-    const rows = jqRows ?? []
-    const evaluation = rows
-      .filter((r) => r.category === 'evaluation')
-      .map((r) => ({ question_text: r.question_text, sort_order: r.sort_order }))
-    const icebreakers = rows
-      .filter((r) => r.category === 'icebreaker')
-      .map((r) => ({ question_text: r.question_text, sort_order: r.sort_order }))
-
-    // 評価質問が0件＝当該 pattern 未設定 → 空配列（既定質問フォールバックへ）。アイスブレイク単独配信はしない。
-    if (evaluation.length === 0) {
-      return successJson({ questions: [] })
+    const frozen = await claimAuthoritativeSnapshot()
+    if (!frozen) {
+      // fail-closed: 権威 snapshot を確定できない → 記録なしの面接を走らせない。
+      return apiError('INTERNAL_ERROR', '面接質問の準備に失敗しました。お手数ですが時間をおいて再度お試しください。')
     }
-
-    // クロージングは企業共通（common_questions.category='closing'）。旧 common icebreakers は配信しない。
-    const { data: commonRows, error: commonError } = await supabase
-      .from('common_questions')
-      .select('category, question_text, sort_order')
-      .eq('company_id', company.id)
-      .eq('category', 'closing')
-      .order('sort_order', { ascending: true })
-
-    // job_questions と同様、DB/query エラーは握りつぶさず非OKで返す（0件＝closing無しの正当な空とは分離）。
-    // ※ error を空扱いにすると closing 欠落のまま 200＆スナップショット固定されてしまう。
-    if (commonError) return apiError('INTERNAL_ERROR', '質問の取得に失敗しました')
-
-    const closing = (commonRows ?? []).map((r) => ({ question_text: r.question_text, sort_order: r.sort_order }))
-
-    // 配信順 = icebreaker(job×pattern) → evaluation(job×pattern) → closing(企業共通)。各 category 内は sort_order 昇順。
-    const questions = [...icebreakers, ...evaluation, ...closing]
-
-    // 防御的検証: カテゴリ別上限（ice2/eval13/closing1）・全体16問を超える場合は、
-    // 先頭16問へ切り捨てず・面接を開始せず HTTP 422 を返す。質問本文・個人情報はログ/レスポンスに出さない（件数のみ）。
-    if (
-      icebreakers.length > MAX_ICEBREAKER_QUESTIONS ||
-      evaluation.length > MAX_EVALUATION_QUESTIONS ||
-      closing.length > MAX_CLOSING_QUESTIONS ||
-      questions.length > MAX_TOTAL_QUESTIONS
-    ) {
-      return apiError(
-        'QUESTION_LIMIT_EXCEEDED',
-        `この求人・区分の質問数が上限（アイスブレイク${MAX_ICEBREAKER_QUESTIONS}・評価${MAX_EVALUATION_QUESTIONS}・クロージング${MAX_CLOSING_QUESTIONS}・合計${MAX_TOTAL_QUESTIONS}問）を超えているため面接を開始できません。企業の質問設定を見直してください。`,
-      )
-    }
-
-    // 計算した questions をサーバ側で snapshot 固定（クライアントの /snapshot 未送＝クラッシュ/通信断でも
-    // 再開時のライブ再計算による質問変化を防ぐ）。ベストエフォート：
-    //   条件付き UPDATE（in_progress かつ questions_snapshot IS NULL のときだけ書く）＝既存snapshotは絶対に上書きしない・
-    //   completed/cancelled は触らない・レース時は先勝ち（後発0行）。失敗/0行でも questions 返却は継続する。
-    // ※ questions は非空（evaluation.length===0 の場合は上流で return 済み）。
-    await supabase
-      .from('interviews')
-      .update({ questions_snapshot: questions })
-      .eq('id', interviewId)
-      .eq('status', 'in_progress')
-      .is('questions_snapshot', null)
-
-    return successJson({ questions })
+    return successJson({ questions: frozen })
   } catch {
     return apiError('INTERNAL_ERROR')
   }

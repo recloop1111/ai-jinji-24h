@@ -8,7 +8,9 @@ import {
   MAX_INTERVIEW_MINUTES,
   INTERVIEW_WARNING_REMAINING_MINUTES,
 } from '@/lib/config/interview-policy'
+import { connectRealtimeCall } from '@/lib/interview/realtime-client'
 // 公開フローの DB アクセスは token付き service-role API 経由（browser直アクセス廃止）
+// AI音声面接（Realtime）は allowlist 企業＆フラグON時のみ。それ以外は realtime-call が 503/403 → モックへ。
 
 const LANGUAGES = [
   { code: 'ja', label: '日本語' },
@@ -24,6 +26,10 @@ const LANGUAGES = [
 const QUESTION_INTERVAL_MS = 8000
 const CLOSING_HOLD_MS = 4000
 const CLOSING_MESSAGE = 'すべての質問が完了しました。面接を終了します。'
+// 追加P1（Codex）: realtime 確立後、この時間内に AI が一度も応答しなければ（初回 response.create 失敗等）、
+// 無音放置を避けて realtime を閉じ既存モックへフォールバックする（one-shot・初回応答のみ）。
+// 後続ターンごとの無音検知（response lifecycle ベース）は follow-up Issue #21。
+const REALTIME_RESPONSE_TIMEOUT_MS = 30000
 
 export default function SessionPage() {
   const params = useParams()
@@ -49,7 +55,23 @@ export default function SessionPage() {
   // start / questions が失敗した場合のブロッキングエラー（面接UIを描画させない）
   const [blockingError, setBlockingError] = useState<string | null>(null)
   const [questionList, setQuestionList] = useState<string[]>([])
-  const snapshotSaved = useRef(false)
+  // 面接モード: connecting=Realtime試行中 / realtime=AI音声面接 / mock=既存モック自動進行。
+  const [mode, setMode] = useState<'connecting' | 'realtime' | 'mock'>('connecting')
+  // カメラ/マイク取得が失敗（権限拒否等）したら Realtime 不可 → モックへ落とすためのフラグ。
+  const [mediaFailed, setMediaFailed] = useState(false)
+  const realtimeRef = useRef<{ close: () => void } | null>(null)
+  const realtimeAttemptedRef = useRef(false)
+  // 追加P1（Codex）: AI が一度でも応答（transcript）したか。初回 response.create が失敗すると AI が話し始めず
+  // 無音のまま放置され得るため、realtime 確立後の「初回応答」ウォッチドッグで使う（one-shot）。
+  // ※ 後続ターンごとの無音検知（response lifecycle ベース）は follow-up Issue #21 に切り出し。
+  const aiRespondedRef = useRef(false)
+  // onDisconnect から /end する際に最新の回答数を渡すための ref（effect クロージャの陳腐化対策）。
+  const answeredRef = useRef(0)
+  // onInterviewComplete（全質問完了 tool シグナル）から /end する際に全質問数を渡すための ref。
+  const totalQuestionsRef = useRef(0)
+  const remoteAudioRef = useRef<HTMLAudioElement>(null)
+  // transcript は PR-2 ではメモリ保持のみ（DB保存は PR-3）。
+  const transcriptRef = useRef<{ role: 'applicant' | 'ai'; text: string }[]>([])
   // 二重 /end 防止（自動完了・手動終了・時間切れの競合を同期的に弾く）
   const endTriggeredRef = useRef(false)
   // モック質問プログレッションを1セッションにつき1回だけ起動させるガード
@@ -135,6 +157,8 @@ export default function SessionPage() {
         streamRef.current = stream
         setHasStream(true)
       } catch {
+        // カメラ/マイク拒否・取得失敗。Realtime（音声）は不可なのでモックへ落とす合図。
+        setMediaFailed(true)
       }
     }
 
@@ -272,7 +296,8 @@ export default function SessionPage() {
     }
 
     async function fetchQuestions() {
-      if (!jobId || !companyId) return
+      // 追加P2（Codex）: job_id 無しでも /questions を呼ぶ（サーバが既定質問を凍結して返す＝記録に残す）。
+      if (!companyId) return
 
       try {
         // カスタム質問を取得（token付き service-role API。browser直SELECTは廃止）
@@ -316,13 +341,9 @@ export default function SessionPage() {
     }
 
     // start 成功（interviewId 確定）後に質問を用意する。
+    // 追加P2（Codex）: job_id の有無に関わらず /questions を呼ぶ。job_id 無し/pattern 未設定でも
+    // サーバが既定質問を凍結して返すため、既定質問面接でも questions_snapshot が記録される。
     if (!interviewId || !companyId) return
-
-    // job_id 無し → /questions を呼ばず、明示的に既存デフォルト質問を即セット（totalQuestions=1・最初の質問）
-    if (!jobId) {
-      setDefaultQuestions()
-      return
-    }
 
     // 一度きりの answeredQuestions+1 は撤去（下のオートプログレッションが進行を管理し二重カウントを防ぐ）。
     const t1 = setTimeout(() => {
@@ -341,6 +362,8 @@ export default function SessionPage() {
   useEffect(() => {
     if (!interviewId || blockingError) return
     if (questionList.length === 0) return
+    // Realtime（AI音声面接）中はモック自動進行を起動しない。mode==='mock' のときだけ進める。
+    if (mode !== 'mock') return
     if (progressionStartedRef.current) return
     progressionStartedRef.current = true
 
@@ -372,29 +395,183 @@ export default function SessionPage() {
     }
     // handleEndInterview は他 effect と同様に依存に含めない（毎レンダー再生成・ref で二重起動防止済み）。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interviewId, blockingError, questionList])
+  }, [interviewId, blockingError, questionList, mode])
 
-  // interviewIdとquestionListが揃ったら questions_snapshot を1回だけ保存（token付き service-role API）
+  // 追加P2（Codex）: questions_snapshot の凍結はサーバ側の唯一の権威に一本化した。
+  // /questions が assemble して write-once（IS NULL 条件付きUPDATE）で凍結し、realtime-call も
+  // その凍結値を使う。クライアントからの /snapshot 書き込み（改竄面）は撤去した（旧: ここで保存）。
+
+  // AI音声面接（Realtime）を試行。成功→realtime、503/403/409/5xx/接続失敗→mock、401/404→blocking。
+  // 既定（フラグOFF/allowlist外/demo）は realtime-call が 503/403 を返すため静かにモックへフォールバック。
   useEffect(() => {
-    if (!interviewId || questionList.length === 0 || snapshotSaved.current) return
+    if (mode !== 'connecting') return
+    if (!interviewId || questionList.length === 0) return
+    if (realtimeAttemptedRef.current) return
+    // メディア取得が未解決（権限プロンプト応答待ち）なら待つ。成功(hasStream) or 失敗(mediaFailed)で前進。
+    if (!hasStream && !mediaFailed) return
+    realtimeAttemptedRef.current = true
 
     const token = sessionStorage.getItem(`interview_${slug}_token`)
     const applicant_id = sessionStorage.getItem(`interview_${slug}_applicant_id`)
-    if (!token || !applicant_id) return
-    snapshotSaved.current = true
+    const stream = streamRef.current
 
-    const snapshot = questionList.map((q, i) => ({
-      sort_order: i + 1,
-      question_text: q,
-    }))
+    let cancelled = false
+    // この試行が mode/blocking を確定（settle）したか。確定前に破棄された場合は下の cleanup で
+    // guard(realtimeAttemptedRef) を戻し、再setup で再試行できるようにする（'connecting' 固着防止）。
+    let settled = false
+    // 追加P2（Codex）: 破棄された古い試行を中断するための controller。cleanup で abort し、
+    // 古い試行が SDP proxy へ POST（＝ロック取得/有料呼び出し）に進むのを止める（並行二重接続防止）。
+    const attemptController = new AbortController()
+    ;(async () => {
+      // メディア失敗（カメラ/マイク拒否）or 前提欠落 → 既存モックへ（詰まり防止）。
+      // setMode は async 内で呼び、effect 本体での同期 setState（cascading render）を避ける。
+      if (mediaFailed || !hasStream || !token || !applicant_id || !stream) {
+        if (!cancelled) {
+          settled = true
+          setMode('mock')
+        }
+        return
+      }
+      const result = await connectRealtimeCall({
+        slug,
+        token,
+        applicantId: applicant_id,
+        interviewId,
+        micStream: stream,
+        signal: attemptController.signal,
+        // 追加P2（Codex）: 言語は初期画面で選ばれ sessionStorage に保存された値を単一の真実として使う
+        //（session の state は表示用。接続時の取り違えを避けるため保存値を直接読む）。未保存は state→'ja'。
+        language: sessionStorage.getItem(`interview_${slug}_language`) || selectedLanguage,
+        callbacks: {
+          onRemoteStream: (rs) => {
+            if (remoteAudioRef.current) {
+              remoteAudioRef.current.srcObject = rs
+              remoteAudioRef.current.play().catch(() => {})
+            }
+          },
+          onTranscript: (t) => {
+            transcriptRef.current.push(t) // PR-2 はメモリ保持のみ（DB保存は PR-3）
+            // AI が一度でも応答したら初回応答ウォッチドッグを解除（セッションは生きている）。
+            if (t.role === 'ai') aiRespondedRef.current = true
+          },
+          // P2-b / 追加P1: realtime のターン数は answeredQuestions に反映しない。
+          // ターン数（follow-up / VAD 分割 / ノイズ）は「回答済み質問数」ではないため、これで完了判定
+          // （answeredQuestions >= totalQuestions → completed）を駆動すると、切断/時間切れ/手動終了で
+          // 面接を誤って completed 化し applicant/interview status を汚染し得る。
+          // → realtime 進捗を発話数で完了判定しない。
+          // 追加P1（Codex）: 全質問完了は AI が呼ぶサーバー定義 tool（complete_interview）の
+          // 明示シグナルでのみ確定する。このシグナルを受けたときだけ '全質問完了' で正常終了させる
+          // （発話数ではなく明示イベント。二重 /end は endTriggeredRef で防止）。
+          onInterviewComplete: () => {
+            handleEndInterview('全質問完了', totalQuestionsRef.current)
+          },
+          // 追加P1/P2（Codex）: OpenAI の server error（{type:'error'}）を surface する。多くは recoverable
+          // でセッション継続のため終了しない。terminal（session_expired 等・セッション終了）のときだけ、
+          // 無音放置を避けるため切断と同様に面接を終了する（realtime 終了は '自主終了'＝途中離脱。
+          // 二重 /end は endTriggeredRef で防止）。
+          onServerError: (info) => {
+            if (info.terminal) handleEndInterview('自主終了', answeredRef.current)
+          },
+          onDisconnect: () => {
+            // P2-a: 確立後の切断は終了処理へ（モックへ戻さず・ハングさせない）。二重終了は endTriggeredRef で防止。
+            // 最新の回答数は ref から渡す（クロージャの answeredQuestions は陳腐化し 0/N になり得るため）。
+            handleEndInterview('自主終了', answeredRef.current)
+          },
+        },
+      })
+      if (cancelled) {
+        if (result.ok) result.close()
+        return
+      }
+      settled = true
+      if (result.ok) {
+        realtimeRef.current = result
+        setMode('realtime')
+      } else if (result.reason === 'blocking') {
+        setBlockingError('AI音声面接を開始できませんでした。お手数ですが最初からやり直してください。')
+      } else {
+        setMode('mock') // 503/403/409/5xx/接続失敗 → 既存モックへフォールバック
+      }
+    })()
+    return () => {
+      cancelled = true
+      // 追加P2（Codex）: 破棄する古い試行を中断する。これをしないと、guard を戻した直後に再setupが
+      // 2本目の接続を並行起動し、破棄した1本目が先に 65分DBロック取得＋有料 OpenAI 呼び出しを行い、
+      // 生きている2本目が 409 で mock に落ちる（無駄な有料呼び出し＋ロック占有）。abort で SDP proxy への
+      // POST を止め、1本目が副作用に進む前に切る。
+      attemptController.abort()
+      // mode を確定する前に破棄された試行（Strict Mode 二重実行 / in-flight 中の依存変化）では guard を
+      // 戻し、再setup で再試行できるようにする（'connecting' 固着防止）。確定済みなら戻さない。
+      if (!settled) realtimeAttemptedRef.current = false
+    }
+    // handleEndInterview は他 effect 同様 deps に含めない（ref で二重起動防止済み）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, interviewId, questionList, hasStream, mediaFailed, slug, totalQuestions])
 
-    // 保存失敗で面接全体が止まらないよう fire-and-forget（後続の質問表示・終了処理に影響させない）
-    fetch(`/api/interview/${slug}/snapshot`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, applicant_id, interview_id: interviewId, questions_snapshot: snapshot }),
-    }).catch(() => {})
-  }, [interviewId, questionList, slug])
+  // 安全網: メディア取得が解決しない（権限プロンプト放置等）まま connecting が続いても
+  // 面接が詰まらないよう、一定時間で必ずモックへ落とす（Realtime 試行が始まっていれば何もしない）。
+  useEffect(() => {
+    if (mode !== 'connecting') return
+    if (!interviewId || questionList.length === 0) return
+    const t = setTimeout(() => {
+      if (!realtimeAttemptedRef.current) {
+        realtimeAttemptedRef.current = true
+        setMode('mock')
+      }
+    }, 10000)
+    return () => clearTimeout(t)
+  }, [mode, interviewId, questionList])
+
+  // 追加P1（Codex）: realtime 確立後「初回 AI 応答」ウォッチドッグ（one-shot）。初回 response.create が
+  // recoverable error で失敗する等で AI が話し始めないと無音のまま 60分放置され得るため、一定時間で AI 応答が
+  // 無ければ realtime を閉じてモックへフォールバックする（応募者は面接を継続できる）。AI 応答が来ていれば何もしない。
+  // 【既知の限界（Codex P2）/ follow-up: Issue #21】aiRespondedRef は audio_transcript...done（応答完了）でのみ
+  //   立つため、初回応答が 30秒超（長い opening question 等）だと発話中でも false のまま健全な接続を切り得る。
+  //   厳密には output delta / response-start イベントで「応答開始」を検知すべき。後続ターン別検知と併せて #21。
+  //   realtime は既定 OFF のため本番露出は無く、正確化は本番有効化前に #21 で対応する。
+  useEffect(() => {
+    if (mode !== 'realtime') return
+    const t = setTimeout(() => {
+      if (!aiRespondedRef.current) {
+        realtimeRef.current?.close()
+        realtimeRef.current = null
+        setMode('mock')
+      }
+    }, REALTIME_RESPONSE_TIMEOUT_MS)
+    return () => clearTimeout(t)
+  }, [mode])
+
+  // 追加P2（Codex）: 初期画面で選択され sessionStorage に保存された言語を、session のドロップダウン表示へ
+  // 反映する（クライアントのみ・マウント後に読む＝SSR/hydration 安全）。realtime へ渡す値は接続時に
+  // sessionStorage から直接読む（上記）ため、これは表示同期用。
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(`interview_${slug}_language`)
+      // マウント後に sessionStorage から読む（SSR/hydration 安全）。表示同期のための意図的な setState。
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (saved) setSelectedLanguage(saved)
+    } catch {
+      /* noop */
+    }
+  }, [slug])
+
+  // 最新の回答数を ref に同期（onDisconnect からの /end で正しい answered_questions を渡すため）。
+  useEffect(() => {
+    answeredRef.current = answeredQuestions
+  }, [answeredQuestions])
+
+  // 全質問数を ref に同期（onInterviewComplete からの /end で正しい total を渡すため）。
+  useEffect(() => {
+    totalQuestionsRef.current = totalQuestions
+  }, [totalQuestions])
+
+  // アンマウント時に Realtime 接続を確実に切断（ダングリング課金防止）。
+  useEffect(() => {
+    return () => {
+      realtimeRef.current?.close()
+      realtimeRef.current = null
+    }
+  }, [])
 
   // 面接タイマー（60分で自動終了）。interviewId 確定（start 成功）後のみ作動させる。
   useEffect(() => {
@@ -476,6 +653,11 @@ export default function SessionPage() {
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
+    }
+    // Realtime 接続を切断（P2P セッションを残さない）。
+    if (realtimeRef.current) {
+      realtimeRef.current.close()
+      realtimeRef.current = null
     }
 
     // 面接終了: interviewsテーブルをUPDATE
@@ -592,11 +774,21 @@ export default function SessionPage() {
         }
       `}</style>
       <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center relative">
+        {/* AI音声（Realtime）の再生先。realtime モード時のみ remote stream が入る（mock 時は無音・非表示）。 */}
+        <audio ref={remoteAudioRef} autoPlay className="hidden" />
         {/* 言語選択ドロップダウン（右上） */}
         <div className="fixed top-4 right-4 z-30">
           <select
             value={selectedLanguage}
-            onChange={(e) => setSelectedLanguage(e.target.value)}
+            onChange={(e) => {
+              setSelectedLanguage(e.target.value)
+              // session で変更した場合も保存（接続時に sessionStorage を読むため）。
+              try {
+                sessionStorage.setItem(`interview_${slug}_language`, e.target.value)
+              } catch {
+                /* noop */
+              }
+            }}
             className="bg-slate-800/80 text-white text-sm px-3 py-2 rounded-lg border border-white/20 hover:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
           >
             {LANGUAGES.map((lang) => (

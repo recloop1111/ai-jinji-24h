@@ -112,6 +112,18 @@ export async function POST(
       })
     }
 
+    // P1-2（Codex）: 面接終了時に realtime-call の並行防止ロックを解放し、正当な次セッションを即許可する。
+    // best-effort・別UPDATE（主要な終了UPDATEには含めない）。列 realtime_call_locked_until 未適用でも
+    // エラーは無視して面接終了に影響させない（fail-open・段階ロールアウト。未解放でもTTLで自動失効）。
+    try {
+      await supabase
+        .from('interviews')
+        .update({ realtime_call_locked_until: null })
+        .eq('id', interviewId)
+    } catch {
+      /* noop: ロック解放失敗は面接終了に影響させない */
+    }
+
     // 新セッション保持の race ガード: この面接より後に started_at がある in_progress
     //（＝並行 /start が作った新しい面接セッション）が存在する場合は、applicant の terminal 確定
     //（status='完了'/'途中離脱'・result='不採用'）をスキップする。最終確定は新セッションの /end に委ね、
