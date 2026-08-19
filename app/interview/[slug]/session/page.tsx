@@ -10,11 +10,11 @@ import {
 } from '@/lib/config/interview-policy'
 import { connectRealtimeCall } from '@/lib/interview/realtime-client'
 import {
-  INTERVIEW_PHASE_LABELS,
   createMockPresenceDriver,
   type InterviewPhase,
   type MockPresenceDriver,
 } from '@/lib/interview/presence'
+import InterviewerAvatar from '@/components/interview/InterviewerAvatar'
 // 公開フローの DB アクセスは token付き service-role API 経由（browser直アクセス廃止）
 // AI音声面接（Realtime）は allowlist 企業＆フラグON時のみ。それ以外は realtime-call が 503/403 → モックへ。
 
@@ -45,7 +45,6 @@ export default function SessionPage() {
   // Phase I-1: 面接官プレゼンスの正規状態（connecting/idle/listening/thinking/speaking/ending）。
   // 状態変更は setPhase 一点に集約する（下記）。初期は接続/準備中。
   const [interviewPhase, setInterviewPhase] = useState<InterviewPhase>('connecting')
-  const [blinking, setBlinking] = useState(false) // ※ まばたきの見た目は I-2 で実装（現状 render 未使用）
   const [showConnectionBanner, setShowConnectionBanner] = useState(false)
   const [bannerOpacity, setBannerOpacity] = useState(0)
   const [aiSpeechText, setAiSpeechText] = useState('')
@@ -87,7 +86,6 @@ export default function SessionPage() {
   const streamRef = useRef<MediaStream | null>(null)
   // blockingError の最新値を camera 取得の非同期処理から参照するための ref（クロージャの陳腐化対策）
   const blockingErrorRef = useRef(false)
-  const timeoutRefs = useRef<NodeJS.Timeout[]>([])
 
   // Phase I-1: プレゼンス状態変更の「単一入口」。mock ドライバ・mode 効果・終了処理はすべてこれ経由。
   // ending へ遷移したら以後は他状態へ動かさない（面接終了後に状態が書き換わらない）。
@@ -208,27 +206,8 @@ export default function SessionPage() {
     }
   }, [hasStream])
 
-  // まばたきアニメーション
-  useEffect(() => {
-    function scheduleBlink() {
-      const delay = 3000 + Math.random() * 2000 // 3000-5000ms
-      const timer = setTimeout(() => {
-        setBlinking(true)
-        setTimeout(() => {
-          setBlinking(false)
-          scheduleBlink()
-        }, 150)
-      }, delay)
-      timeoutRefs.current.push(timer)
-    }
-
-    scheduleBlink()
-
-    return () => {
-      timeoutRefs.current.forEach((timer) => clearTimeout(timer))
-      timeoutRefs.current = []
-    }
-  }, [])
+  // Phase I-2: 写真素材では自然なまばたきを作れない（不自然な加工を避ける）ため、死蔵の blinking は撤去した。
+  // “生命感” は InterviewerAvatar の breathing / リング / 波形 / ドットで表現する（状態ソースは interviewPhase）。
 
   // Phase I-1: mode に応じたプレゼンス基底状態（旧 demoMode 依存の死蔵アニメは撤去）。
   //   connecting: 接続/準備中 → 'connecting'
@@ -853,39 +832,9 @@ export default function SessionPage() {
           </div>
         )}
 
-        {/* AIアバターエリア（画面中央） */}
+        {/* AIアバターエリア（画面中央）: Phase I-2 で状態表現をコンポーネント化。状態ソースは interviewPhase。 */}
         <div className="flex flex-col items-center">
-          <div className="rounded-full ring-4 ring-blue-500/20 shadow-2xl">
-            <img
-              src="/images/ai-interviewer.jpg"
-              alt="AI面接官"
-              className="w-[220px] h-[220px] md:w-[300px] md:h-[300px] rounded-full object-cover border-4 border-white/20"
-            />
-          </div>
-
-          {/* AI面接官テキスト */}
-          <p className="text-sm sm:text-base text-white/90 mt-3">AI面接官</p>
-
-          {/* Phase I-1: 状態ラベル（接続/質問/傾聴/思考/終了）。idle は非表示。
-              高さを固定してラベル出入りでレイアウトが揺れないようにする。見た目の作り込みは I-2。 */}
-          <div className="mt-2 h-5 flex items-center justify-center">
-            {INTERVIEW_PHASE_LABELS[interviewPhase] && (
-              <p
-                className={`text-xs sm:text-sm transition-opacity duration-300 ${
-                  interviewPhase === 'listening'
-                    ? 'text-green-400'
-                    : interviewPhase === 'thinking'
-                    ? 'text-blue-400'
-                    : interviewPhase === 'speaking'
-                    ? 'text-white/90'
-                    : 'text-white/60'
-                }`}
-                aria-live="polite"
-              >
-                {INTERVIEW_PHASE_LABELS[interviewPhase]}
-              </p>
-            )}
-          </div>
+          <InterviewerAvatar phase={interviewPhase} />
 
           {/* AI発話テキスト表示エリア */}
           <div
