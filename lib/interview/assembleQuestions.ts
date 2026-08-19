@@ -20,6 +20,19 @@ export type AssembledQuestion = { question_text: string; sort_order: number }
 export const DEFAULT_INTERVIEW_QUESTIONS: AssembledQuestion[] = [
   { question_text: '本日は面接にお越しいただきありがとうございます。まず自己紹介をお願いできますか？', sort_order: 1 },
 ]
+
+// snapshot が「既定質問のみ」（job無し/pattern未設定の mock 用フォールバック）かを判定する。
+// realtime-call は未設定 interview を有料 Realtime 対象外（mockへ）とするため、これを content 比較で見分ける
+// （provenance 列を使わずに既定 fallback を識別する）。
+export function isDefaultQuestionSnapshot(snapshot: unknown): boolean {
+  if (!Array.isArray(snapshot) || snapshot.length !== DEFAULT_INTERVIEW_QUESTIONS.length) return false
+  return snapshot.every((q, i) => {
+    const text = q && typeof (q as { question_text?: unknown }).question_text === 'string'
+      ? ((q as { question_text: string }).question_text)
+      : null
+    return text === DEFAULT_INTERVIEW_QUESTIONS[i].question_text
+  })
+}
 export type AssembleResult =
   | { ok: true; questions: AssembledQuestion[] } // 空配列 = job無し or 当該pattern未設定（既定質問フォールバック）
   | { ok: false; kind: 'db_error' | 'limit_exceeded' | 'job_not_found' | 'forbidden' }

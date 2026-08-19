@@ -2,7 +2,7 @@ import { type NextRequest } from 'next/server'
 import { apiError, errorJson } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifyInterviewToken } from '@/lib/interview/capability-token'
-import { assembleInterviewQuestions } from '@/lib/interview/assembleQuestions'
+import { assembleInterviewQuestions, isDefaultQuestionSnapshot } from '@/lib/interview/assembleQuestions'
 import { needsFreeze } from '@/lib/interview/frozenQuestions'
 import { REALTIME_CALL_LOCK_TTL_MS, interpretLockClaim } from '@/lib/interview/realtime-call-lock'
 import { OPENAI_REALTIME_CALLS_URL, OPENAI_FETCH_TIMEOUT_MS } from '@/lib/config/openai'
@@ -200,6 +200,12 @@ export async function POST(
         }
         frozenQuestions = current.questions_snapshot
       }
+    }
+    // 追加P2（Codex）: 凍結 snapshot が「既定質問のみ」＝job無し/pattern未設定の mock 用フォールバック。
+    //   /questions が既定質問を凍結するようになったため needsFreeze が false になり得るが、未設定 interview は
+    //   Realtime 対象外（mock）を維持する。→ 有料呼び出し前に 409 で弾く（呼び出し側はモックへ）。
+    if (isDefaultQuestionSnapshot(frozenQuestions)) {
+      return errorJson('SNAPSHOT_NOT_READY', '面接質問がまだ準備できていません', 409)
     }
     // 応募者が session UI で選んだ言語で面接する（許可コード以外/未指定は 'ja'）。
     const language = resolveRealtimeLanguage(body.language)
