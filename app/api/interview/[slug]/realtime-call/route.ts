@@ -160,26 +160,45 @@ export async function POST(
       //   挟んだ凍結）が先に「別内容で」凍結すると、この UPDATE は 0行になる。その場合に自分の assemble 版を
       //   使うと UI/記録（勝った版）と Realtime（負けた版）が食い違う。→ 1行返れば自分が凍結した版、
       //   0行なら「勝った現在の snapshot」を再読して採用する。
-      const { data: frozenRows } = await supabase
+      // 追加P2（Codex）: fail-closed。権威（DB 確定）の snapshot が取れない限り、未確認のローカル版を
+      //   OpenAI に送らない。1行返れば自分が凍結した版。0行（レース敗北/既凍結/並行終了）なら再読し、
+      //   status=in_progress かつ非空 snapshot のときだけ採用。error/status不整合/空/再読不能は拒否する。
+      const { data: frozenRows, error: freezeError } = await supabase
         .from('interviews')
         .update({ questions_snapshot: assembled.questions })
         .eq('id', interviewId)
         .eq('status', 'in_progress')
         .is('questions_snapshot', null)
         .select('questions_snapshot')
-      if (frozenRows && frozenRows.length > 0) {
+      if (freezeError) {
+        return errorJson('REALTIME_SNAPSHOT_ERROR', 'AI音声面接の初期化に失敗しました', 503)
+      }
+      if (
+        frozenRows &&
+        frozenRows.length > 0 &&
+        Array.isArray(frozenRows[0].questions_snapshot) &&
+        frozenRows[0].questions_snapshot.length > 0
+      ) {
         frozenQuestions = frozenRows[0].questions_snapshot // 自分が凍結した（レースに勝った）
       } else {
-        // レースに負けた/既に凍結済み → 勝った現在の snapshot を再読して採用（不一致を防ぐ）。
-        const { data: current } = await supabase
+        // レースに負けた/既に凍結済み/並行終了 → 権威 snapshot を再読して確認する。
+        const { data: current, error: rereadError } = await supabase
           .from('interviews')
-          .select('questions_snapshot')
+          .select('questions_snapshot, status')
           .eq('id', interviewId)
           .single()
-        frozenQuestions =
-          current && Array.isArray(current.questions_snapshot) && current.questions_snapshot.length > 0
-            ? current.questions_snapshot
-            : assembled.questions // 想定外（再読不能）時のみ自版でフォールバック
+        if (rereadError || !current) {
+          return errorJson('REALTIME_SNAPSHOT_ERROR', 'AI音声面接の初期化に失敗しました', 503)
+        }
+        if (current.status !== 'in_progress') {
+          // セットアップ中に面接が終了/取消 → 有料 call を作らない。
+          return apiError('CONFLICT', 'この面接は進行中ではありません')
+        }
+        if (!Array.isArray(current.questions_snapshot) || current.questions_snapshot.length === 0) {
+          // 権威 snapshot が無い → ローカル版で代替せず拒否（呼び出し側はモックへ）。
+          return errorJson('SNAPSHOT_NOT_READY', '面接質問がまだ準備できていません', 409)
+        }
+        frozenQuestions = current.questions_snapshot
       }
     }
     // 応募者が session UI で選んだ言語で面接する（許可コード以外/未指定は 'ja'）。
