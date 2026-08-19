@@ -90,10 +90,25 @@ export function buildRealtimeTools(): Record<string, unknown>[] {
   ]
 }
 
-// サーバー確定の Realtime session 設定（model/instructions/audio/transcription/turn_detection）。
+// サーバー確定の Realtime session 設定（model/instructions/audio/transcription/turn_detection/tools）。
 // realtime-call（SDP proxy）と realtime-session（client_secret・代替経路）が共有する。
-// これをサーバー側で確定して OpenAI へ渡すことで、クライアントによる model/instructions の
-// 作成時上書きを排除する（残余の接続後 session.update はアカウント側モデル制限＋評価側逸脱検知で担保）。
+// これをサーバー側で確定して OpenAI へ渡すことで、セッション作成「時」の設定はサーバーが確定する。
+//
+// 【既知の信頼境界の限界 / Codex P1・本PRでは完全防止できない】
+//   SDP 交換後、音声とイベント data channel は browser↔OpenAI の P2P であり、自社サーバーは経路に居ない。
+//   OpenAI Realtime API 仕様上、クライアントは接続「後」に session.update / response.create 等を送って
+//   instructions / tools / tool_choice を自由に変更できる（変更不可は voice / model のみ。サーバー強制の
+//   不変 session 機能・トークンのフィールドスコープ制限・公式の緩和策は存在しない）。
+//   → 応募者が独自クライアントで complete_interview を外す・設問を差し替える・有料セッションを任意
+//     プロンプトに悪用する経路を、現行 SDP-proxy 方式では完全には防止できない。
+//   ※ 以前ここには「接続後の session.update はモデル制限＋評価側逸脱検知で担保」と書いていたが、
+//     それは未実装かつ API 仕様上も成立しないため撤回した（誤解を招くため削除）。
+//
+// 【運用上の必須条件】
+//   * この経路（realtime）は本番で有効化してはならない。OPENAI_REALTIME_ENABLED は設定しない
+//     （既定 OFF＝OpenAI 未呼び出し・¥0 を維持）。allowlist / demo・test 禁止のガードも維持する。
+//   * 恒久対策は docs/REALTIME_SESSION_TRUST_DESIGN.md の「サーバー中継リレー方式（Option B）」で
+//     別PRとして実装する。本番 Realtime 有効化は、その恒久対策の完了を必須条件（blocker）とする。
 export function buildRealtimeSessionConfig(input: {
   model: string
   instructions: string

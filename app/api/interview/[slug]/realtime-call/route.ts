@@ -19,7 +19,12 @@ import {
 // ブラウザから offer SDP を受け取り、サーバー側で認可＋session 設定を確定して OpenAI /v1/realtime/calls
 // へ multipart/form-data（sdp + session）で送り、answer SDP を application/sdp で返す。
 // - OPENAI_API_KEY はサーバー専用。ブラウザには API キーも client_secret も出さない（answer SDP のみ）。
-// - session 設定（model/instructions/audio/transcription/turn_detection）はサーバー確定＝クライアント上書き不可。
+// - session 設定（model/instructions/audio/transcription/turn_detection/tools）は「セッション作成時」に
+//   サーバーが確定する。ただし SDP 交換後は browser↔OpenAI の P2P であり、クライアントは接続後に
+//   session.update / response.create 等で instructions/tools/tool_choice を変更できる（変更不可は voice/model
+//   のみ）。→ 本経路の信頼境界は現行 SDP-proxy 方式では完全には防止できない（Codex P1・既知の限界）。
+//   恒久対策は docs/REALTIME_SESSION_TRUST_DESIGN.md のサーバー中継方式で別PR。詳細は lib/openai/realtime.ts の
+//   buildRealtimeSessionConfig 上のコメント参照。本番で有効化してはならない（下記フラグを設定しない）。
 // - 既定は無効（フラグ!=='true' or キー未設定 → 503・OpenAI 未呼び出し）。demo/test 禁止・allowlist のみ。
 // - 音声メディアは WebRTC 確立後 browser↔OpenAI の P2P（自社は SDP 交換の初期化のみ）。
 export const runtime = 'nodejs'
