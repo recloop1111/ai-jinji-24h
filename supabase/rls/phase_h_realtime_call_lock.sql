@@ -42,15 +42,33 @@
 --   - RLS: 本列は service-role（RLS bypass）からのみ書かれる。anon/authenticated への
 --     追加 grant/policy は不要（realtime-call / end は service-role で実行）。
 --
--- ロールバック:
+-- 適用前後の確認 / 巻き戻し（別ファイル・いずれも未実行）:
+--   precheck : supabase/rls/phase_h_realtime_call_lock_precheck.sql
+--   postcheck: supabase/rls/phase_h_realtime_call_lock_postcheck.sql
+--   rollback : supabase/rls/phase_h_realtime_call_lock_ROLLBACK.sql
+--
+-- ロールバック（要約）:
 --   ALTER TABLE public.interviews DROP COLUMN IF EXISTS realtime_call_locked_until;
+--
+-- 適用時の安全性:
+--   * NULL 許容・DEFAULT 無しの列追加は PostgreSQL 11+ では「メタデータのみ」の変更で、
+--     テーブル書き換え（rewrite）や既存行の更新は発生しない（大テーブルでも一瞬）。
+--   * ただし ADD COLUMN は一時的に ACCESS EXCLUSIVE ロックを取るため、interviews に対する
+--     長時間トランザクションが居ると、その後ろで待たされ後続クエリを一時停止させ得る。
+--     これを避けるため lock_timeout を短く設定し、取得できなければ即失敗（安全側）にする。
+--     失敗したら空いている時間帯に再実行すればよい（IF NOT EXISTS で冪等）。
 -- ============================================================================
+
+-- ロック待ちで本番を止めないためのガード（取得できなければ即エラーで中断＝安全側）。
+SET lock_timeout = '3s';
 
 ALTER TABLE public.interviews
   ADD COLUMN IF NOT EXISTS realtime_call_locked_until timestamptz;
 
+RESET lock_timeout;
+
 -- 期限切れロックの整理は不要（クレーム時に「NULL or < now()」で上書きするため放置で安全）。
--- 任意で失効行の可視化を軽くするための部分インデックス（無くても機能する・任意）:
+-- 任意で失効行の可視化を軽くするための部分インデックス（無くても機能する・任意・現状は付けない）:
 -- CREATE INDEX IF NOT EXISTS idx_interviews_realtime_lock
 --   ON public.interviews (realtime_call_locked_until)
 --   WHERE realtime_call_locked_until IS NOT NULL;
