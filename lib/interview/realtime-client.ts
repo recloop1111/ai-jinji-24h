@@ -29,6 +29,57 @@ type ConnectInput = {
   iceTimeoutMs?: number
   fetchTimeoutMs?: number // realtime-call POST の上限（超過→abort→fallback）
   connectTimeoutMs?: number // WebRTC が connected になるまでの上限（超過→fallback）
+  disconnectGraceMs?: number // 'disconnected' 復旧待ちの猶予（超過→onDisconnect）。既定 8000ms
+}
+
+// 確立後の connectionState 変化から onDisconnect 発火を管理するコントローラ。
+// - 'failed' / 'closed' は終端（復旧不可）→ 即 onDisconnect。
+// - 'disconnected' は復旧可能な中間状態 → grace（既定8s）を張り、猶予内に 'connected'
+//   へ戻れば継続、戻らなければ onDisconnect。
+// - onDisconnect は多重発火しない（fired ガード）。teardown/close は clear() で timer を必ず解除。
+// RTCPeerConnection を直接握らずテスト可能にするため getState/onDisconnect を注入する。
+export type DisconnectController = {
+  handleStateChange: (state: RTCPeerConnectionState) => void
+  clear: () => void
+}
+
+export function createDisconnectController(
+  getState: () => RTCPeerConnectionState,
+  onDisconnect: (() => void) | undefined,
+  graceMs: number,
+): DisconnectController {
+  let graceTimer: ReturnType<typeof setTimeout> | null = null
+  let fired = false
+  const clear = () => {
+    if (graceTimer) {
+      clearTimeout(graceTimer)
+      graceTimer = null
+    }
+  }
+  const fire = () => {
+    if (fired) return
+    fired = true
+    clear()
+    onDisconnect?.()
+  }
+  const handleStateChange = (state: RTCPeerConnectionState) => {
+    if (state === 'connected') {
+      clear() // 復旧 → 保留中の grace を解除して継続
+      return
+    }
+    if (state === 'failed' || state === 'closed') {
+      fire() // 終端 → grace を待たず即終了
+      return
+    }
+    if (state === 'disconnected') {
+      if (graceTimer) return // 既に grace 中なら重複作成しない
+      graceTimer = setTimeout(() => {
+        graceTimer = null
+        if (getState() !== 'connected') fire()
+      }, graceMs)
+    }
+  }
+  return { handleStateChange, clear }
 }
 
 function dispatchEvent(raw: string, cb: RealtimeCallbacks | undefined): void {
@@ -59,6 +110,7 @@ export async function connectRealtimeCall(input: ConnectInput): Promise<Realtime
   const { slug, token, applicantId, interviewId, micStream, callbacks } = input
   const fetchTimeoutMs = input.fetchTimeoutMs ?? 12000
   const connectTimeoutMs = input.connectTimeoutMs ?? 12000
+  const disconnectGraceMs = input.disconnectGraceMs ?? 8000
   let pc: RTCPeerConnection | null = null
   try {
     pc = new RTCPeerConnection()
@@ -132,16 +184,18 @@ export async function connectRealtimeCall(input: ConnectInput): Promise<Realtime
 
     const peer = pc
     // 確立後の切断は onDisconnect で通知（呼び出し側が handleEndInterview で終了処理）。
-    peer.onconnectionstatechange = () => {
-      const s = peer.connectionState
-      if (s === 'failed' || s === 'disconnected' || s === 'closed') {
-        callbacks?.onDisconnect?.()
-      }
-    }
+    // 'disconnected' は復旧可能なため即終了せず grace を張る（failed/closed は即終了）。
+    const disconnectCtl = createDisconnectController(
+      () => peer.connectionState,
+      callbacks?.onDisconnect,
+      disconnectGraceMs,
+    )
+    peer.onconnectionstatechange = () => disconnectCtl.handleStateChange(peer.connectionState)
     return {
       ok: true,
       close: () => {
         peer.onconnectionstatechange = null
+        disconnectCtl.clear() // teardown 後に grace timer が遅延発火して二重 /end しないよう解除
         try {
           dc.close()
         } catch {
