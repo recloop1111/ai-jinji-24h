@@ -2,7 +2,11 @@ import { type NextRequest } from 'next/server'
 import { successJson, apiError } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifyInterviewToken } from '@/lib/interview/capability-token'
-import { assembleInterviewQuestions, DEFAULT_INTERVIEW_QUESTIONS } from '@/lib/interview/assembleQuestions'
+import {
+  assembleInterviewQuestions,
+  DEFAULT_INTERVIEW_QUESTIONS,
+  type AssembledQuestion,
+} from '@/lib/interview/assembleQuestions'
 import {
   MAX_TOTAL_QUESTIONS,
   MAX_ICEBREAKER_QUESTIONS,
@@ -93,34 +97,50 @@ export async function POST(
     //   null のまま記録欠落するのを防ぐ）。既定質問は assembleQuestions の唯一定義を使う。
     const questions = assembled.questions.length > 0 ? assembled.questions : DEFAULT_INTERVIEW_QUESTIONS
 
-    // 計算した questions をサーバ側で snapshot 固定（クライアントの /snapshot 未送＝クラッシュ/通信断でも
-    // 再開時のライブ再計算による質問変化を防ぐ）。条件付き UPDATE（in_progress かつ questions_snapshot IS NULL
-    // のときだけ書く）＝既存snapshotは絶対に上書きしない・completed/cancelled は触らない・レース時は先勝ち。
-    // 追加P2（Codex）: 凍結レースに負けた場合の一貫性。読み取り〜UPDATE の間に realtime-call（や管理者編集を
-    //   挟んだ凍結）が先に「別内容で」凍結すると 0行になる。その場合ローカルの questions を返すと UI（この
-    //   レスポンス表示）と永続/Realtime が食い違う。→ 1行返れば自分の版、0行なら勝った現在の snapshot を再読
-    //   して返す（realtime-call と同一パターン）。
-    const { data: frozenRows } = await supabase
-      .from('interviews')
-      .update({ questions_snapshot: questions })
-      .eq('id', interviewId)
-      .eq('status', 'in_progress')
-      .is('questions_snapshot', null)
-      .select('questions_snapshot')
-    if (frozenRows && frozenRows.length > 0) {
-      return successJson({ questions }) // 自分が凍結した（レースに勝った）
+    // 計算した questions をサーバ側で snapshot 固定（条件付き UPDATE＝in_progress かつ questions_snapshot IS NULL
+    // のときだけ書く。既存snapshotは上書きしない・completed/cancelled は触らない・レース時は先勝ち）。
+    // 追加P2（Codex）: /questions は client /snapshot 撤去後の唯一の snapshot writer。
+    //   - 凍結レースに勝てば自分の版、負けたら勝った現在の snapshot を再読して返す（UI と永続/Realtime を一致）。
+    //   - 凍結できない（UPDATE/再読とも権威 snapshot を返さない）まま 200 でローカル版を返すと、mock 面接が
+    //     questions_snapshot=null で完了し記録喪失する。→ 一過性ブリップ用に一度リトライし、それでも権威
+    //     snapshot が取れなければ fail-closed（non-OK＝クライアントはブロッキング。記録なしの面接を走らせない）。
+    const nonEmptySnapshot = (v: unknown): AssembledQuestion[] | null =>
+      Array.isArray(v) && v.length > 0 ? (v as AssembledQuestion[]) : null
+
+    async function claimAuthoritativeSnapshot(): Promise<AssembledQuestion[] | null> {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const { data: rows, error: updErr } = await supabase
+          .from('interviews')
+          .update({ questions_snapshot: questions })
+          .eq('id', interviewId)
+          .eq('status', 'in_progress')
+          .is('questions_snapshot', null)
+          .select('questions_snapshot')
+        if (!updErr && rows && rows.length > 0) {
+          const won = nonEmptySnapshot(rows[0].questions_snapshot)
+          if (won) return won // 自分が凍結した（レースに勝った）
+        }
+        // 勝てなかった/エラー → 現在の権威 snapshot を再読（別writer が既に凍結済みなら採用）。
+        const { data: current, error: reErr } = await supabase
+          .from('interviews')
+          .select('questions_snapshot')
+          .eq('id', interviewId)
+          .single()
+        if (!reErr) {
+          const existing = nonEmptySnapshot(current?.questions_snapshot)
+          if (existing) return existing
+        }
+        if (attempt === 0) await new Promise((r) => setTimeout(r, 200)) // 一過性ブリップ用に一度だけ再試行
+      }
+      return null
     }
-    // 0行（レース敗北/既凍結）→ 勝った現在の snapshot を再読して返す。取れなければローカルの questions を返す
-    // （UI 表示のためのベストエフォート。realtime-call 側は fail-closed だが、こちらは表示専用のため継続）。
-    const { data: current } = await supabase
-      .from('interviews')
-      .select('questions_snapshot')
-      .eq('id', interviewId)
-      .single()
-    if (current && Array.isArray(current.questions_snapshot) && current.questions_snapshot.length > 0) {
-      return successJson({ questions: current.questions_snapshot })
+
+    const frozen = await claimAuthoritativeSnapshot()
+    if (!frozen) {
+      // fail-closed: 権威 snapshot を確定できない → 記録なしの面接を走らせない。
+      return apiError('INTERNAL_ERROR', '面接質問の準備に失敗しました。お手数ですが時間をおいて再度お試しください。')
     }
-    return successJson({ questions })
+    return successJson({ questions: frozen })
   } catch {
     return apiError('INTERNAL_ERROR')
   }
