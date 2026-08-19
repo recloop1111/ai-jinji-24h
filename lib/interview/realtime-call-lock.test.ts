@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { interpretLockClaim, REALTIME_CALL_LOCK_TTL_MS } from './realtime-call-lock'
+import { MAX_INTERVIEW_SECONDS } from '@/lib/config/interview-policy'
 
 // P1-2（Codex）: realtime-call 多重呼び出し防止ロックの「クレーム結果解釈」。
 // error → failopen（列未適用/一時障害でも面接を止めない）、1行 → acquired、0行 → contended（409）。
@@ -26,5 +27,10 @@ describe('interpretLockClaim', () => {
   it('TTL は正の有限値（自動失効で永久禁止にしない）', () => {
     expect(REALTIME_CALL_LOCK_TTL_MS).toBeGreaterThan(0)
     expect(Number.isFinite(REALTIME_CALL_LOCK_TTL_MS)).toBe(true)
+  })
+
+  it('TTL は面接最大長（セッション寿命）をまたいで保持する（追撃P1-2）', () => {
+    // 短TTLだと失効後に2本目の並行セッションを張れてしまうため、最大面接長以上であること。
+    expect(REALTIME_CALL_LOCK_TTL_MS).toBeGreaterThanOrEqual(MAX_INTERVIEW_SECONDS * 1000)
   })
 })

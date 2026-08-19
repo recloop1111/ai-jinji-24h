@@ -23,7 +23,7 @@
 --     DB 行ロックで実効。process-local Map では不可）:
 --
 --       UPDATE interviews
---          SET realtime_call_locked_until = now() + interval '20 seconds'
+--          SET realtime_call_locked_until = now() + interval '65 minutes'  -- = 面接最大60分 + 5分バッファ
 --        WHERE id = :interview_id
 --          AND status = 'in_progress'
 --          AND (realtime_call_locked_until IS NULL OR realtime_call_locked_until < now())
@@ -31,11 +31,16 @@
 --
 --     - 1行返る = ロック取得 → OpenAI 呼び出しへ続行。
 --     - 0行 = 別セッションが保持中 → 409（呼び出し側はモックへフォールバック）。
---     - TTL(20s)で自動失効 → 正常な再接続は失効後に許可（永久禁止にはしない）。
---   - コード側は本列が未適用でも安全（fail-open）: UPDATE がエラー（列なし）なら阻害せず続行する。
---     本 SQL 適用をもってロックが有効化される（段階ロールアウト）。
+--   - ロック寿命（重要 / Codex P1-2 追撃対応）: Realtime セッションは最大60分続くため、TTL は
+--     「面接最大長 + バッファ = 65分」に設定してセッション寿命をまたいで保持する（短TTLだと失効後に
+--     2本目の並行セッションを張れてしまう）。正常終了時は /api/interview/[slug]/end が本列を NULL に
+--     戻してロックを解放し、正当な次セッションを即許可する。/end 未送信で離脱した場合も65分TTLで自動失効
+--     （＝永久禁止にならない）。応募者のリロード等は /start が新しい interview 行（別id）を作るため、
+--     stale なロックが新セッションを妨げることはない。
+--   - コード側は本列が未適用でも安全（fail-open）: claim/解放の UPDATE がエラー（列なし）なら阻害せず
+--     続行する。本 SQL 適用をもってロックが有効化される（段階ロールアウト）。
 --   - RLS: 本列は service-role（RLS bypass）からのみ書かれる。anon/authenticated への
---     追加 grant/policy は不要（realtime-call は service-role で実行）。
+--     追加 grant/policy は不要（realtime-call / end は service-role で実行）。
 --
 -- ロールバック:
 --   ALTER TABLE public.interviews DROP COLUMN IF EXISTS realtime_call_locked_until;

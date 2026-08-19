@@ -142,6 +142,10 @@ export async function POST(
     form.append('sdp', offerSdp)
     form.append('session', JSON.stringify(sessionConfig))
 
+    // 追加P1（Codex）: timeout はヘッダ受信時ではなく answer SDP の body 読み取り（oaRes.text()）完了まで
+    //   有効に保つ。OpenAI がヘッダ後に body を stall させても、route/upstream が外部プラットフォーム
+    //   timeout まで生き残らないよう、同一 controller で body 読み取り中も abort できるようにする
+    //   （ブラウザ側の abort はこの別 fetch には伝播しないため、ここで独立して打ち切る）。
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), OPENAI_FETCH_TIMEOUT_MS)
     let oaRes: Response
@@ -158,17 +162,26 @@ export async function POST(
         cache: 'no-store',
       })
     } catch {
-      // timeout/通信障害。OpenAI の詳細・キーは出さない。
-      return errorJson('REALTIME_UPSTREAM_ERROR', 'AI音声面接の初期化に失敗しました', 502)
-    } finally {
+      // timeout（ヘッダ待ち）/通信障害。OpenAI の詳細・キーは出さない。
       clearTimeout(timer)
+      return errorJson('REALTIME_UPSTREAM_ERROR', 'AI音声面接の初期化に失敗しました', 502)
     }
     if (!oaRes.ok) {
+      clearTimeout(timer)
       return errorJson('REALTIME_UPSTREAM_ERROR', 'AI音声面接の初期化に失敗しました', 502)
     }
 
     // 成功時は answer SDP を application/sdp（text body）で返す。JSON では包まない。
-    const answerSdp = await oaRes.text().catch(() => '')
+    // timer はまだ動かしたまま body を読む（ヘッダは来たが body が stall するケースを timeout で打ち切る）。
+    let answerSdp: string
+    try {
+      answerSdp = await oaRes.text()
+    } catch {
+      // body 読み取り中の abort（timeout）/中断。
+      clearTimeout(timer)
+      return errorJson('REALTIME_UPSTREAM_ERROR', 'AI音声面接の初期化に失敗しました', 502)
+    }
+    clearTimeout(timer)
     if (!answerSdp) {
       return errorJson('REALTIME_UPSTREAM_ERROR', 'AI音声面接の初期化に失敗しました', 502)
     }
