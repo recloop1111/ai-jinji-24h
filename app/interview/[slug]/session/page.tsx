@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import {
   MAX_INTERVIEW_SECONDS,
@@ -9,6 +9,12 @@ import {
   INTERVIEW_WARNING_REMAINING_MINUTES,
 } from '@/lib/config/interview-policy'
 import { connectRealtimeCall } from '@/lib/interview/realtime-client'
+import {
+  INTERVIEW_PHASE_LABELS,
+  createMockPresenceDriver,
+  type InterviewPhase,
+  type MockPresenceDriver,
+} from '@/lib/interview/presence'
 // 公開フローの DB アクセスは token付き service-role API 経由（browser直アクセス廃止）
 // AI音声面接（Realtime）は allowlist 企業＆フラグON時のみ。それ以外は realtime-call が 503/403 → モックへ。
 
@@ -36,12 +42,13 @@ export default function SessionPage() {
   const router = useRouter()
   const slug = params.slug as string
 
-  const [interviewState, setInterviewState] = useState<'idle' | 'listen' | 'think' | 'speak' | 'react'>('idle')
-  const [blinking, setBlinking] = useState(false)
+  // Phase I-1: 面接官プレゼンスの正規状態（connecting/idle/listening/thinking/speaking/ending）。
+  // 状態変更は setPhase 一点に集約する（下記）。初期は接続/準備中。
+  const [interviewPhase, setInterviewPhase] = useState<InterviewPhase>('connecting')
+  const [blinking, setBlinking] = useState(false) // ※ まばたきの見た目は I-2 で実装（現状 render 未使用）
   const [showConnectionBanner, setShowConnectionBanner] = useState(false)
   const [bannerOpacity, setBannerOpacity] = useState(0)
   const [aiSpeechText, setAiSpeechText] = useState('')
-  const [demoMode] = useState(false)
   const [hasStream, setHasStream] = useState(false)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [selectedLanguage, setSelectedLanguage] = useState('ja')
@@ -81,6 +88,16 @@ export default function SessionPage() {
   // blockingError の最新値を camera 取得の非同期処理から参照するための ref（クロージャの陳腐化対策）
   const blockingErrorRef = useRef(false)
   const timeoutRefs = useRef<NodeJS.Timeout[]>([])
+
+  // Phase I-1: プレゼンス状態変更の「単一入口」。mock ドライバ・mode 効果・終了処理はすべてこれ経由。
+  // ending へ遷移したら以後は他状態へ動かさない（面接終了後に状態が書き換わらない）。
+  const phaseEndedRef = useRef(false)
+  const setPhase = useCallback((p: InterviewPhase) => {
+    if (phaseEndedRef.current && p !== 'ending') return
+    setInterviewPhase(p)
+  }, [])
+  // mock 面接用プレゼンス・ドライバ（1セッション1個）。将来 #21 は別ドライバから同じ setPhase を駆動する（seam）。
+  const presenceDriverRef = useRef<MockPresenceDriver | null>(null)
 
   // 共通ポリシー（lib/config/interview-policy）へ接続。60分終了 / 50分警告。
   const TIME_WARNING_SECONDS = INTERVIEW_WARNING_SECONDS
@@ -213,47 +230,18 @@ export default function SessionPage() {
     }
   }, [])
 
-  // デモ用の状態自動遷移
+  // Phase I-1: mode に応じたプレゼンス基底状態（旧 demoMode 依存の死蔵アニメは撤去）。
+  //   connecting: 接続/準備中 → 'connecting'
+  //   mock:       進行中の各状態（speaking/listening/thinking）は下のオートプログレッションが
+  //               MockPresenceDriver で駆動するため、ここでは触らない。
+  //   realtime:   将来 #21 が response lifecycle から setPhase を駆動する（seam）。現状 Realtime は既定OFFで
+  //               ここへは基本到達しないが、到達時は idle を基底にしておく（誤演出を出さない）。
+  // ※ 終了処理中（ending）は setPhase 側のガードで上書きされない。
   useEffect(() => {
-    if (!demoMode) return
-
-    function cycleStates() {
-      // idle (3秒)
-      setInterviewState('idle')
-      const t1 = setTimeout(() => {
-        // listen (4秒)
-        setInterviewState('listen')
-        const t2 = setTimeout(() => {
-          // think (2秒)
-          setInterviewState('think')
-          const t3 = setTimeout(() => {
-            // speak (5秒)
-            setInterviewState('speak')
-            const t4 = setTimeout(() => {
-              // react (1秒)
-              setInterviewState('react')
-              const t5 = setTimeout(() => {
-                // idleに戻ってサイクル繰り返し
-                cycleStates()
-              }, 1000)
-              timeoutRefs.current.push(t5)
-            }, 5000)
-            timeoutRefs.current.push(t4)
-          }, 2000)
-          timeoutRefs.current.push(t3)
-        }, 4000)
-        timeoutRefs.current.push(t2)
-      }, 3000)
-      timeoutRefs.current.push(t1)
-    }
-
-    cycleStates()
-
-    return () => {
-      timeoutRefs.current.forEach((timer) => clearTimeout(timer))
-      timeoutRefs.current = []
-    }
-  }, [demoMode])
+    if (mode === 'connecting') setPhase('connecting')
+    else if (mode === 'realtime') setPhase('idle')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode])
 
   // 回線品質バナーのフェードアニメーション
   useEffect(() => {
@@ -369,12 +357,17 @@ export default function SessionPage() {
 
     const total = questionList.length
     const timers: NodeJS.Timeout[] = []
+    // Phase I-1: mock 面接のプレゼンス演出。各質問提示で speaking→listening→thinking を駆動する。
+    // 状態変更は setPhase 経由（単一入口）。既存の質問進行/回答数/終了ロジックは変更しない。
+    const presence = createMockPresenceDriver({ setPhase, intervalMs: QUESTION_INTERVAL_MS })
+    presenceDriverRef.current = presence
     // 各質問を順に提示し回答済み数を進める（モック）
     for (let i = 0; i < total; i++) {
       timers.push(
         setTimeout(() => {
           setAiSpeechText(questionList[i])
           setAnsweredQuestions(i + 1)
+          presence.onQuestionPresented() // speaking→listening→thinking
         }, i * QUESTION_INTERVAL_MS),
       )
     }
@@ -382,6 +375,7 @@ export default function SessionPage() {
     timers.push(
       setTimeout(() => {
         setAiSpeechText(CLOSING_MESSAGE)
+        setPhase('speaking') // AI が締めの言葉を話す
       }, total * QUESTION_INTERVAL_MS),
     )
     timers.push(
@@ -392,6 +386,8 @@ export default function SessionPage() {
     )
     return () => {
       timers.forEach((t) => clearTimeout(t))
+      presence.stop() // cleanup 後にサブ timer が状態を書き換えないようにする
+      presenceDriverRef.current = null
     }
     // handleEndInterview は他 effect と同様に依存に含めない（毎レンダー再生成・ref で二重起動防止済み）。
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -651,6 +647,12 @@ export default function SessionPage() {
     if (isEnding) return // 重複実行を防止（UI状態）
     setIsEnding(true)
 
+    // Phase I-1: 終了フェーズへ。以後 setPhase は ending 以外を無視し、mock プレゼンス演出も停止する
+    // （終了後に状態が動かない）。既存の終了ロジック（下記）は変更しない。
+    phaseEndedRef.current = true
+    setPhase('ending')
+    presenceDriverRef.current?.stop()
+
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
     }
@@ -864,19 +866,24 @@ export default function SessionPage() {
           {/* AI面接官テキスト */}
           <p className="text-sm sm:text-base text-white/90 mt-3">AI面接官</p>
 
-          {/* 発話状態テキスト（聞いています…/考えています…） */}
-          <div
-            className={`mt-2 transition-opacity duration-300 ${
-              interviewState === 'listen' || interviewState === 'think'
-                ? 'opacity-100'
-                : 'opacity-0'
-            }`}
-          >
-            {interviewState === 'listen' && (
-              <p className="text-green-400 text-xs sm:text-sm">聞いています...</p>
-            )}
-            {interviewState === 'think' && (
-              <p className="text-blue-400 text-xs sm:text-sm">考えています...</p>
+          {/* Phase I-1: 状態ラベル（接続/質問/傾聴/思考/終了）。idle は非表示。
+              高さを固定してラベル出入りでレイアウトが揺れないようにする。見た目の作り込みは I-2。 */}
+          <div className="mt-2 h-5 flex items-center justify-center">
+            {INTERVIEW_PHASE_LABELS[interviewPhase] && (
+              <p
+                className={`text-xs sm:text-sm transition-opacity duration-300 ${
+                  interviewPhase === 'listening'
+                    ? 'text-green-400'
+                    : interviewPhase === 'thinking'
+                    ? 'text-blue-400'
+                    : interviewPhase === 'speaking'
+                    ? 'text-white/90'
+                    : 'text-white/60'
+                }`}
+                aria-live="polite"
+              >
+                {INTERVIEW_PHASE_LABELS[interviewPhase]}
+              </p>
             )}
           </div>
 
