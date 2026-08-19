@@ -14,6 +14,17 @@ import { DEMO_COMPANY_ID } from '@/lib/config/demo'
 // 面接完了シグナル用のサーバー定義 function tool 名（realtime-client.ts の COMPLETE_INTERVIEW_TOOL と一致させる）。
 export const COMPLETE_INTERVIEW_TOOL = 'complete_interview'
 
+// 面接でサポートする言語コード（session UI の選択肢と一致）。既定は日本語。
+export const SUPPORTED_REALTIME_LANGUAGES = ['ja', 'en', 'vi', 'zh', 'ne', 'pt'] as const
+
+// 応募者選択の言語を検証して解決する。許可コード以外/未指定は 'ja' にフォールバック
+// （任意文字列を instructions に注入させないためのサーバー側バリデーション）。
+export function resolveRealtimeLanguage(input: unknown): string {
+  return typeof input === 'string' && (SUPPORTED_REALTIME_LANGUAGES as readonly string[]).includes(input)
+    ? input
+    : 'ja'
+}
+
 // フィーチャーフラグ: 厳格に 'true' のときだけ有効（未設定/他値は無効＝既定 OFF）。
 export function isRealtimeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.OPENAI_REALTIME_ENABLED === 'true'

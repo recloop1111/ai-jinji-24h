@@ -9,6 +9,7 @@ import { OPENAI_REALTIME_CALLS_URL, OPENAI_FETCH_TIMEOUT_MS } from '@/lib/config
 import {
   isRealtimeEnabled,
   resolveRealtimeModel,
+  resolveRealtimeLanguage,
   isCompanyAllowed,
   buildRealtimeInstructions,
   buildRealtimeSessionConfig,
@@ -154,7 +155,9 @@ export async function POST(
         .is('questions_snapshot', null)
       frozenQuestions = assembled.questions
     }
-    const instructions = buildRealtimeInstructions(frozenQuestions)
+    // 応募者が session UI で選んだ言語で面接する（許可コード以外/未指定は 'ja'）。
+    const language = resolveRealtimeLanguage(body.language)
+    const instructions = buildRealtimeInstructions(frozenQuestions, { language })
     if (!instructions) {
       return errorJson('SNAPSHOT_NOT_READY', '面接質問がまだ準備できていません', 409)
     }

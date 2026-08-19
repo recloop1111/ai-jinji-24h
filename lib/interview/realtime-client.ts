@@ -15,10 +15,10 @@ export type RealtimeCallbacks = {
   onInterviewComplete?: () => void
   // 確立後の切断（呼び出し側で handleEndInterview 終了処理）。
   onDisconnect?: () => void
-  // OpenAI がデータチャネルに送る致命的な server error（{type:'error'}）。WebRTC は接続維持のまま
-  // OpenAI が初回/後続 response を拒否すると音声が始まらず無音のまま放置され得るため、呼び出し側へ
-  // 通知して終了/フォールバックさせる（黙殺しない）。
-  onServerError?: (info: { code?: string; message?: string }) => void
+  // OpenAI がデータチャネルに送る server error（{type:'error'}）。黙殺しない（surface する）。
+  // ただし多くの error は recoverable でセッション継続のため、terminal（session_expired 等・セッション終了）
+  // のみ呼び出し側が面接を終了させる。recoverable は通知のみ（面接は継続）。
+  onServerError?: (info: { code?: string; message?: string; terminal: boolean }) => void
 }
 
 // 面接完了シグナル用のサーバー定義 function tool 名（realtime.ts の tools 定義と一致させる）。
@@ -94,6 +94,15 @@ type ConnectInput = {
   connectTimeoutMs?: number // WebRTC が connected になるまでの上限（超過→fallback）
   disconnectGraceMs?: number // 'disconnected' 復旧待ちの猶予（超過→onDisconnect）。既定 8000ms
   signal?: AbortSignal // 呼び出し側が試行を破棄したら中断（fetch=ロック取得/有料呼び出し前に abort）
+  language?: string // 応募者選択の面接言語（サーバ側で許可コード検証。未指定は 'ja'）
+}
+
+// terminal（セッション終了）と判断する error.code。OpenAI Realtime の error は「多くが recoverable で
+// セッション継続」なので、既定は非終端（surface のみ・面接を終了しない）。session_expired 等の明確な
+// セッション終了コードのみ terminal 扱いで呼び出し側に終了させる。
+const TERMINAL_REALTIME_ERROR_CODES = new Set(['session_expired'])
+export function isTerminalRealtimeError(error: { code?: unknown } | null | undefined): boolean {
+  return !!error && typeof error.code === 'string' && TERMINAL_REALTIME_ERROR_CODES.has(error.code)
 }
 
 // 確立後の connectionState 変化から onDisconnect 発火を管理するコントローラ。
@@ -189,13 +198,15 @@ export function dispatchEvent(raw: string, cb: RealtimeCallbacks | undefined): v
   }
   const type = typeof evt?.type === 'string' ? evt.type : ''
   const text = typeof evt?.transcript === 'string' ? evt.transcript : ''
-  // 追加P1（Codex）: OpenAI の致命的 server error（{type:'error'}）。黙殺すると WebRTC 接続維持のまま
-  // 無音で 60分タイムアウトまで放置され得るため、呼び出し側へ通知して終了/フォールバックさせる。
+  // 追加P1/P2（Codex）: OpenAI の server error（{type:'error'}）。黙殺せず surface するが、
+  // 多くは recoverable（セッション継続）なので terminal（session_expired 等）のみ terminal:true とし、
+  // 呼び出し側はそのときだけ面接を終了する（recoverable で使える面接を不必要に終了しない）。
   if (type === 'error') {
     const err = evt?.error ?? null
     cb.onServerError?.({
       code: typeof err?.code === 'string' ? err.code : undefined,
       message: typeof err?.message === 'string' ? err.message : undefined,
+      terminal: isTerminalRealtimeError(err),
     })
     return
   }
@@ -219,7 +230,7 @@ export function dispatchEvent(raw: string, cb: RealtimeCallbacks | undefined): v
 }
 
 export async function connectRealtimeCall(input: ConnectInput): Promise<RealtimeConnectResult> {
-  const { slug, token, applicantId, interviewId, micStream, callbacks, signal } = input
+  const { slug, token, applicantId, interviewId, micStream, callbacks, signal, language } = input
   const fetchTimeoutMs = input.fetchTimeoutMs ?? 12000
   const connectTimeoutMs = input.connectTimeoutMs ?? 12000
   const disconnectGraceMs = input.disconnectGraceMs ?? 8000
@@ -270,7 +281,13 @@ export async function connectRealtimeCall(input: ConnectInput): Promise<Realtime
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, applicant_id: applicantId, interview_id: interviewId, sdp: offerSdp }),
+        body: JSON.stringify({
+          token,
+          applicant_id: applicantId,
+          interview_id: interviewId,
+          sdp: offerSdp,
+          language,
+        }),
       },
       fetchTimeoutMs,
       fetch,

@@ -3,6 +3,7 @@ import {
   createDisconnectController,
   postOfferAndReadAnswer,
   isInterviewCompleteEvent,
+  isTerminalRealtimeError,
   dispatchEvent,
   COMPLETE_INTERVIEW_TOOL,
 } from './realtime-client'
@@ -297,9 +298,23 @@ describe('isInterviewCompleteEvent / dispatchEvent completion signal', () => {
   })
 })
 
-// 追加P1（Codex）: OpenAI の致命的 server error（{type:'error'}）を黙殺せず onServerError へ surface する。
+// 追加P1/P2（Codex）: server error（{type:'error'}）は surface するが、多くは recoverable。
+// terminal（session_expired 等）のみ terminal:true。呼び出し側は terminal のときだけ面接を終了する。
+describe('isTerminalRealtimeError', () => {
+  it('session_expired → terminal', () => {
+    expect(isTerminalRealtimeError({ code: 'session_expired' })).toBe(true)
+  })
+  it('recoverable な error（server_error / invalid_request_error / 未指定）→ 非terminal', () => {
+    expect(isTerminalRealtimeError({ code: 'server_error' })).toBe(false)
+    expect(isTerminalRealtimeError({ code: 'invalid_request_error' })).toBe(false)
+    expect(isTerminalRealtimeError({})).toBe(false)
+    expect(isTerminalRealtimeError(null)).toBe(false)
+    expect(isTerminalRealtimeError(undefined)).toBe(false)
+  })
+})
+
 describe('dispatchEvent server error ({type:"error"})', () => {
-  it('type=error → onServerError を code/message 付きで1回発火（他コールバックは呼ばない）', () => {
+  it('terminal error（session_expired）→ onServerError terminal:true で1回発火（他は呼ばない）', () => {
     const cb = {
       onServerError: vi.fn(),
       onInterviewComplete: vi.fn(),
@@ -307,21 +322,31 @@ describe('dispatchEvent server error ({type:"error"})', () => {
       onTranscript: vi.fn(),
     }
     dispatchEvent(
-      JSON.stringify({ type: 'error', error: { code: 'invalid_request', message: 'bad response.create' } }),
+      JSON.stringify({ type: 'error', error: { code: 'session_expired', message: 'max duration' } }),
       cb,
     )
     expect(cb.onServerError).toHaveBeenCalledTimes(1)
-    expect(cb.onServerError).toHaveBeenCalledWith({ code: 'invalid_request', message: 'bad response.create' })
+    expect(cb.onServerError).toHaveBeenCalledWith({ code: 'session_expired', message: 'max duration', terminal: true })
     expect(cb.onInterviewComplete).not.toHaveBeenCalled()
     expect(cb.onApplicantTurnComplete).not.toHaveBeenCalled()
     expect(cb.onTranscript).not.toHaveBeenCalled()
   })
 
-  it('type=error で error 詳細が無くても onServerError は発火（code/message は undefined）', () => {
+  it('recoverable error → surface はするが terminal:false（面接を終了させない）', () => {
+    const cb = { onServerError: vi.fn() }
+    dispatchEvent(
+      JSON.stringify({ type: 'error', error: { code: 'server_error', message: 'transient' } }),
+      cb,
+    )
+    expect(cb.onServerError).toHaveBeenCalledTimes(1)
+    expect(cb.onServerError).toHaveBeenCalledWith({ code: 'server_error', message: 'transient', terminal: false })
+  })
+
+  it('error 詳細が無くても surface（terminal:false）', () => {
     const cb = { onServerError: vi.fn() }
     dispatchEvent(JSON.stringify({ type: 'error' }), cb)
     expect(cb.onServerError).toHaveBeenCalledTimes(1)
-    expect(cb.onServerError).toHaveBeenCalledWith({ code: undefined, message: undefined })
+    expect(cb.onServerError).toHaveBeenCalledWith({ code: undefined, message: undefined, terminal: false })
   })
 
   it('通常イベントでは onServerError を呼ばない', () => {

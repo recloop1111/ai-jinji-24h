@@ -434,6 +434,7 @@ export default function SessionPage() {
         interviewId,
         micStream: stream,
         signal: attemptController.signal,
+        language: selectedLanguage,
         callbacks: {
           onRemoteStream: (rs) => {
             if (remoteAudioRef.current) {
@@ -455,11 +456,12 @@ export default function SessionPage() {
           onInterviewComplete: () => {
             handleEndInterview('全質問完了', totalQuestionsRef.current)
           },
-          // 追加P1（Codex）: OpenAI の致命的 server error（{type:'error'}）→ 無音放置させず終了へ。
-          // WebRTC は接続維持でも AI 応答が始まらない/続かないため、切断と同様に面接を終了する
-          // （PR-2 の realtime 終了は '自主終了'＝途中離脱。二重 /end は endTriggeredRef で防止）。
-          onServerError: () => {
-            handleEndInterview('自主終了', answeredRef.current)
+          // 追加P1/P2（Codex）: OpenAI の server error（{type:'error'}）を surface する。多くは recoverable
+          // でセッション継続のため終了しない。terminal（session_expired 等・セッション終了）のときだけ、
+          // 無音放置を避けるため切断と同様に面接を終了する（realtime 終了は '自主終了'＝途中離脱。
+          // 二重 /end は endTriggeredRef で防止）。
+          onServerError: (info) => {
+            if (info.terminal) handleEndInterview('自主終了', answeredRef.current)
           },
           onDisconnect: () => {
             // P2-a: 確立後の切断は終了処理へ（モックへ戻さず・ハングさせない）。二重終了は endTriggeredRef で防止。
