@@ -430,11 +430,17 @@ export default function SessionPage() {
     const stream = streamRef.current
 
     let cancelled = false
+    // この試行が mode/blocking を確定（settle）したか。確定前に破棄された場合は下の cleanup で
+    // guard(realtimeAttemptedRef) を戻し、再setup で再試行できるようにする（'connecting' 固着防止）。
+    let settled = false
     ;(async () => {
       // メディア失敗（カメラ/マイク拒否）or 前提欠落 → 既存モックへ（詰まり防止）。
       // setMode は async 内で呼び、effect 本体での同期 setState（cascading render）を避ける。
       if (mediaFailed || !hasStream || !token || !applicant_id || !stream) {
-        if (!cancelled) setMode('mock')
+        if (!cancelled) {
+          settled = true
+          setMode('mock')
+        }
         return
       }
       const result = await connectRealtimeCall({
@@ -475,6 +481,7 @@ export default function SessionPage() {
         if (result.ok) result.close()
         return
       }
+      settled = true
       if (result.ok) {
         realtimeRef.current = result
         setMode('realtime')
@@ -486,6 +493,11 @@ export default function SessionPage() {
     })()
     return () => {
       cancelled = true
+      // 追加P2（Codex）: mode を確定する前に破棄された試行（React Strict Mode の二重実行や、
+      // in-flight 中の依存変化による再setup）では guard を戻し、再setup で再試行できるようにする。
+      // これをしないと、破棄された試行が後から解決しても mode を設定せず、10秒安全網も
+      // guard=true を見て fallback しないため mode が 'connecting' に固着し得る。
+      if (!settled) realtimeAttemptedRef.current = false
     }
     // handleEndInterview は他 effect 同様 deps に含めない（ref で二重起動防止済み）
     // eslint-disable-next-line react-hooks/exhaustive-deps
