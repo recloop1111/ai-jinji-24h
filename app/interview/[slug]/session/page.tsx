@@ -798,9 +798,11 @@ export default function SessionPage() {
           {/* TODO: Phase 4 - 言語切替で面接AIの応答言語・UIテキストを変更 */}
         </div>
 
-        {/* Phase I-3: 上部中央インフォバー（質問進捗＋経過時間を1つに集約し、モバイルで上部がごちゃつかないように）。
-            左のカメラ小窓・右の言語選択と重ならない中央寄せ。 */}
-        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 sm:gap-3 rounded-full bg-slate-900/60 px-3 py-1 backdrop-blur-sm">
+        {/* Phase I-3: 質問進捗＋経過時間を1つに集約したインフォバー。
+            モバイル（<sm）は左のカメラ小窓（top-3・h-18=72px＝下端≈84px）・右の言語選択の「下」に配置して
+            重なりを防ぐ（top-24=96px）。sm+ は横幅に余裕があるため上部中央（top-4）に戻す（左右コントロールと
+            水平方向に離れる）。max-w-[90vw] で画面外へはみ出さない。 */}
+        <div className="fixed top-24 sm:top-4 left-1/2 -translate-x-1/2 z-30 flex max-w-[90vw] items-center gap-2 sm:gap-3 rounded-full bg-slate-900/60 px-3 py-1 backdrop-blur-sm">
           {questionProgress.visible && (
             <>
               <span className="text-xs sm:text-sm font-medium text-white/85 tabular-nums">
