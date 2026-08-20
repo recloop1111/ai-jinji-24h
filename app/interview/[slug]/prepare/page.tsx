@@ -190,6 +190,42 @@ export default function PreparePage() {
     acquiringRef.current = false
   }, [cleanupMicTest, startMicTest])
 
+  // Codex P2: カメラのみ再試行。マイクが既に動作中（micStatus==='ok'）なら、
+  // 動作中の音声ストリーム・micTestPassed を壊さず、カメラトラックだけ取得して既存ストリームへ追加する。
+  // （任意のカメラ再試行で必須マイクの進行をリセットしない／再取得失敗でも進行不能にしない）
+  const retryCameraOnly = useCallback(async () => {
+    if (acquiringRef.current) return
+    // マイク未確立なら通常のフル再取得（マイク優先で立て直す）
+    if (micStatus !== 'ok' || !streamRef.current) {
+      acquire()
+      return
+    }
+    acquiringRef.current = true
+    setCameraError(null)
+    setCameraStatus('loading')
+    try {
+      const vStream = await navigator.mediaDevices.getUserMedia({ video: true })
+      const videoTrack = vStream.getVideoTracks()[0]
+      // 破棄後/マイク喪失後に解決したら追加せず即停止（カメラを残さない）
+      if (cancelledRef.current || !streamRef.current || !videoTrack) {
+        stopStream(vStream)
+        setCameraStatus((s) => (s === 'loading' ? 'error' : s))
+        return
+      }
+      streamRef.current.addTrack(videoTrack)
+      setCameraStatus('ok')
+      if (videoRef.current) {
+        videoRef.current.srcObject = streamRef.current
+        videoRef.current.play().catch(() => {})
+      }
+    } catch (e) {
+      setCameraStatus('error')
+      setCameraError(mediaErrorMessage(classifyMediaError(e), 'camera'))
+    } finally {
+      acquiringRef.current = false
+    }
+  }, [acquire, micStatus])
+
   useEffect(() => {
     cancelledRef.current = false
     const timer = setTimeout(() => {
@@ -268,7 +304,7 @@ export default function PreparePage() {
                   <p className="text-xs text-white/60 mt-1">カメラなしでも面接を続けられます。</p>
                   <button
                     type="button"
-                    onClick={acquire}
+                    onClick={retryCameraOnly}
                     className="mt-3 inline-flex items-center gap-1.5 bg-white/15 hover:bg-white/25 rounded-full px-4 py-1.5 text-xs font-medium transition-colors"
                   >
                     <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />

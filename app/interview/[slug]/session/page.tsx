@@ -87,6 +87,13 @@ export default function SessionPage() {
   // 取得完了する前にページ離脱/面接終了で unmount した場合、取得ストリームを保存せず即 stop するために使う
   //（setupCamera effect の disposed は当該 effect インスタンス限定。こちらはハンドラ用＝コンポーネント寿命）。
   const mountedRef = useRef(true)
+  // Codex P1: トラック切断ハンドラ（安定 useCallback）から現在の mode / 最新 handleEndInterview を参照するための ref。
+  // realtime 中のマイク切断はローカル再取得では PeerConnection の sender track を張り替えられない（＝#21）。
+  // その場合はローカル再接続 UI を出さず、無音送出のまま継続させず「途中終了」で終了する（PR-11 の切断→終了と整合）。
+  const modeRef = useRef<'connecting' | 'realtime' | 'mock'>('connecting')
+  const endInterviewRef = useRef<
+    ((endReason?: '全質問完了' | '時間切れ' | '自主終了', answeredOverride?: number) => void) | null
+  >(null)
   const realtimeRef = useRef<{ close: () => void } | null>(null)
   const realtimeAttemptedRef = useRef(false)
   // 追加P1（Codex）: AI が一度でも応答（transcript）したか。初回 response.create が失敗すると AI が話し始めず
@@ -186,11 +193,23 @@ export default function SessionPage() {
     startInterview()
   }, [slug, router])
 
+  // Codex P1: マイク切断時の分岐（安定ハンドラ・ref のみ参照）。
+  //   realtime: ローカル再取得では PeerConnection の sender track を張り替えられない（＝#21）。
+  //             無音を送り続けないよう「途中終了」で終了する（誤った復旧 UI を出さない）。
+  //   mock/connecting: ローカル再接続で復旧できるため、再接続バナー＋ボタンを出す。
+  const handleMicLost = useCallback(() => {
+    if (modeRef.current === 'realtime') {
+      endInterviewRef.current?.('自主終了', answeredRef.current)
+      return
+    }
+    setMicLost(true)
+  }, [])
+
   // Phase I-5: トラック切断（デバイス取り外し/占有）を検知する。マイク切断は必須なので再接続案内を出す。
   //            カメラ切断は任意なので小窓を OFF 表示に切り替えるだけ（面接は継続）。
   const attachTrackListeners = useCallback((stream: MediaStream) => {
     const audio = stream.getAudioTracks()[0]
-    if (audio) audio.addEventListener('ended', () => setMicLost(true), { once: true })
+    if (audio) audio.addEventListener('ended', () => handleMicLost(), { once: true })
     const video = stream.getVideoTracks()[0]
     if (video)
       video.addEventListener(
@@ -201,7 +220,7 @@ export default function SessionPage() {
         },
         { once: true },
       )
-  }, [])
+  }, [handleMicLost])
 
   // カメラ/マイク取得（start 成功＝interviewId 確定後のみ。403/失敗時は起動しない）。
   // Phase I-5: 二段階取得＝まず {video,audio}、失敗ならマイクのみ {audio}（カメラ任意）。
@@ -246,8 +265,9 @@ export default function SessionPage() {
     setupCamera()
 
     // デバイス抜き差し（devicechange）でマイクが生存していなければ切断とみなす（ブラウザ差の吸収）。
+    // realtime/mock の分岐は handleMicLost に集約（realtime は途中終了・mock は再接続案内）。
     const onDeviceChange = () => {
-      if (streamRef.current && !hasLiveTrack(streamRef.current, 'audio')) setMicLost(true)
+      if (streamRef.current && !hasLiveTrack(streamRef.current, 'audio')) handleMicLost()
     }
     const md = typeof navigator !== 'undefined' ? navigator.mediaDevices : undefined
     md?.addEventListener?.('devicechange', onDeviceChange)
@@ -257,7 +277,7 @@ export default function SessionPage() {
       md?.removeEventListener?.('devicechange', onDeviceChange)
       stopStream(streamRef.current)
     }
-  }, [interviewId, attachTrackListeners])
+  }, [interviewId, attachTrackListeners, handleMicLost])
 
   // Phase I-5: マイクのミュート/解除。track.enabled のみ変更しストリームは取り直さない
   //（同一トラックを保持＝将来 Realtime へ送出中の audio track も維持。ミュート中は無音が送られる）。
@@ -343,6 +363,14 @@ export default function SessionPage() {
       mountedRef.current = false
     }
   }, [])
+
+  // Codex P1: 安定ハンドラから最新の mode / handleEndInterview を参照するための ref を毎レンダー同期（state 更新なし）。
+  useEffect(() => {
+    modeRef.current = mode
+  }, [mode])
+  useEffect(() => {
+    endInterviewRef.current = handleEndInterview
+  })
 
   // blockingError 表示中はカメラ/マイクを確実に停止する。
   // カメラ取得 effect の deps は [interviewId] のみで、blockingError が立っても cleanup が走らないため、
@@ -1007,7 +1035,9 @@ export default function SessionPage() {
         </div>
 
         {/* Phase I-5: マイク切断の再接続案内（必須デバイス）。上部中央・面接進行より前面。 */}
-        {micLost && (
+        {/* Codex P1: realtime 中は handleMicLost が途中終了させるため micLost は立たない。
+            万一の並行状態でもローカル再接続 UI を realtime で出さない（PC 張り替え=#21 は不可のため）。 */}
+        {micLost && mode !== 'realtime' && (
           <div
             className="fixed top-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-red-600/95 text-white text-sm py-2 px-4 rounded-lg shadow-lg"
             role="alert"
