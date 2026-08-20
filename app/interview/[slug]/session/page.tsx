@@ -77,6 +77,9 @@ export default function SessionPage() {
   const answeredRef = useRef(0)
   // onInterviewComplete（全質問完了 tool シグナル）から /end する際に全質問数を渡すための ref。
   const totalQuestionsRef = useRef(0)
+  // Phase I-4: 完了時 summary に「最新の経過秒」を渡すための ref。handleEndInterview は mock/Realtime の
+  // effect クロージャに捕捉されて elapsedSeconds が陳腐化するため、ref で常に現在値を参照する。
+  const elapsedRef = useRef(0)
   const remoteAudioRef = useRef<HTMLAudioElement>(null)
   // transcript は PR-2 ではメモリ保持のみ（DB保存は PR-3）。
   const transcriptRef = useRef<{ role: 'applicant' | 'ai'; text: string }[]>([])
@@ -551,6 +554,11 @@ export default function SessionPage() {
     totalQuestionsRef.current = totalQuestions
   }, [totalQuestions])
 
+  // Phase I-4: 経過秒を ref に同期（陳腐化した handleEndInterview クロージャからも最新値を参照するため）。
+  useEffect(() => {
+    elapsedRef.current = elapsedSeconds
+  }, [elapsedSeconds])
+
   // Phase I-3: 現在質問が変わったら質問ボックスを先頭へスクロールし直す（前の長文で下までスクロール
   // していても、次の質問が途中から見える状態にしない）。DOM 操作のみ（setState ではない）。
   useEffect(() => {
@@ -698,10 +706,11 @@ export default function SessionPage() {
           // interview_id を含めて別面接/stale の誤表示を防ぐ。質問数は totalQuestions（設問数＝Realtime でも
           // 虚偽にならない）。所要時間は elapsedSeconds。complete が interview_id 一致時だけ使用する。
           try {
+            // 陳腐化しない ref から最新の経過秒・質問数を取る（stale closure 対策）。
             const summary = buildInterviewSummary({
               interviewId,
-              durationSeconds: elapsedSeconds,
-              questionCount: totalQuestions,
+              durationSeconds: elapsedRef.current,
+              questionCount: totalQuestionsRef.current,
             })
             sessionStorage.setItem(summaryStorageKey(slug), serializeSummary(summary))
           } catch {
