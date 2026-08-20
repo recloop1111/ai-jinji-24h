@@ -1,16 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
-
-// TODO: 実際のデータに差替え
-const SUMMARY = {
-  minutes: 25,
-  questions: 6,
-  avgResponseSeconds: 42,
-  totalSpeakingTime: '8:30',
-  speakingRate: 65,
-}
+import {
+  parseInterviewSummary,
+  summaryMatchesInterview,
+  summaryStorageKey,
+  durationToMinutes,
+  questionCountDisplay,
+  type InterviewSummary,
+} from '@/lib/interview/completeSummary'
 
 function ClockIcon({ className }: { className?: string }) {
   return (
@@ -36,6 +35,23 @@ export default function CompletePage() {
   const [rating, setRating] = useState(0)
   const [hoverRating, setHoverRating] = useState(0)
   const [submitted, setSubmitted] = useState(false)
+
+  // Phase I-4: 実データ summary を読み出す。別面接/stale を誤表示しないよう、現在の interview_id と一致した
+  // summary のみ使用（不一致/欠落/malformed は null＝ダミーを出さず該当表示を隠す）。マウント後に読む（SSR安全）。
+  const [summary, setSummary] = useState<InterviewSummary | null>(null)
+  useEffect(() => {
+    try {
+      const parsed = parseInterviewSummary(sessionStorage.getItem(summaryStorageKey(slug)))
+      const currentInterviewId = sessionStorage.getItem(`interview_${slug}_interview_id`)
+      setSummary(summaryMatchesInterview(parsed, currentInterviewId) ? parsed : null)
+    } catch {
+      setSummary(null)
+    }
+  }, [slug])
+
+  const minutes = summary ? durationToMinutes(summary.durationSeconds) : null
+  const questions = summary ? questionCountDisplay(summary.questionCount) : null
+  const hasSummary = minutes !== null || questions !== null
 
   async function handleSubmitRating() {
     if (rating === 0) return
@@ -68,24 +84,32 @@ export default function CompletePage() {
           <p className="text-sm text-gray-600 mt-2">結果は企業の担当者よりご連絡いたします。</p>
         </header>
 
-        {/* 面接サマリーカード */}
+        {/* 面接サマリーカード（Phase I-4: 実データのみ）。
+            実データが取得できないとき（summary 欠落/別面接/malformed）はカード自体を非表示にし、
+            固定値/推測値は一切表示しない。個別の値が取れない場合は「—」。 */}
         <main className="flex-1">
-          <div className="rounded-xl bg-white shadow-sm border border-gray-200 p-4 sm:p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <ClockIcon className="w-5 h-5 text-blue-600 shrink-0" />
-              <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider">面接サマリー</h3>
-            </div>
-            <div className="flex gap-6 mb-4">
-              <div>
-                <p className="text-3xl sm:text-4xl font-bold text-gray-900 tabular-nums">{SUMMARY.minutes}</p>
-                <p className="text-xs text-gray-600 mt-1">分</p>
+          {hasSummary && (
+            <div className="rounded-xl bg-white shadow-sm border border-gray-200 p-4 sm:p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <ClockIcon className="w-5 h-5 text-blue-600 shrink-0" />
+                <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider">面接サマリー</h3>
               </div>
-              <div>
-                <p className="text-3xl sm:text-4xl font-bold text-gray-900 tabular-nums">{SUMMARY.questions}</p>
-                <p className="text-xs text-gray-600 mt-1">問</p>
+              <div className="flex gap-6 mb-4">
+                <div>
+                  <p className="text-3xl sm:text-4xl font-bold text-gray-900 tabular-nums">
+                    {minutes ?? '—'}
+                  </p>
+                  <p className="text-xs text-gray-600 mt-1">分</p>
+                </div>
+                <div>
+                  <p className="text-3xl sm:text-4xl font-bold text-gray-900 tabular-nums">
+                    {questions ?? '—'}
+                  </p>
+                  <p className="text-xs text-gray-600 mt-1">問</p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </main>
 
         {/* フッター */}
@@ -130,7 +154,6 @@ export default function CompletePage() {
           <p className="text-center text-xs text-gray-400 mt-4">Powered by AI人事24h</p>
         </footer>
       </div>
-      {/* TODO: Phase 4 - 実際の面接結果からスコア・タイプを算出 */}
     </div>
   )
 }
