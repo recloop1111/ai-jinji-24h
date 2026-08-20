@@ -16,7 +16,13 @@ import {
 } from '@/lib/interview/presence'
 import { computeQuestionProgress, turnHintForPhase } from '@/lib/interview/questionProgress'
 import { buildInterviewSummary, serializeSummary, summaryStorageKey } from '@/lib/interview/completeSummary'
-import { isGetUserMediaSupported, stopStream, setTracksEnabled, hasLiveTrack } from '@/lib/interview/media'
+import {
+  isGetUserMediaSupported,
+  stopStream,
+  setTracksEnabled,
+  hasLiveTrack,
+  commitOrStopStream,
+} from '@/lib/interview/media'
 import { Mic, MicOff, Video, VideoOff, Volume2 } from 'lucide-react'
 import InterviewerAvatar from '@/components/interview/InterviewerAvatar'
 // 公開フローの DB アクセスは token付き service-role API 経由（browser直アクセス廃止）
@@ -77,6 +83,10 @@ export default function SessionPage() {
   const [audioBlocked, setAudioBlocked] = useState(false) // iOS/Safari 等で AI音声の自動再生がブロックされた
   const audioUnlockedRef = useRef(false) // ユーザー操作で音声再生をアンロック済みか（seam）
   const reacquiringRef = useRef(false) // メディア再取得の連打/race 防止
+  // Phase I-5(P2): コンポーネントのマウント状態。非同期のメディア再取得（reacquireMedia）が
+  // 取得完了する前にページ離脱/面接終了で unmount した場合、取得ストリームを保存せず即 stop するために使う
+  //（setupCamera effect の disposed は当該 effect インスタンス限定。こちらはハンドラ用＝コンポーネント寿命）。
+  const mountedRef = useRef(true)
   const realtimeRef = useRef<{ close: () => void } | null>(null)
   const realtimeAttemptedRef = useRef(false)
   // 追加P1（Codex）: AI が一度でも応答（transcript）したか。初回 response.create が失敗すると AI が話し始めず
@@ -279,12 +289,16 @@ export default function SessionPage() {
     streamRef.current = null
     setHasStream(false)
     try {
-      let stream: MediaStream | null = null
+      let acquired: MediaStream | null = null
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        acquired = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       } catch {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        acquired = await navigator.mediaDevices.getUserMedia({ audio: true })
       }
+      // P2: 取得完了前にページ離脱/面接終了で unmount していたら、保存も state 更新もせず即 stop する
+      //（アンマウント後にカメラ/マイクが生き続けない）。二重 stop は stopStream で安全。
+      const stream = commitOrStopStream(acquired, mountedRef.current)
+      if (!stream) return
       streamRef.current = stream
       const hasVideo = stream.getVideoTracks().length > 0
       setHasVideoTrack(hasVideo)
@@ -297,7 +311,7 @@ export default function SessionPage() {
         videoRef.current.play().catch(() => {})
       }
     } catch {
-      setMicLost(true) // マイクも取れない → 案内継続
+      if (mountedRef.current) setMicLost(true) // マイクも取れない → 案内継続（unmount 後は更新しない）
     } finally {
       reacquiringRef.current = false
     }
@@ -321,6 +335,14 @@ export default function SessionPage() {
     window.addEventListener('pointerdown', handler)
     return () => window.removeEventListener('pointerdown', handler)
   }, [unlockAudioPlayback])
+
+  // Phase I-5(P2): マウント状態を追跡（unmount で false）。reacquireMedia の非同期取得完了時に参照する。
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   // blockingError 表示中はカメラ/マイクを確実に停止する。
   // カメラ取得 effect の deps は [interviewId] のみで、blockingError が立っても cleanup が走らないため、

@@ -90,3 +90,17 @@ export function hasLiveTrack(stream: MediaStream | null | undefined, kind: 'audi
   const tracks = kind === 'audio' ? stream.getAudioTracks() : stream.getVideoTracks()
   return tracks.some((t) => t.readyState === 'live')
 }
+
+// 非同期に取得（getUserMedia）したストリームの「保存 or 破棄」判定。
+// mounted=false（取得完了前にアンマウント/破棄）なら stop して null を返す＝保存しない（カメラ/マイクを残さない）。
+// mounted=true ならそのまま返す（呼び出し側が streamRef へ保存）。stopStream は null/二重安全。
+export function commitOrStopStream(
+  stream: MediaStream | null | undefined,
+  mounted: boolean,
+): MediaStream | null {
+  if (!mounted) {
+    stopStream(stream)
+    return null
+  }
+  return stream ?? null
+}

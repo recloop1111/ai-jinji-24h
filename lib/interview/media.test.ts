@@ -6,6 +6,7 @@ import {
   stopStream,
   setTracksEnabled,
   hasLiveTrack,
+  commitOrStopStream,
 } from './media'
 
 // Phase I-5: メディア制御ロジック（ブラウザ差吸収・安全なトラック操作）。
@@ -118,5 +119,35 @@ describe('hasLiveTrack (切断検知/再取得要否)', () => {
     expect(hasLiveTrack(fakeStream([fakeTrack('video', 'ended')]), 'video')).toBe(false)
     expect(hasLiveTrack(fakeStream([fakeTrack('audio', 'live')]), 'video')).toBe(false)
     expect(hasLiveTrack(null, 'audio')).toBe(false)
+  })
+})
+
+describe('commitOrStopStream (取得完了後の unmount 対策)', () => {
+  it('mounted=true → そのまま返す（track を stop しない＝保存対象）', () => {
+    const a = fakeTrack('audio')
+    const v = fakeTrack('video')
+    const s = fakeStream([a, v])
+    expect(commitOrStopStream(s, true)).toBe(s)
+    expect(a.stop).not.toHaveBeenCalled()
+    expect(v.stop).not.toHaveBeenCalled()
+  })
+  it('mounted=false → stop して null（アンマウント後にカメラ/マイクを残さない）', () => {
+    const a = fakeTrack('audio')
+    const v = fakeTrack('video')
+    expect(commitOrStopStream(fakeStream([a, v]), false)).toBeNull()
+    expect(a.stop).toHaveBeenCalledTimes(1)
+    expect(v.stop).toHaveBeenCalledTimes(1)
+  })
+  it('null stream → 常に null（mounted 問わず crash しない）', () => {
+    expect(commitOrStopStream(null, true)).toBeNull()
+    expect(commitOrStopStream(null, false)).toBeNull()
+    expect(commitOrStopStream(undefined, false)).toBeNull()
+  })
+  it('二重呼び出しでも安全（stop 冪等・破棄を繰り返しても throw しない）', () => {
+    const a = fakeTrack('audio')
+    const s = fakeStream([a])
+    commitOrStopStream(s, false)
+    expect(() => commitOrStopStream(s, false)).not.toThrow()
+    expect(a.stop).toHaveBeenCalledTimes(2)
   })
 })
