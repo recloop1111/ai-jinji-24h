@@ -85,6 +85,8 @@ export default function SessionPage() {
   const progressionStartedRef = useRef(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  // Phase I-3: 現在質問ボックス（縦スクロール可）を、質問が変わるたび先頭へ戻すための ref。
+  const speechScrollRef = useRef<HTMLDivElement>(null)
   // blockingError の最新値を camera 取得の非同期処理から参照するための ref（クロージャの陳腐化対策）
   const blockingErrorRef = useRef(false)
 
@@ -548,6 +550,12 @@ export default function SessionPage() {
     totalQuestionsRef.current = totalQuestions
   }, [totalQuestions])
 
+  // Phase I-3: 現在質問が変わったら質問ボックスを先頭へスクロールし直す（前の長文で下までスクロール
+  // していても、次の質問が途中から見える状態にしない）。DOM 操作のみ（setState ではない）。
+  useEffect(() => {
+    if (speechScrollRef.current) speechScrollRef.current.scrollTop = 0
+  }, [aiSpeechText])
+
   // アンマウント時に Realtime 接続を確実に切断（ダングリング課金防止）。
   useEffect(() => {
     return () => {
@@ -798,27 +806,8 @@ export default function SessionPage() {
           {/* TODO: Phase 4 - 言語切替で面接AIの応答言語・UIテキストを変更 */}
         </div>
 
-        {/* Phase I-3: 質問進捗＋経過時間を1つに集約したインフォバー。
-            モバイル（<sm）は左のカメラ小窓（top-3・h-18=72px＝下端≈84px）・右の言語選択の「下」に配置して
-            重なりを防ぐ（top-24=96px）。sm+ は横幅に余裕があるため上部中央（top-4）に戻す（左右コントロールと
-            水平方向に離れる）。max-w-[90vw] で画面外へはみ出さない。 */}
-        <div className="fixed top-24 sm:top-4 left-1/2 -translate-x-1/2 z-30 flex max-w-[90vw] items-center gap-2 sm:gap-3 rounded-full bg-slate-900/60 px-3 py-1 backdrop-blur-sm">
-          {questionProgress.visible && (
-            <>
-              <span className="text-xs sm:text-sm font-medium text-white/85 tabular-nums">
-                {questionProgress.label}
-              </span>
-              <span className="text-white/25" aria-hidden="true">
-                |
-              </span>
-            </>
-          )}
-          <span className="text-xs sm:text-sm text-white/50 tabular-nums">
-            {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:
-            {String(elapsedSeconds % 60).padStart(2, '0')} /{' '}
-            {String(MAX_INTERVIEW_MINUTES).padStart(2, '0')}:00
-          </span>
-        </div>
+        {/* Phase I-3: 進捗＋経過時間バーは「固定配置」をやめ、中央カラムの通常フロー（アバターの上）に置く。
+            → 左右の固定コントロール（カメラ/言語）とも、縦中央寄せのアバターとも重ならない（下記カラム内）。 */}
 
         {/* 応募者カメラ小窓（左上固定） */}
         <div className="fixed top-3 left-3 z-10 w-24 h-18 sm:w-32 sm:h-24 md:w-36 md:h-28 rounded-xl overflow-hidden shadow-lg border-2 border-white/30 bg-slate-800">
@@ -867,6 +856,26 @@ export default function SessionPage() {
 
         {/* AIアバターエリア（画面中央）: Phase I-2 で状態表現をコンポーネント化。状態ソースは interviewPhase。 */}
         <div className="flex flex-col items-center">
+          {/* Phase I-3: 進捗＋経過時間バー（通常フロー・アバターの上）。固定配置ではないので
+              左右の固定コントロールとも縦中央のアバターとも重ならない。max-w で画面外に出ない。 */}
+          <div className="mb-4 flex max-w-[90vw] items-center gap-2 sm:gap-3 rounded-full bg-slate-900/60 px-3 py-1 backdrop-blur-sm">
+            {questionProgress.visible && (
+              <>
+                <span className="text-xs sm:text-sm font-medium text-white/85 tabular-nums">
+                  {questionProgress.label}
+                </span>
+                <span className="text-white/25" aria-hidden="true">
+                  |
+                </span>
+              </>
+            )}
+            <span className="text-xs sm:text-sm text-white/50 tabular-nums">
+              {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:
+              {String(elapsedSeconds % 60).padStart(2, '0')} /{' '}
+              {String(MAX_INTERVIEW_MINUTES).padStart(2, '0')}:00
+            </span>
+          </div>
+
           <InterviewerAvatar phase={interviewPhase} />
 
           {/* Phase I-3: 現在質問（AI発話テキスト）表示エリア。
@@ -874,6 +883,7 @@ export default function SessionPage() {
               現在質問は SR にも読ませる（aria-live=polite・質問が変わるたび1回）。状態ラベル（アバター側）とは
               別内容なので重複読み上げにならない。 */}
           <div
+            ref={speechScrollRef}
             className={`max-w-lg mx-6 sm:mx-auto mt-6 max-h-40 sm:max-h-48 overflow-y-auto bg-white/10 backdrop-blur-sm rounded-2xl px-6 py-4 text-white text-sm sm:text-base leading-relaxed text-center whitespace-pre-wrap break-words transition-opacity duration-500 ${
               aiSpeechText ? 'opacity-100' : 'opacity-0'
             }`}
