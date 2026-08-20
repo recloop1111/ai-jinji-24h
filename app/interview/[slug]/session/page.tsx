@@ -15,6 +15,7 @@ import {
   type MockPresenceDriver,
 } from '@/lib/interview/presence'
 import { computeQuestionProgress, turnHintForPhase } from '@/lib/interview/questionProgress'
+import { buildInterviewSummary, serializeSummary, summaryStorageKey } from '@/lib/interview/completeSummary'
 import InterviewerAvatar from '@/components/interview/InterviewerAvatar'
 // 公開フローの DB アクセスは token付き service-role API 経由（browser直アクセス廃止）
 // AI音声面接（Realtime）は allowlist 企業＆フラグON時のみ。それ以外は realtime-call が 503/403 → モックへ。
@@ -693,6 +694,19 @@ export default function SessionPage() {
         // 全質問完了または時間切れ（全質問回答済み）→ 完了画面へ
         // それ以外（自主終了、時間切れで未完了）→ 途中終了画面へ
         if (finalEndReason === '全質問完了' || (finalEndReason === '時間切れ' && isAllQuestionsAnswered)) {
+          // Phase I-4: 正常完了時のみ complete 画面用の実データ summary を保存（新API/DB不要）。
+          // interview_id を含めて別面接/stale の誤表示を防ぐ。質問数は totalQuestions（設問数＝Realtime でも
+          // 虚偽にならない）。所要時間は elapsedSeconds。complete が interview_id 一致時だけ使用する。
+          try {
+            const summary = buildInterviewSummary({
+              interviewId,
+              durationSeconds: elapsedSeconds,
+              questionCount: totalQuestions,
+            })
+            sessionStorage.setItem(summaryStorageKey(slug), serializeSummary(summary))
+          } catch {
+            /* noop: summary 保存失敗は完了遷移に影響させない */
+          }
           // TODO: Cloudflare R2に録画保存
           router.push(`/interview/${slug}/uploading`)
         } else {
