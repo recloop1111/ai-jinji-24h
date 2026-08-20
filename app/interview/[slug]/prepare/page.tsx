@@ -118,7 +118,13 @@ export default function PreparePage() {
         }
         tick()
       } catch {
-        /* analyser 不可（AudioContext 非対応等）でも mic 取得自体は成功。テストできないだけ。 */
+        // Codex P2: AudioContext/analyser 非対応・制限環境では音量テストを実行できない。
+        // ただし getUserMedia は成功済み＝マイクは利用可能。テスト不能を理由に「準備完了」ボタンを
+        // 永久に無効化して詰まらせない。合格扱いにして先へ進めるようにする（マイクは必須要件を満たしている）。
+        if (!cancelledRef.current) {
+          micTestPassedRef.current = true
+          setMicTestPassed(true)
+        }
       }
     },
     [cleanupMicTest],
@@ -155,12 +161,22 @@ export default function PreparePage() {
       stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       cameraOk = true
     } catch (e1) {
+      // Codex P2: 離脱後（cancelledRef）はフォールバック取得を始めない
+      //（準備画面を離れた後にマイク許可プロンプトを出さない・cleanup 意図を尊重）。
+      if (cancelledRef.current) {
+        acquiringRef.current = false
+        return
+      }
       // カメラを諦めてマイクのみで再取得（カメラは任意）
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         setCameraError(mediaErrorMessage(classifyMediaError(e1), 'camera'))
       } catch (e2) {
-        // マイクも取得不可 → 面接開始不可
+        // マイクも取得不可 → 面接開始不可（離脱後は state 更新しない）
+        if (cancelledRef.current) {
+          acquiringRef.current = false
+          return
+        }
         setMicStatus('error')
         setMicError(mediaErrorMessage(classifyMediaError(e2), 'mic'))
         setCameraStatus('error')
