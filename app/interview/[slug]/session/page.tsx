@@ -239,11 +239,15 @@ export default function SessionPage() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       } catch {
+        // Codex P2: 破棄後（離脱）/blockingError（開始・質問失敗）後は、フォールバック取得も失敗確定もしない
+        //（離脱後やブロッキング画面でマイク許可プロンプトを出さない・cleanup 意図を尊重）。
+        if (disposed || blockingErrorRef.current) return
         // カメラを諦めマイクのみで再取得（カメラは任意）
         try {
           stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         } catch {
-          // マイクも取得失敗 → Realtime（音声）不可。モックへ落とす合図。
+          // マイクも取得失敗 → Realtime（音声）不可。モックへ落とす合図（破棄後は更新しない）。
+          if (disposed || blockingErrorRef.current) return
           setMediaFailed(true)
           return
         }
@@ -652,8 +656,17 @@ export default function SessionPage() {
       }
       settled = true
       if (result.ok) {
-        realtimeRef.current = result
-        setMode('realtime')
+        // Codex P2: connecting 中にマイクが切断/再取得され、connectRealtimeCall へ渡した track が
+        // 古く（ended、または reacquireMedia で別 stream に差し替え）なっている場合、dead track のまま
+        // realtime を確立すると無音のまま応募者の声が届かない。その場合は realtime にせず閉じて mock へ落とす
+        //（mock 側の handleMicLost が再接続案内を出す）。恒久的な track 張り替え（replaceTrack）は #21。
+        if (streamRef.current !== stream || !hasLiveTrack(stream, 'audio')) {
+          result.close()
+          setMode('mock')
+        } else {
+          realtimeRef.current = result
+          setMode('realtime')
+        }
       } else if (result.reason === 'blocking') {
         setBlockingError('AI音声面接を開始できませんでした。お手数ですが最初からやり直してください。')
       } else {
