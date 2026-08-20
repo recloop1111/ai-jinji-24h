@@ -779,7 +779,11 @@ export default function SessionPage() {
           }
         }
       `}</style>
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center relative">
+      {/* Phase I-3: 固定コントロール（カメラ top-3・言語 top-4）と内容が重ならないよう、上部に clearance を確保。
+          モバイルは top-align（justify-start）＋pt-24（96px＝カメラ下端≈84pxより下）で、長文質問で内容が伸びても
+          カラム先頭（進捗バー）が固定カメラの下から始まる（重ならない）。内容が縦に伸びたら overflow-y-auto で
+          スクロール。sm+ は画面に余裕があるので中央寄せ（justify-center）に戻す。下部は固定終了バー用に pb を確保。 */}
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 relative flex flex-col items-center justify-start sm:justify-center px-4 pt-24 pb-24 sm:pt-8 sm:pb-10">
         {/* AI音声（Realtime）の再生先。realtime モード時のみ remote stream が入る（mock 時は無音・非表示）。 */}
         <audio ref={remoteAudioRef} autoPlay className="hidden" />
         {/* 言語選択ドロップダウン（右上） */}
