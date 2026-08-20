@@ -14,6 +14,7 @@ import {
   type InterviewPhase,
   type MockPresenceDriver,
 } from '@/lib/interview/presence'
+import { computeQuestionProgress, turnHintForPhase } from '@/lib/interview/questionProgress'
 import InterviewerAvatar from '@/components/interview/InterviewerAvatar'
 // 公開フローの DB アクセスは token付き service-role API 経由（browser直アクセス廃止）
 // AI音声面接（Realtime）は allowlist 企業＆フラグON時のみ。それ以外は realtime-call が 503/403 → モックへ。
@@ -84,6 +85,8 @@ export default function SessionPage() {
   const progressionStartedRef = useRef(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  // Phase I-3: 現在質問ボックス（縦スクロール可）を、質問が変わるたび先頭へ戻すための ref。
+  const speechScrollRef = useRef<HTMLDivElement>(null)
   // blockingError の最新値を camera 取得の非同期処理から参照するための ref（クロージャの陳腐化対策）
   const blockingErrorRef = useRef(false)
 
@@ -96,6 +99,12 @@ export default function SessionPage() {
   }, [])
   // mock 面接用プレゼンス・ドライバ（1セッション1個）。将来 #21 は別ドライバから同じ setPhase を駆動する（seam）。
   const presenceDriverRef = useRef<MockPresenceDriver | null>(null)
+
+  // Phase I-3: 応募者に表示する AI テキスト（現在質問/締め/システム文言）の「単一更新入口」。
+  // mock は questionList の現在質問を供給。将来 #21（Realtime live transcript / response lifecycle）は
+  // Realtime callback を UI へ直接配線せず、この setCurrentQuestionText に transcript / 現在質問を渡すだけで
+  // 表示を差し替えられる（seam）。今回は Realtime 実配線をしない。
+  const setCurrentQuestionText = useCallback((text: string) => setAiSpeechText(text), [])
 
   // 共通ポリシー（lib/config/interview-policy）へ接続。60分終了 / 50分警告。
   const TIME_WARNING_SECONDS = INTERVIEW_WARNING_SECONDS
@@ -241,7 +250,7 @@ export default function SessionPage() {
     function setDefaultQuestions() {
       setQuestionList([DEFAULT_QUESTION])
       setTotalQuestions(1)
-      setAiSpeechText(DEFAULT_QUESTION)
+      setCurrentQuestionText(DEFAULT_QUESTION)
     }
 
     // /questions 失敗時に当該 in_progress を非課金で中断確定する（P2 #2）。
@@ -295,7 +304,7 @@ export default function SessionPage() {
           setQuestionList(finalQuestions)
           setTotalQuestions(finalQuestions.length)
           // 最初の質問を表示
-          setAiSpeechText(finalQuestions[0])
+          setCurrentQuestionText(finalQuestions[0])
         } else {
           // 200 + 空配列 = pattern未設定の正当なデフォルト質問フォールバック（維持）
           setDefaultQuestions()
@@ -319,7 +328,8 @@ export default function SessionPage() {
     return () => {
       clearTimeout(t1)
     }
-  }, [jobId, companyId, interviewId, slug])
+    // setCurrentQuestionText は安定（useCallback []）。表示テキスト単一入口として deps に含める。
+  }, [jobId, companyId, interviewId, slug, setCurrentQuestionText])
 
   // モック面接のオートプログレッション＋完了配線。
   // 質問を QUESTION_INTERVAL_MS ごとに1問ずつ提示して answeredQuestions を進め、
@@ -344,7 +354,7 @@ export default function SessionPage() {
     for (let i = 0; i < total; i++) {
       timers.push(
         setTimeout(() => {
-          setAiSpeechText(questionList[i])
+          setCurrentQuestionText(questionList[i])
           setAnsweredQuestions(i + 1)
           presence.onQuestionPresented() // speaking→listening→thinking
         }, i * QUESTION_INTERVAL_MS),
@@ -353,7 +363,7 @@ export default function SessionPage() {
     // 最終質問の後: 締めメッセージ → 全質問完了で終了
     timers.push(
       setTimeout(() => {
-        setAiSpeechText(CLOSING_MESSAGE)
+        setCurrentQuestionText(CLOSING_MESSAGE)
         setPhase('speaking') // AI が締めの言葉を話す
       }, total * QUESTION_INTERVAL_MS),
     )
@@ -540,6 +550,12 @@ export default function SessionPage() {
     totalQuestionsRef.current = totalQuestions
   }, [totalQuestions])
 
+  // Phase I-3: 現在質問が変わったら質問ボックスを先頭へスクロールし直す（前の長文で下までスクロール
+  // していても、次の質問が途中から見える状態にしない）。DOM 操作のみ（setState ではない）。
+  useEffect(() => {
+    if (speechScrollRef.current) speechScrollRef.current.scrollTop = 0
+  }, [aiSpeechText])
+
   // アンマウント時に Realtime 接続を確実に切断（ダングリング課金防止）。
   useEffect(() => {
     return () => {
@@ -554,7 +570,7 @@ export default function SessionPage() {
     // ブロッキングエラー中はタイマー（自動終了＝end 送信経路）を作動させない
     if (blockingError) return
     if (elapsedSeconds >= MAX_INTERVIEW_SECONDS && !isEnding) {
-      setAiSpeechText('お時間となりましたので、面接を終了いたします。結果は後日、お知らせいたします。本日はありがとうございました。')
+      setCurrentQuestionText('お時間となりましたので、面接を終了いたします。結果は後日、お知らせいたします。本日はありがとうございました。')
       const endTimer = setTimeout(() => {
         handleEndInterview('時間切れ')
       }, 4000)
@@ -725,6 +741,15 @@ export default function SessionPage() {
     )
   }
 
+  // Phase I-3: 質問進捗（X/Y）と listening ガイド。mock は answeredQuestions を現在質問番号として使う
+  // （＝提示済み質問数。発話数/transcript数ではない）。realtime は index 不確定のため非表示（誤進捗を出さない）。
+  const questionProgress = computeQuestionProgress({
+    mode,
+    currentIndex: answeredQuestions,
+    total: totalQuestions,
+  })
+  const turnHint = turnHintForPhase(interviewPhase)
+
   return (
     <>
       <style jsx>{`
@@ -754,7 +779,11 @@ export default function SessionPage() {
           }
         }
       `}</style>
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center relative">
+      {/* Phase I-3: 固定コントロール（カメラ top-3・言語 top-4）と内容が重ならないよう、上部に clearance を確保。
+          モバイルは top-align（justify-start）＋pt-24（96px＝カメラ下端≈84pxより下）で、長文質問で内容が伸びても
+          カラム先頭（進捗バー）が固定カメラの下から始まる（重ならない）。内容が縦に伸びたら overflow-y-auto で
+          スクロール。sm+ は画面に余裕があるので中央寄せ（justify-center）に戻す。下部は固定終了バー用に pb を確保。 */}
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 relative flex flex-col items-center justify-start sm:justify-center px-4 pt-24 pb-24 sm:pt-8 sm:pb-10">
         {/* AI音声（Realtime）の再生先。realtime モード時のみ remote stream が入る（mock 時は無音・非表示）。 */}
         <audio ref={remoteAudioRef} autoPlay className="hidden" />
         {/* 言語選択ドロップダウン（右上） */}
@@ -781,11 +810,8 @@ export default function SessionPage() {
           {/* TODO: Phase 4 - 言語切替で面接AIの応答言語・UIテキストを変更 */}
         </div>
 
-        {/* 面接経過時間（上部中央） */}
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-30 text-sm text-gray-500">
-          {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:
-          {String(elapsedSeconds % 60).padStart(2, '0')} / {String(MAX_INTERVIEW_MINUTES).padStart(2, '0')}:00
-        </div>
+        {/* Phase I-3: 進捗＋経過時間バーは「固定配置」をやめ、中央カラムの通常フロー（アバターの上）に置く。
+            → 左右の固定コントロール（カメラ/言語）とも、縦中央寄せのアバターとも重ならない（下記カラム内）。 */}
 
         {/* 応募者カメラ小窓（左上固定） */}
         <div className="fixed top-3 left-3 z-10 w-24 h-18 sm:w-32 sm:h-24 md:w-36 md:h-28 rounded-xl overflow-hidden shadow-lg border-2 border-white/30 bg-slate-800">
@@ -834,15 +860,52 @@ export default function SessionPage() {
 
         {/* AIアバターエリア（画面中央）: Phase I-2 で状態表現をコンポーネント化。状態ソースは interviewPhase。 */}
         <div className="flex flex-col items-center">
+          {/* Phase I-3: 進捗＋経過時間バー（通常フロー・アバターの上）。固定配置ではないので
+              左右の固定コントロールとも縦中央のアバターとも重ならない。max-w で画面外に出ない。 */}
+          <div className="mb-4 flex max-w-[90vw] items-center gap-2 sm:gap-3 rounded-full bg-slate-900/60 px-3 py-1 backdrop-blur-sm">
+            {questionProgress.visible && (
+              <>
+                <span className="text-xs sm:text-sm font-medium text-white/85 tabular-nums">
+                  {questionProgress.label}
+                </span>
+                <span className="text-white/25" aria-hidden="true">
+                  |
+                </span>
+              </>
+            )}
+            <span className="text-xs sm:text-sm text-white/50 tabular-nums">
+              {String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:
+              {String(elapsedSeconds % 60).padStart(2, '0')} /{' '}
+              {String(MAX_INTERVIEW_MINUTES).padStart(2, '0')}:00
+            </span>
+          </div>
+
           <InterviewerAvatar phase={interviewPhase} />
 
-          {/* AI発話テキスト表示エリア */}
+          {/* Phase I-3: 現在質問（AI発話テキスト）表示エリア。
+              長文でも切れずに読めるよう line-clamp を撤去し、max-height＋縦スクロール＋折り返しにする。
+              現在質問は SR にも読ませる（aria-live=polite・質問が変わるたび1回）。状態ラベル（アバター側）とは
+              別内容なので重複読み上げにならない。 */}
           <div
-            className={`max-w-lg mx-6 sm:mx-auto mt-6 bg-white/10 backdrop-blur-sm rounded-2xl px-6 py-4 text-white text-sm sm:text-base leading-relaxed text-center line-clamp-3 transition-opacity duration-500 ${
+            ref={speechScrollRef}
+            className={`max-w-lg mx-6 sm:mx-auto mt-6 max-h-40 sm:max-h-48 overflow-y-auto bg-white/10 backdrop-blur-sm rounded-2xl px-6 py-4 text-white text-sm sm:text-base leading-relaxed text-center whitespace-pre-wrap break-words transition-opacity duration-500 ${
               aiSpeechText ? 'opacity-100' : 'opacity-0'
             }`}
+            aria-live="polite"
+            aria-atomic="true"
           >
             {aiSpeechText}
+          </div>
+
+          {/* Phase I-3: listening 時のみ「あなたの番」ガイド（うるさくならないよう控えめ）。
+              speaking/thinking/ending 等では出さない（turnHint=null）。状態は既にアバターのラベルで
+              SR に伝わるため、ここは aria-hidden（重複読み上げを避ける）。 */}
+          <div className="mt-2 h-5 flex items-center justify-center">
+            {turnHint && (
+              <p className="text-xs sm:text-sm text-green-300/90" aria-hidden="true">
+                {turnHint}
+              </p>
+            )}
           </div>
         </div>
 
