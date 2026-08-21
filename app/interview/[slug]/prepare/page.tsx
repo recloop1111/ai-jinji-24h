@@ -1,8 +1,14 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { Volume2, User, Video, AlertCircle, Check } from 'lucide-react'
+import { Volume2, User, AlertCircle, Check, RefreshCw } from 'lucide-react'
+import {
+  classifyMediaError,
+  mediaErrorMessage,
+  isGetUserMediaSupported,
+  stopStream,
+} from '@/lib/interview/media'
 
 // 取得できない場合のダミーデータ
 const dummyCompany = {
@@ -24,115 +30,235 @@ export default function PreparePage() {
     is_suspended: boolean
   } | null>(null)
   const [loading, setLoading] = useState(true)
-  const [cameraStatus, setCameraStatus] = useState<'loading' | 'ok' | 'error'>('loading')
+
+  // Phase I-5: マイク=必須 / カメラ=任意。mic/camera を独立に状態管理する。
   const [micStatus, setMicStatus] = useState<'loading' | 'ok' | 'error'>('loading')
-  const [, setStream] = useState<MediaStream | null>(null)
+  const [cameraStatus, setCameraStatus] = useState<'loading' | 'ok' | 'error'>('loading')
   const [micTestPassed, setMicTestPassed] = useState(false)
   const [volume, setVolume] = useState(0)
+  const [micError, setMicError] = useState<string | null>(null)
+  const [cameraError, setCameraError] = useState<string | null>(null)
+
   const videoRef = useRef<HTMLVideoElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const animationFrameRef = useRef<number | null>(null)
   const thresholdStartTimeRef = useRef<number | null>(null)
   const micTestPassedRef = useRef(false)
+  const acquiringRef = useRef(false) // 連打/race 防止
+  const cancelledRef = useRef(false) // unmount 後の state 更新防止
 
   useEffect(() => {
-    fetchCompany()
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/interview/${slug}/public-config`)
+        const json = await res.json().catch(() => null)
+        if (cancelled) return
+        setCompany(!res.ok || !json?.company ? dummyCompany : json.company)
+      } catch {
+        if (!cancelled) setCompany(dummyCompany)
+      }
+      if (!cancelled) setLoading(false)
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [slug])
 
-  useEffect(() => {
-    let stream: MediaStream | null = null
-
-    const startCamera = async () => {
+  // マイクテスト（音量解析）の後始末。再試行/アンマウントで確実に解放する。
+  const cleanupMicTest = useCallback(() => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current)
+      animationFrameRef.current = null
+    }
+    if (audioContextRef.current) {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          await videoRef.current.play()
-        }
-        setStream(stream)
-        setCameraStatus('ok')
-        setMicStatus('ok')
+        audioContextRef.current.close()
+      } catch {
+        /* noop */
+      }
+      audioContextRef.current = null
+    }
+    analyserRef.current = null
+    thresholdStartTimeRef.current = null
+  }, [])
 
-        // AudioContext と AnalyserNode を設定
+  // マイクの音量を解析し、一定音量が0.5秒続いたら合格。analyser 失敗でも mic 取得自体は成功扱い。
+  const startMicTest = useCallback(
+    (stream: MediaStream) => {
+      cleanupMicTest()
+      try {
         const audioContext = new AudioContext()
         const analyser = audioContext.createAnalyser()
         analyser.fftSize = 256
-        const source = audioContext.createMediaStreamSource(stream)
-        source.connect(analyser)
-        
+        audioContext.createMediaStreamSource(stream).connect(analyser)
         audioContextRef.current = audioContext
         analyserRef.current = analyser
-
-        // 音量をリアルタイムで取得
         const dataArray = new Uint8Array(analyser.frequencyBinCount)
-        
-        const updateVolume = () => {
-          if (analyserRef.current && !micTestPassedRef.current) {
-            analyserRef.current.getByteFrequencyData(dataArray)
-            const average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length
-            const volumeValue = Math.round(average)
-            setVolume(volumeValue)
-
-            // 閾値（40）を超えた状態が0.5秒以上継続したら合格
-            if (volumeValue > 40) {
-              const now = Date.now()
-              if (thresholdStartTimeRef.current === null) {
-                thresholdStartTimeRef.current = now
-              } else if (now - thresholdStartTimeRef.current >= 500) {
-                micTestPassedRef.current = true
-                setMicTestPassed(true)
-              }
-            } else {
-              thresholdStartTimeRef.current = null
+        const tick = () => {
+          if (!analyserRef.current || micTestPassedRef.current || cancelledRef.current) return
+          analyserRef.current.getByteFrequencyData(dataArray)
+          const avg = dataArray.reduce((s, v) => s + v, 0) / dataArray.length
+          const vol = Math.round(avg)
+          setVolume(vol)
+          if (vol > 40) {
+            const now = Date.now()
+            if (thresholdStartTimeRef.current === null) thresholdStartTimeRef.current = now
+            else if (now - thresholdStartTimeRef.current >= 500) {
+              micTestPassedRef.current = true
+              setMicTestPassed(true)
             }
-
-            animationFrameRef.current = requestAnimationFrame(updateVolume)
+          } else {
+            thresholdStartTimeRef.current = null
           }
+          animationFrameRef.current = requestAnimationFrame(tick)
         }
-        updateVolume()
+        tick()
       } catch {
-        setCameraStatus('error')
-        setMicStatus('error')
+        // Codex P2: AudioContext/analyser 非対応・制限環境では音量テストを実行できない。
+        // ただし getUserMedia は成功済み＝マイクは利用可能。テスト不能を理由に「準備完了」ボタンを
+        // 永久に無効化して詰まらせない。合格扱いにして先へ進めるようにする（マイクは必須要件を満たしている）。
+        if (!cancelledRef.current) {
+          micTestPassedRef.current = true
+          setMicTestPassed(true)
+        }
       }
+    },
+    [cleanupMicTest],
+  )
+
+  // カメラ/マイク取得（再試行にも使う）。二段階: まず {video,audio}、失敗なら {audio} のみ（カメラ任意）。
+  const acquire = useCallback(async () => {
+    if (acquiringRef.current) return
+    acquiringRef.current = true
+    // reset（旧 stream を必ず stop してから）
+    micTestPassedRef.current = false
+    setMicTestPassed(false)
+    setVolume(0)
+    setMicStatus('loading')
+    setCameraStatus('loading')
+    setMicError(null)
+    setCameraError(null)
+    cleanupMicTest()
+    stopStream(streamRef.current)
+    streamRef.current = null
+    if (videoRef.current) videoRef.current.srcObject = null
+
+    if (!isGetUserMediaSupported()) {
+      setMicStatus('error')
+      setMicError(mediaErrorMessage('unsupported', 'both'))
+      setCameraStatus('error')
+      acquiringRef.current = false
+      return
     }
 
-    const timer = setTimeout(() => {
-      startCamera()
-    }, 500)
-
-    return () => {
-      clearTimeout(timer)
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close()
-      }
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop())
-      }
-    }
-  }, [])
-
-  async function fetchCompany() {
-    setLoading(true)
+    let stream: MediaStream | null = null
+    let cameraOk = false
     try {
-      const res = await fetch(`/api/interview/${slug}/public-config`)
-      const json = await res.json().catch(() => null)
-      if (!res.ok || !json?.company) {
-        setCompany(dummyCompany)
-      } else {
-        setCompany(json.company)
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      cameraOk = true
+    } catch (e1) {
+      // Codex P2: 離脱後（cancelledRef）はフォールバック取得を始めない
+      //（準備画面を離れた後にマイク許可プロンプトを出さない・cleanup 意図を尊重）。
+      if (cancelledRef.current) {
+        acquiringRef.current = false
+        return
       }
-    } catch {
-      setCompany(dummyCompany)
+      // カメラを諦めてマイクのみで再取得（カメラは任意）
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        setCameraError(mediaErrorMessage(classifyMediaError(e1), 'camera'))
+      } catch (e2) {
+        // マイクも取得不可 → 面接開始不可（離脱後は state 更新しない）
+        if (cancelledRef.current) {
+          acquiringRef.current = false
+          return
+        }
+        setMicStatus('error')
+        setMicError(mediaErrorMessage(classifyMediaError(e2), 'mic'))
+        setCameraStatus('error')
+        acquiringRef.current = false
+        return
+      }
     }
-    setLoading(false)
-  }
 
+    if (cancelledRef.current) {
+      stopStream(stream)
+      acquiringRef.current = false
+      return
+    }
+
+    streamRef.current = stream
+    setMicStatus('ok')
+    if (cameraOk && stream.getVideoTracks().length > 0) {
+      setCameraStatus('ok')
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        videoRef.current.play().catch(() => {})
+      }
+    } else {
+      setCameraStatus('error') // カメラ無し（任意なので続行可）
+    }
+    startMicTest(stream)
+    acquiringRef.current = false
+  }, [cleanupMicTest, startMicTest])
+
+  // Codex P2: カメラのみ再試行。マイクが既に動作中（micStatus==='ok'）なら、
+  // 動作中の音声ストリーム・micTestPassed を壊さず、カメラトラックだけ取得して既存ストリームへ追加する。
+  // （任意のカメラ再試行で必須マイクの進行をリセットしない／再取得失敗でも進行不能にしない）
+  const retryCameraOnly = useCallback(async () => {
+    if (acquiringRef.current) return
+    // マイク未確立なら通常のフル再取得（マイク優先で立て直す）
+    if (micStatus !== 'ok' || !streamRef.current) {
+      acquire()
+      return
+    }
+    acquiringRef.current = true
+    setCameraError(null)
+    setCameraStatus('loading')
+    try {
+      const vStream = await navigator.mediaDevices.getUserMedia({ video: true })
+      const videoTrack = vStream.getVideoTracks()[0]
+      // 破棄後/マイク喪失後に解決したら追加せず即停止（カメラを残さない）
+      if (cancelledRef.current || !streamRef.current || !videoTrack) {
+        stopStream(vStream)
+        setCameraStatus((s) => (s === 'loading' ? 'error' : s))
+        return
+      }
+      streamRef.current.addTrack(videoTrack)
+      setCameraStatus('ok')
+      if (videoRef.current) {
+        videoRef.current.srcObject = streamRef.current
+        videoRef.current.play().catch(() => {})
+      }
+    } catch (e) {
+      setCameraStatus('error')
+      setCameraError(mediaErrorMessage(classifyMediaError(e), 'camera'))
+    } finally {
+      acquiringRef.current = false
+    }
+  }, [acquire, micStatus])
+
+  useEffect(() => {
+    cancelledRef.current = false
+    const timer = setTimeout(() => {
+      acquire()
+    }, 500)
+    return () => {
+      cancelledRef.current = true
+      clearTimeout(timer)
+      cleanupMicTest()
+      stopStream(streamRef.current)
+      streamRef.current = null
+    }
+  }, [acquire, cleanupMicTest])
+
+  // マイク必須・カメラ任意: マイクテスト合格で進める。
   function handleNext() {
-    if (cameraStatus === 'ok' && micTestPassed) {
+    if (micTestPassed) {
       router.push(`/interview/${slug}/practice`)
     }
   }
@@ -140,31 +266,17 @@ export default function PreparePage() {
   if (loading) {
     return (
       <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen flex items-center justify-center">
-        <svg
-          className="animate-spin h-8 w-8 text-blue-600"
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <circle
-            className="opacity-25"
-            cx="12"
-            cy="12"
-            r="10"
-            stroke="currentColor"
-            strokeWidth="4"
-          />
-          <path
-            className="opacity-75"
-            fill="currentColor"
-            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-          />
+        <svg className="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
         </svg>
       </div>
     )
   }
 
   const displayCompany = company || dummyCompany
+  const cameraOff = cameraStatus === 'error' // 取得不可 or カメラ無し（任意）
+  const canProceed = micTestPassed
 
   return (
     <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen pb-8">
@@ -176,7 +288,6 @@ export default function PreparePage() {
 
       {/* メインカード */}
       <div className="mx-4 sm:max-w-lg sm:mx-auto mt-4 sm:mt-10 bg-white rounded-2xl sm:rounded-3xl shadow-xl sm:shadow-2xl p-5 sm:p-8 relative overflow-hidden">
-        {/* 上部装飾（円形グラデーション） */}
         <div className="absolute top-0 left-0 right-0 h-32 overflow-hidden pointer-events-none">
           <div className="absolute top-[-40px] left-[-20px] w-24 h-24 sm:w-32 sm:h-32 bg-blue-200/30 rounded-full blur-2xl"></div>
           <div className="absolute top-[-30px] right-[-10px] w-24 h-24 sm:w-32 sm:h-32 bg-indigo-200/30 rounded-full blur-2xl"></div>
@@ -184,16 +295,15 @@ export default function PreparePage() {
         </div>
 
         <div className="relative space-y-5">
-          {/* タイトル */}
           <div className="text-center">
             <h2 className="text-xl font-bold text-gray-800 text-center">カメラ・マイクの確認</h2>
             <p className="text-sm text-gray-500 text-center mt-2">
-              面接ではカメラとマイクを使用します。<br />
-              正常に動作するか確認してください。
+              面接では<span className="font-medium text-gray-700">マイク（必須）</span>を使用します。<br />
+              カメラは任意です（なくても面接を続けられます）。
             </p>
           </div>
 
-          {/* カメラプレビュー */}
+          {/* カメラプレビュー（任意） */}
           <div className="aspect-video rounded-xl bg-black overflow-hidden relative">
             <video
               ref={videoRef}
@@ -203,78 +313,89 @@ export default function PreparePage() {
               style={{ transform: 'scaleX(-1)', width: '100%', height: '100%', objectFit: 'cover' }}
             />
             {cameraStatus === 'error' && (
-              <div className="absolute inset-0 flex items-center justify-center p-4 bg-black">
+              <div className="absolute inset-0 flex items-center justify-center p-4 bg-black/90" role="status">
                 <div className="text-white text-center">
-                  <AlertCircle className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">
-                    カメラにアクセスできません。<br />
-                    ブラウザの設定を確認してください。
-                  </p>
+                  <AlertCircle className="w-10 h-10 mx-auto mb-2 opacity-60" aria-hidden="true" />
+                  <p className="text-sm">{cameraError ?? 'カメラを利用できません。'}</p>
+                  <p className="text-xs text-white/60 mt-1">カメラなしでも面接を続けられます。</p>
+                  <button
+                    type="button"
+                    onClick={retryCameraOnly}
+                    className="mt-3 inline-flex items-center gap-1.5 bg-white/15 hover:bg-white/25 rounded-full px-4 py-1.5 text-xs font-medium transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+                    カメラを再確認する
+                  </button>
                 </div>
               </div>
             )}
           </div>
 
-          {/* マイクテスト */}
-          {cameraStatus === 'ok' && (
+          {/* マイクエラー（必須＝ブロッキング） */}
+          {micStatus === 'error' && (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center" role="alert">
+              <AlertCircle className="w-6 h-6 mx-auto mb-1.5 text-red-500" aria-hidden="true" />
+              <p className="text-sm text-red-700">{micError ?? 'マイクを利用できません。'}</p>
+              <p className="text-xs text-red-500 mt-1">マイクは面接に必須です。許可・接続を確認してください。</p>
+              <button
+                type="button"
+                onClick={acquire}
+                className="mt-3 inline-flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white rounded-full px-4 py-2 text-sm font-medium transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" aria-hidden="true" />
+                マイクを再確認する
+              </button>
+            </div>
+          )}
+
+          {/* マイクテスト（マイクOK時のみ） */}
+          {micStatus === 'ok' && (
             <div className="text-center">
               {!micTestPassed ? (
                 <>
-                  <p className="text-sm text-gray-600 text-center mt-3">『こんにちは』と話しかけてください</p>
-                  {/* 音量バー */}
-                  <div className="w-48 h-2 bg-gray-200 rounded-full overflow-hidden mx-auto mt-2">
-                    <div
-                      className="bg-blue-600 h-full rounded-full transition-all duration-100"
-                      style={{ width: `${Math.min((volume / 255) * 100, 100)}%` }}
-                    />
+                  <p className="text-sm text-gray-600 text-center mt-1">『こんにちは』と話しかけてください</p>
+                  <div className="w-48 h-2 bg-gray-200 rounded-full overflow-hidden mx-auto mt-2" aria-hidden="true">
+                    <div className="bg-blue-600 h-full rounded-full transition-all duration-100" style={{ width: `${Math.min((volume / 255) * 100, 100)}%` }} />
                   </div>
                 </>
               ) : (
-                <div className="inline-flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-full px-4 py-2 text-green-700 text-sm font-medium mt-3">
-                  <Check className="w-4 h-4" />
+                <div className="inline-flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-full px-4 py-2 text-green-700 text-sm font-medium mt-1">
+                  <Check className="w-4 h-4" aria-hidden="true" />
                   <span>マイク確認済み</span>
                 </div>
               )}
             </div>
           )}
 
-          {/* ステータス表示 */}
+          {/* ステータス表示（色だけに依存せず ✓/✗ 記号＋文言） */}
           <div className="flex justify-center gap-3">
-            {/* カメラステータス */}
-            {cameraStatus === 'loading' ? (
-              <div className="bg-gray-50 text-gray-500 border border-gray-200 rounded-full px-3 py-1 text-sm">
-                カメラ確認中...
-              </div>
-            ) : cameraStatus === 'ok' ? (
+            {micStatus === 'loading' ? (
+              <div className="bg-gray-50 text-gray-500 border border-gray-200 rounded-full px-3 py-1 text-sm">マイク確認中...</div>
+            ) : micTestPassed ? (
               <div className="bg-green-50 text-green-700 border border-green-200 rounded-full px-3 py-1 text-sm flex items-center gap-1">
-                <span>✓</span>
-                <span>カメラ正常</span>
+                <span aria-hidden="true">✓</span>
+                <span>マイク 正常</span>
               </div>
+            ) : micStatus === 'ok' ? (
+              <div className="bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-3 py-1 text-sm">マイク テスト待ち</div>
             ) : (
               <div className="bg-red-50 text-red-700 border border-red-200 rounded-full px-3 py-1 text-sm flex items-center gap-1">
-                <span>✗</span>
-                <span>カメラエラー</span>
+                <span aria-hidden="true">✗</span>
+                <span>マイク エラー</span>
               </div>
             )}
 
-            {/* マイクステータス */}
-            {micStatus === 'loading' ? (
-              <div className="bg-gray-50 text-gray-500 border border-gray-200 rounded-full px-3 py-1 text-sm">
-                マイク確認中...
-              </div>
-            ) : micTestPassed ? (
+            {cameraStatus === 'loading' ? (
+              <div className="bg-gray-50 text-gray-500 border border-gray-200 rounded-full px-3 py-1 text-sm">カメラ確認中...</div>
+            ) : cameraStatus === 'ok' ? (
               <div className="bg-green-50 text-green-700 border border-green-200 rounded-full px-3 py-1 text-sm flex items-center gap-1">
-                <span>✓</span>
-                <span>マイク正常</span>
-              </div>
-            ) : micStatus === 'error' ? (
-              <div className="bg-red-50 text-red-700 border border-red-200 rounded-full px-3 py-1 text-sm flex items-center gap-1">
-                <span>✗</span>
-                <span>マイクエラー</span>
+                <span aria-hidden="true">✓</span>
+                <span>カメラ 正常</span>
               </div>
             ) : (
-              <div className="bg-gray-50 text-gray-500 border border-gray-200 rounded-full px-3 py-1 text-sm">
-                マイクテスト待機中
+              <div className="bg-gray-50 text-gray-600 border border-gray-200 rounded-full px-3 py-1 text-sm flex items-center gap-1">
+                <span aria-hidden="true">–</span>
+                <span>カメラ なし（任意）</span>
               </div>
             )}
           </div>
@@ -284,39 +405,30 @@ export default function PreparePage() {
             <h3 className="text-sm font-semibold text-gray-700">面接中の注意事項</h3>
             <div className="space-y-2">
               <div className="flex items-start gap-2">
-                <Volume2 className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-gray-500">静かな場所で受けてください</p>
+                <Volume2 className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" aria-hidden="true" />
+                <p className="text-xs text-gray-500">静かな場所で、はっきりお話しください</p>
               </div>
               <div className="flex items-start gap-2">
-                <User className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-gray-500">顔全体が映るようにしてください</p>
-              </div>
-              <div className="flex items-start gap-2">
-                <Video className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-gray-500">面接中は録画されます</p>
+                <User className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" aria-hidden="true" />
+                <p className="text-xs text-gray-500">カメラを使う場合は顔全体が映るようにしてください</p>
               </div>
             </div>
           </div>
 
-          {/* 面接練習へ進むボタン */}
+          {/* 面接練習へ進むボタン（マイク必須。カメラ無しでも進める） */}
           <button
             onClick={handleNext}
-            disabled={!(cameraStatus === 'ok' && micTestPassed)}
+            disabled={!canProceed}
+            aria-disabled={!canProceed}
             className={`w-full bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-full py-4 text-base font-semibold shadow-lg active:scale-95 transition-all duration-200 min-h-[48px] ${
-              cameraStatus === 'ok' && micTestPassed
-                ? ''
-                : 'opacity-50 cursor-not-allowed'
+              canProceed ? '' : 'opacity-50 cursor-not-allowed'
             }`}
           >
-            面接練習へ進む
+            {cameraOff ? 'カメラなしで面接練習へ進む' : '面接練習へ進む'}
           </button>
 
-          {/* 面接をキャンセルする */}
           <p className="text-center">
-            <button
-              onClick={() => router.back()}
-              className="text-sm text-gray-400 hover:text-gray-500 underline"
-            >
+            <button onClick={() => router.back()} className="text-sm text-gray-400 hover:text-gray-500 underline">
               面接をキャンセルする
             </button>
           </p>

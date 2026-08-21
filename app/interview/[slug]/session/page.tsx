@@ -16,6 +16,18 @@ import {
 } from '@/lib/interview/presence'
 import { computeQuestionProgress, turnHintForPhase } from '@/lib/interview/questionProgress'
 import { buildInterviewSummary, serializeSummary, summaryStorageKey } from '@/lib/interview/completeSummary'
+import {
+  isGetUserMediaSupported,
+  stopStream,
+  setTracksEnabled,
+  hasLiveTrack,
+  commitOrStopStream,
+  canCommitMediaStream,
+  micLossActionForMode,
+  cameraFlagsForStream,
+  type SessionMode,
+} from '@/lib/interview/media'
+import { Mic, MicOff, Video, VideoOff, Volume2 } from 'lucide-react'
 import InterviewerAvatar from '@/components/interview/InterviewerAvatar'
 // 公開フローの DB アクセスは token付き service-role API 経由（browser直アクセス廃止）
 // AI音声面接（Realtime）は allowlist 企業＆フラグON時のみ。それ以外は realtime-call が 503/403 → モックへ。
@@ -64,9 +76,36 @@ export default function SessionPage() {
   const [blockingError, setBlockingError] = useState<string | null>(null)
   const [questionList, setQuestionList] = useState<string[]>([])
   // 面接モード: connecting=Realtime試行中 / realtime=AI音声面接 / mock=既存モック自動進行。
-  const [mode, setMode] = useState<'connecting' | 'realtime' | 'mock'>('connecting')
-  // カメラ/マイク取得が失敗（権限拒否等）したら Realtime 不可 → モックへ落とすためのフラグ。
+  // ※ 直接 setModeState を呼ばず、必ず下の setMode ラッパ経由にする（modeRef を同期更新するため）。
+  const [mode, setModeState] = useState<SessionMode>('connecting')
+  // カメラ/マイク取得が失敗（マイク拒否等）したら Realtime 不可 → モックへ落とすためのフラグ。
   const [mediaFailed, setMediaFailed] = useState(false)
+  // Phase I-5: マイク=必須 / カメラ=任意。取得できた種別・ミュート/OFF・切断・音声自動再生ブロックを管理。
+  const [hasVideoTrack, setHasVideoTrack] = useState(false) // カメラトラックを取得できたか（任意）
+  const [micMuted, setMicMuted] = useState(false) // マイクミュート（track.enabled で制御・取り直さない）
+  const [cameraOn, setCameraOn] = useState(true) // カメラON/OFF（track.enabled で制御・取り直さない）
+  const [micLost, setMicLost] = useState(false) // マイク切断（デバイス取り外し/占有）→ 再接続案内
+  const [audioBlocked, setAudioBlocked] = useState(false) // iOS/Safari 等で AI音声の自動再生がブロックされた
+  const audioUnlockedRef = useRef(false) // ユーザー操作で音声再生をアンロック済みか（seam）
+  const reacquiringRef = useRef(false) // メディア再取得の連打/race 防止
+  // Phase I-5(P2): コンポーネントのマウント状態。非同期のメディア再取得（reacquireMedia）が
+  // 取得完了する前にページ離脱/面接終了で unmount した場合、取得ストリームを保存せず即 stop するために使う
+  //（setupCamera effect の disposed は当該 effect インスタンス限定。こちらはハンドラ用＝コンポーネント寿命）。
+  const mountedRef = useRef(true)
+  // Codex P1: トラック切断ハンドラ（安定 useCallback）から現在の mode / 最新 handleEndInterview を参照するための ref。
+  // realtime 中のマイク切断はローカル再取得では PeerConnection の sender track を張り替えられない（＝#21）。
+  // その場合はローカル再接続 UI を出さず、無音送出のまま継続させず「途中終了」で終了する（PR-11 の切断→終了と整合）。
+  const modeRef = useRef<SessionMode>('connecting')
+  const endInterviewRef = useRef<
+    ((endReason?: '全質問完了' | '時間切れ' | '自主終了', answeredOverride?: number) => void) | null
+  >(null)
+  // Codex P2: mode と modeRef をアトミックに更新する統一ラッパ。全ての mode 遷移はこれ経由にする
+  //（setModeState を直接呼ばない）。modeRef.current を先に同期更新してから React state を更新するため、
+  // mode 遷移直後に発火するハンドラ（track ended 等）も常に最新 mode を参照する（受動 useEffect 同期の遅延窓を廃止）。
+  const setMode = useCallback((next: SessionMode) => {
+    modeRef.current = next
+    setModeState(next)
+  }, [])
   const realtimeRef = useRef<{ close: () => void } | null>(null)
   const realtimeAttemptedRef = useRef(false)
   // 追加P1（Codex）: AI が一度でも応答（transcript）したか。初回 response.create が失敗すると AI が話し始めず
@@ -166,38 +205,206 @@ export default function SessionPage() {
     startInterview()
   }, [slug, router])
 
-  // カメラ取得（start 成功＝interviewId 確定後のみ。403/失敗時は起動しない）
+  // Codex P1/P2: マイク切断時の分岐（安定ハンドラ・ref のみ参照）。判定は純関数 micLossActionForMode へ委譲。
+  //   modeRef は setMode ラッパで遷移とアトミックに更新されるため、遷移直後の切断でも常に最新 mode を参照する。
+  //   'end'（realtime）: ローカル再取得では PC の sender track を張り替えられない（#21）→ 途中終了で終了。
+  //   'reconnect'（connecting/mock）: ローカル再接続で復旧できる → 再接続バナー＋ボタンを出す。
+  const handleMicLost = useCallback(() => {
+    if (micLossActionForMode(modeRef.current) === 'end') {
+      endInterviewRef.current?.('自主終了', answeredRef.current)
+      return
+    }
+    setMicLost(true)
+  }, [])
+
+  // Phase I-5: トラック切断（デバイス取り外し/占有）を検知する。マイク切断は必須なので再接続案内を出す。
+  //            カメラ切断は任意なので小窓を OFF 表示に切り替えるだけ（面接は継続）。
+  const attachTrackListeners = useCallback((stream: MediaStream) => {
+    const audio = stream.getAudioTracks()[0]
+    if (audio) audio.addEventListener('ended', () => handleMicLost(), { once: true })
+    const video = stream.getVideoTracks()[0]
+    if (video)
+      video.addEventListener(
+        'ended',
+        () => {
+          setHasVideoTrack(false)
+          setCameraOn(false)
+        },
+        { once: true },
+      )
+  }, [handleMicLost])
+
+  // カメラ/マイク取得（start 成功＝interviewId 確定後のみ。403/失敗時は起動しない）。
+  // Phase I-5: 二段階取得＝まず {video,audio}、失敗ならマイクのみ {audio}（カメラ任意）。
+  //            マイクも取得不可のときだけ mediaFailed（Realtime 不可 → モックへ）。
   useEffect(() => {
     if (!interviewId) return
     // ブロッキングエラーが既に出ているならカメラを起動しない
     if (blockingErrorRef.current) return
+    let disposed = false
     async function setupCamera() {
+      if (!isGetUserMediaSupported()) {
+        setMediaFailed(true)
+        return
+      }
+      let stream: MediaStream | null = null
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
-        })
-        // 取得が blockingError 発生後に解決した場合（権限プロンプト遅延等）は即停止して保持しない
-        if (blockingErrorRef.current) {
-          stream.getTracks().forEach((track) => track.stop())
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      } catch {
+        // Codex P2: 破棄後（離脱）/blockingError（開始・質問失敗）後は、フォールバック取得も失敗確定もしない
+        //（離脱後やブロッキング画面でマイク許可プロンプトを出さない・cleanup 意図を尊重）。
+        if (disposed || blockingErrorRef.current) return
+        // カメラを諦めマイクのみで再取得（カメラは任意）
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        } catch {
+          // マイクも取得失敗 → Realtime（音声）不可。モックへ落とす合図（破棄後は更新しない）。
+          if (disposed || blockingErrorRef.current) return
+          setMediaFailed(true)
           return
         }
-        streamRef.current = stream
-        setHasStream(true)
-      } catch {
-        // カメラ/マイク拒否・取得失敗。Realtime（音声）は不可なのでモックへ落とす合図。
-        setMediaFailed(true)
       }
+      // 取得が blockingError/破棄後に解決した場合（権限プロンプト遅延等）は即停止して保持しない
+      if (disposed || blockingErrorRef.current) {
+        stopStream(stream)
+        return
+      }
+      streamRef.current = stream
+      const hasVideo = stream.getVideoTracks().length > 0
+      setHasVideoTrack(hasVideo)
+      setCameraOn(hasVideo)
+      setMicMuted(false)
+      attachTrackListeners(stream)
+      setHasStream(true)
     }
 
     setupCamera()
 
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop())
-      }
+    // デバイス抜き差し（devicechange）でマイクが生存していなければ切断とみなす（ブラウザ差の吸収）。
+    // realtime/mock の分岐は handleMicLost に集約（realtime は途中終了・mock は再接続案内）。
+    const onDeviceChange = () => {
+      if (streamRef.current && !hasLiveTrack(streamRef.current, 'audio')) handleMicLost()
     }
-  }, [interviewId])
+    const md = typeof navigator !== 'undefined' ? navigator.mediaDevices : undefined
+    md?.addEventListener?.('devicechange', onDeviceChange)
+
+    return () => {
+      disposed = true
+      md?.removeEventListener?.('devicechange', onDeviceChange)
+      stopStream(streamRef.current)
+    }
+  }, [interviewId, attachTrackListeners, handleMicLost])
+
+  // Phase I-5: マイクのミュート/解除。track.enabled のみ変更しストリームは取り直さない
+  //（同一トラックを保持＝将来 Realtime へ送出中の audio track も維持。ミュート中は無音が送られる）。
+  const toggleMic = useCallback(() => {
+    setMicMuted((prev) => {
+      const next = !prev
+      setTracksEnabled(streamRef.current, 'audio', !next)
+      return next
+    })
+  }, [])
+
+  // Phase I-5: カメラON/OFF。track.enabled のみ変更（取り直さない）。トラック未取得時は無効。
+  const toggleCamera = useCallback(() => {
+    if (!hasVideoTrack) return
+    setCameraOn((prev) => {
+      const next = !prev
+      setTracksEnabled(streamRef.current, 'video', next)
+      return next
+    })
+  }, [hasVideoTrack])
+
+  // Phase I-5: マイク切断からの再接続（デバイス再取得）。連打/race を防ぎ、旧ストリームを必ず停止してから再取得。
+  //            ※ Realtime セッション中のトラック差し替え（renegotiation）は #21。ここではローカル取得のみ復旧する。
+  const reacquireMedia = useCallback(async () => {
+    if (reacquiringRef.current) return
+    reacquiringRef.current = true
+    setMicLost(false)
+    stopStream(streamRef.current)
+    streamRef.current = null
+    setHasStream(false)
+    // Codex P2: 旧ストリーム停止と同時に UI 上のカメラ状態もリセットする。カメラ小窓/操作ボタンは
+    // hasStream ではなく hasVideoTrack/cameraOn から描画するため、リセットしないと停止済みトラックの
+    // 凍結映像や「カメラON」表示が再取得 pending 中（失敗時は恒久的に）残る。
+    {
+      const cleared = cameraFlagsForStream(null) // {false,false}
+      setHasVideoTrack(cleared.hasVideoTrack)
+      setCameraOn(cleared.cameraOn)
+    }
+    // 「まだ再取得を続けてよい状態か」の単一判定。unmount / 面接終了処理中 / ブロッキング中は false。
+    const canContinue = () =>
+      canCommitMediaStream({
+        mounted: mountedRef.current,
+        ending: endTriggeredRef.current,
+        blocking: blockingErrorRef.current,
+      })
+    try {
+      let acquired: MediaStream | null = null
+      try {
+        acquired = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      } catch {
+        // Codex P2-①: フォールバック音声取得を始める前に、まだ続けてよい状態かを必ず再確認する
+        //（結合取得 pending 中に離脱/終了/ブロッキングになったら、マイク許可プロンプトを出さず即 return）。
+        if (!canContinue()) return
+        acquired = await navigator.mediaDevices.getUserMedia({ audio: true })
+      }
+      // Codex P2-②: 保存条件を mounted だけにしない。面接終了処理中/ブロッキング中は（まだ mounted でも）
+      // 取得済み stream を即 stop し、streamRef へ保存せず state も更新しない＝カメラ/マイクを再アクティブ化しない
+      //（/end がハングしても終了/ブロッキング画面でランプが再点灯しない）。二重 stop は stopStream で安全。
+      const stream = commitOrStopStream(acquired, canContinue())
+      if (!stream) return
+      streamRef.current = stream
+      // 成功時のみ、実際に video track がある場合だけカメラ表示/操作を復帰させる（audio only は OFF のまま）。
+      const flags = cameraFlagsForStream(stream)
+      setHasVideoTrack(flags.hasVideoTrack)
+      setCameraOn(flags.cameraOn)
+      setMicMuted(false)
+      attachTrackListeners(stream)
+      setHasStream(true)
+      if (videoRef.current && flags.hasVideoTrack) {
+        videoRef.current.srcObject = stream
+        videoRef.current.play().catch(() => {})
+      }
+    } catch {
+      if (canContinue()) setMicLost(true) // マイクも取れない → 案内継続（離脱/終了/ブロッキング後は更新しない）
+    } finally {
+      reacquiringRef.current = false
+    }
+  }, [attachTrackListeners])
+
+  // Phase I-5: iOS/Safari の自動再生ポリシー対策（seam）。ユーザー操作を起点に AI音声(<audio>)の再生を解禁する。
+  //            モックでは remote stream が無い（srcObject 未設定）ため実音声は鳴らない＝誤動作しない。
+  //            将来 Realtime 実配線時、この解禁済み <audio> にそのまま remote stream が入る。
+  const unlockAudioPlayback = useCallback(() => {
+    audioUnlockedRef.current = true
+    const el = remoteAudioRef.current
+    if (el && el.srcObject) {
+      el.play()
+        .then(() => setAudioBlocked(false))
+        .catch(() => {})
+    }
+  }, [])
+
+  useEffect(() => {
+    const handler = () => unlockAudioPlayback()
+    window.addEventListener('pointerdown', handler)
+    return () => window.removeEventListener('pointerdown', handler)
+  }, [unlockAudioPlayback])
+
+  // Phase I-5(P2): マウント状態を追跡（unmount で false）。reacquireMedia の非同期取得完了時に参照する。
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  // Codex P2: modeRef は setMode ラッパで mode 遷移とアトミックに更新する（受動 useEffect 同期は撤去）。
+  // endInterviewRef は安定ハンドラ（track ended 等）から最新 handleEndInterview を参照するため毎レンダー同期（state 更新なし）。
+  useEffect(() => {
+    endInterviewRef.current = handleEndInterview
+  })
 
   // blockingError 表示中はカメラ/マイクを確実に停止する。
   // カメラ取得 effect の deps は [interviewId] のみで、blockingError が立っても cleanup が走らないため、
@@ -213,11 +420,11 @@ export default function SessionPage() {
   }, [blockingError])
 
   useEffect(() => {
-    if (hasStream && videoRef.current && streamRef.current) {
+    if (hasStream && hasVideoTrack && videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current
       videoRef.current.play().catch(() => {})
     }
-  }, [hasStream])
+  }, [hasStream, hasVideoTrack])
 
   // Phase I-2: 写真素材では自然なまばたきを作れない（不自然な加工を避ける）ため、死蔵の blinking は撤去した。
   // “生命感” は InterviewerAvatar の breathing / リング / 波形 / ドットで表現する（状態ソースは interviewPhase）。
@@ -435,7 +642,12 @@ export default function SessionPage() {
           onRemoteStream: (rs) => {
             if (remoteAudioRef.current) {
               remoteAudioRef.current.srcObject = rs
-              remoteAudioRef.current.play().catch(() => {})
+              // Phase I-5: 自動再生がブロックされたら audioBlocked を立て、ユーザー操作で解禁できるようにする
+              //（iOS/Safari 対策）。成功したら解除。mock では onRemoteStream は発火しない＝この分岐に来ない。
+              remoteAudioRef.current
+                .play()
+                .then(() => setAudioBlocked(false))
+                .catch(() => setAudioBlocked(true))
             }
           },
           onTranscript: (t) => {
@@ -474,8 +686,17 @@ export default function SessionPage() {
       }
       settled = true
       if (result.ok) {
-        realtimeRef.current = result
-        setMode('realtime')
+        // Codex P2: connecting 中にマイクが切断/再取得され、connectRealtimeCall へ渡した track が
+        // 古く（ended、または reacquireMedia で別 stream に差し替え）なっている場合、dead track のまま
+        // realtime を確立すると無音のまま応募者の声が届かない。その場合は realtime にせず閉じて mock へ落とす
+        //（mock 側の handleMicLost が再接続案内を出す）。恒久的な track 張り替え（replaceTrack）は #21。
+        if (streamRef.current !== stream || !hasLiveTrack(stream, 'audio')) {
+          result.close()
+          setMode('mock')
+        } else {
+          realtimeRef.current = result
+          setMode('realtime')
+        }
       } else if (result.reason === 'blocking') {
         setBlockingError('AI音声面接を開始できませんでした。お手数ですが最初からやり直してください。')
       } else {
@@ -509,7 +730,7 @@ export default function SessionPage() {
       }
     }, 10000)
     return () => clearTimeout(t)
-  }, [mode, interviewId, questionList])
+  }, [mode, interviewId, questionList, setMode])
 
   // 追加P1（Codex）: realtime 確立後「初回 AI 応答」ウォッチドッグ（one-shot）。初回 response.create が
   // recoverable error で失敗する等で AI が話し始めないと無音のまま 60分放置され得るため、一定時間で AI 応答が
@@ -528,7 +749,7 @@ export default function SessionPage() {
       }
     }, REALTIME_RESPONSE_TIMEOUT_MS)
     return () => clearTimeout(t)
-  }, [mode])
+  }, [mode, setMode])
 
   // 追加P2（Codex）: 初期画面で選択され sessionStorage に保存された言語を、session のドロップダウン表示へ
   // 反映する（クライアントのみ・マウント後に読む＝SSR/hydration 安全）。realtime へ渡す値は接続時に
@@ -836,32 +1057,92 @@ export default function SessionPage() {
         {/* Phase I-3: 進捗＋経過時間バーは「固定配置」をやめ、中央カラムの通常フロー（アバターの上）に置く。
             → 左右の固定コントロール（カメラ/言語）とも、縦中央寄せのアバターとも重ならない（下記カラム内）。 */}
 
-        {/* 応募者カメラ小窓（左上固定） */}
+        {/* 応募者カメラ小窓（左上固定）。Phase I-5: カメラは任意。トラック無し/OFF は「カメラOFF」表示。 */}
         <div className="fixed top-3 left-3 z-10 w-24 h-18 sm:w-32 sm:h-24 md:w-36 md:h-28 rounded-xl overflow-hidden shadow-lg border-2 border-white/30 bg-slate-800">
-          {hasStream ? (
+          {/* カメラON/OFF は track.enabled で切り替え、<video> はマウントし続ける（srcObject を失わず即復帰）。 */}
+          {hasVideoTrack && (
             <video
               ref={videoRef}
               autoPlay
               muted
               playsInline
-              className="w-full h-full object-cover scale-x-[-1]"
+              className={`w-full h-full object-cover scale-x-[-1] ${cameraOn ? '' : 'hidden'}`}
             />
-          ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
-              <svg
-                className="w-8 h-8 mb-1"
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
+          )}
+          {(!hasVideoTrack || !cameraOn) && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+              <VideoOff className="w-7 h-7 mb-1" aria-hidden="true" />
               <span className="text-xs">カメラOFF</span>
             </div>
           )}
+        </div>
+
+        {/* Phase I-5: マイク切断の再接続案内（必須デバイス）。上部中央・面接進行より前面。 */}
+        {/* Codex P1: realtime 中は handleMicLost が途中終了させるため micLost は立たない。
+            万一の並行状態でもローカル再接続 UI を realtime で出さない（PC 張り替え=#21 は不可のため）。 */}
+        {micLost && mode !== 'realtime' && (
+          <div
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-red-600/95 text-white text-sm py-2 px-4 rounded-lg shadow-lg"
+            role="alert"
+          >
+            <span>マイクが切断されました。再接続してください。</span>
+            <button
+              type="button"
+              onClick={reacquireMedia}
+              className="bg-white/20 hover:bg-white/30 rounded-full px-3 py-1 text-xs font-medium transition-colors"
+            >
+              再接続する
+            </button>
+          </div>
+        )}
+
+        {/* Phase I-5: AI音声の自動再生ブロック時のフォールバック（iOS/Safari）。realtime でのみ発火（mock では出ない）。 */}
+        {audioBlocked && (
+          <button
+            type="button"
+            onClick={unlockAudioPlayback}
+            className="fixed top-16 left-1/2 -translate-x-1/2 z-40 inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm py-2 px-4 rounded-full shadow-lg transition-colors"
+          >
+            <Volume2 className="w-4 h-4" aria-hidden="true" />
+            タップして音声を有効にする
+          </button>
+        )}
+
+        {/* Phase I-5: マイク/カメラ操作（左下固定）。色だけでなくアイコン＋ラベル＋aria-pressed で状態を伝える。 */}
+        <div className="fixed bottom-16 left-3 z-20 flex gap-2 md:bottom-6">
+          <button
+            type="button"
+            onClick={toggleMic}
+            aria-pressed={micMuted}
+            aria-label={micMuted ? 'マイクのミュートを解除する' : 'マイクをミュートする'}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium shadow-lg transition-colors min-h-[40px] ${
+              micMuted ? 'bg-red-600 text-white' : 'bg-slate-800/85 text-white hover:bg-slate-700'
+            }`}
+          >
+            {micMuted ? <MicOff className="w-4 h-4" aria-hidden="true" /> : <Mic className="w-4 h-4" aria-hidden="true" />}
+            <span>{micMuted ? 'ミュート中' : 'マイク'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={toggleCamera}
+            disabled={!hasVideoTrack}
+            aria-pressed={hasVideoTrack && !cameraOn}
+            aria-label={cameraOn ? 'カメラをオフにする' : 'カメラをオンにする'}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium shadow-lg transition-colors min-h-[40px] ${
+              !hasVideoTrack
+                ? 'bg-slate-800/50 text-white/40 cursor-not-allowed'
+                : cameraOn
+                ? 'bg-slate-800/85 text-white hover:bg-slate-700'
+                : 'bg-slate-600 text-white'
+            }`}
+          >
+            {hasVideoTrack && cameraOn ? (
+              <Video className="w-4 h-4" aria-hidden="true" />
+            ) : (
+              <VideoOff className="w-4 h-4" aria-hidden="true" />
+            )}
+            <span>{!hasVideoTrack ? 'カメラなし' : cameraOn ? 'カメラ' : 'カメラOFF'}</span>
+          </button>
         </div>
 
         {/* 回線品質バナー（上部中央） */}
