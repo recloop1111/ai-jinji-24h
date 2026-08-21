@@ -6,6 +6,9 @@ import Link from 'next/link'
 import { createClientBrowserClient } from '@/lib/supabase/client'
 import { deriveCurrentStatus, CURRENT_STATUS_LABEL } from '@/lib/applicants/displayStatus'
 import { ChevronLeft as ChevronLeftIcon, ChevronDown as ChevronDownIcon, Play as PlayIcon, Download, Mail, LinkIcon, Copy, Check } from 'lucide-react'
+import TranscriptLog from '@/components/interview/TranscriptLog'
+import { buildFinalTranscriptReadModel } from '@/lib/interview/transcript-view'
+import type { TranscriptReadItem } from '@/lib/interview/transcript-read'
 
 // TODO: Phase 4 実データに差替え
 // TODO: Phase 4 - 面接完了時にステータスを自動で「未対応」に設定
@@ -478,6 +481,19 @@ export default function ApplicantDetailPage() {
   const [shareEmail, setShareEmail] = useState('')
   const [shareMessage, setShareMessage] = useState('')
   const [linkCopied, setLinkCopied] = useState(false)
+
+  // PR-3D: 会話ログ（Transcript）表示の read model。
+  // 実データ源（interview_transcripts）は PR-3A migration 適用後に、company スコープ
+  //（interview → applicant → company の RLS / GET API）経由で結線する。本 PR では未接続。
+  // 本番で synthetic を実データのように表示しないため、現段階の source は空＝正しい空状態を表示する。
+  // ordering / final 判定は buildFinalTranscriptReadModel（PR-3C read model）に委譲し UI で再実装しない。
+  const transcriptRows: unknown[] = []
+  const transcriptItems: TranscriptReadItem[] = useMemo(
+    () => buildFinalTranscriptReadModel(transcriptRows),
+    // transcriptRows は現状常に空（未接続）。実源結線時に interview?.id 等を依存に追加する。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'summary', label: '概要' },
@@ -1161,28 +1177,19 @@ export default function ApplicantDetailPage() {
         </div>
       )}
 
-      {/* タブ3: 会話ログ */}
+      {/* タブ3: 会話ログ（PR-3D: read model 駆動の TranscriptLog。実データ源は PR-3A 適用後に結線） */}
       {activeTab === 'conversation' && (
         <div className="space-y-6">
           {applicant?.status === '準備中' ? (
-            // 準備中時はメッセージ表示
+            // 準備中は面接前＝会話ログの概念が無いため専用メッセージ（空状態とは区別）。
             <div className="rounded-2xl bg-white border border-slate-200/80 p-8 shadow-sm text-center">
-              <p className="text-slate-600">回答ログはありません</p>
-              <p className="text-sm text-slate-500 mt-2">面接が開始され次第、回答ログが表示されます。</p>
+              <p className="text-slate-600">会話ログはまだありません</p>
+              <p className="text-sm text-slate-500 mt-2">面接が開始され次第、会話ログが表示されます。</p>
             </div>
           ) : (
-            <>
-              {/* 会話ログ（質問・回答のトランスクリプト）は現状データ源が無いため空状態。
-                  interview_logs は0件・transcript列なし。AI面接ログ生成（P-10/OpenAI）が前提 */}
-              <div className="rounded-2xl bg-white border border-slate-200/80 p-8 shadow-sm text-center">
-                <p className="text-slate-600">回答ログはありません</p>
-                <p className="text-sm text-slate-500 mt-2">
-                  {applicant?.status === '途中離脱'
-                    ? '面接が途中で終了したため、回答ログが記録されていません。'
-                    : '会話ログ（質問・回答のトランスクリプト）は現状記録されていません。'}
-                </p>
-              </div>
-            </>
+            // transcriptItems は現状常に空（未接続）→ TranscriptLog が正しい空状態を表示する。
+            // synthetic を本番で実データのように出さない（空配列のみ渡す）。
+            <TranscriptLog items={transcriptItems} />
           )}
         </div>
       )}
