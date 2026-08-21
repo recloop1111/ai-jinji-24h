@@ -92,15 +92,27 @@ export function hasLiveTrack(stream: MediaStream | null | undefined, kind: 'audi
 }
 
 // 非同期に取得（getUserMedia）したストリームの「保存 or 破棄」判定。
-// mounted=false（取得完了前にアンマウント/破棄）なら stop して null を返す＝保存しない（カメラ/マイクを残さない）。
-// mounted=true ならそのまま返す（呼び出し側が streamRef へ保存）。stopStream は null/二重安全。
+// commit=false（取得完了前にアンマウント/終了/ブロッキング）なら stop して null を返す＝保存しない
+//（カメラ/マイクを残さない・再アクティブ化しない）。commit=true ならそのまま返す（呼び出し側が streamRef へ保存）。
+// stopStream は null/二重安全。
 export function commitOrStopStream(
   stream: MediaStream | null | undefined,
-  mounted: boolean,
+  commit: boolean,
 ): MediaStream | null {
-  if (!mounted) {
+  if (!commit) {
     stopStream(stream)
     return null
   }
   return stream ?? null
+}
+
+// 再取得したメディアストリームを保存（commit）してよいか。
+// マウント中で、かつ「面接終了処理中でない」「ブロッキングエラー中でない」ときのみ true。
+// 終了/ブロッキング中は（コンポーネントがまだ mounted でも）カメラ/マイクを再アクティブ化させないため false。
+export function canCommitMediaStream(state: {
+  mounted: boolean
+  ending: boolean
+  blocking: boolean
+}): boolean {
+  return state.mounted && !state.ending && !state.blocking
 }

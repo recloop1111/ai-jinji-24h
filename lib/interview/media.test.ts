@@ -7,6 +7,7 @@ import {
   setTracksEnabled,
   hasLiveTrack,
   commitOrStopStream,
+  canCommitMediaStream,
 } from './media'
 
 // Phase I-5: メディア制御ロジック（ブラウザ差吸収・安全なトラック操作）。
@@ -149,5 +150,24 @@ describe('commitOrStopStream (取得完了後の unmount 対策)', () => {
     commitOrStopStream(s, false)
     expect(() => commitOrStopStream(s, false)).not.toThrow()
     expect(a.stop).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('canCommitMediaStream (終了/ブロッキング中は保存しない)', () => {
+  it('マウント中かつ終了でもブロッキングでもない → true', () => {
+    expect(canCommitMediaStream({ mounted: true, ending: false, blocking: false })).toBe(true)
+  })
+  it('unmount 済み → false（取得完了後の離脱）', () => {
+    expect(canCommitMediaStream({ mounted: false, ending: false, blocking: false })).toBe(false)
+  })
+  it('終了処理中 → false（mounted でも再アクティブ化しない）', () => {
+    expect(canCommitMediaStream({ mounted: true, ending: true, blocking: false })).toBe(false)
+  })
+  it('ブロッキング中 → false（mounted でも再アクティブ化しない）', () => {
+    expect(canCommitMediaStream({ mounted: true, ending: false, blocking: true })).toBe(false)
+  })
+  it('複数条件が重なっても false', () => {
+    expect(canCommitMediaStream({ mounted: false, ending: true, blocking: true })).toBe(false)
+    expect(canCommitMediaStream({ mounted: true, ending: true, blocking: true })).toBe(false)
   })
 })

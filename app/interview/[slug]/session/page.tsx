@@ -22,6 +22,7 @@ import {
   setTracksEnabled,
   hasLiveTrack,
   commitOrStopStream,
+  canCommitMediaStream,
 } from '@/lib/interview/media'
 import { Mic, MicOff, Video, VideoOff, Volume2 } from 'lucide-react'
 import InterviewerAvatar from '@/components/interview/InterviewerAvatar'
@@ -312,16 +313,27 @@ export default function SessionPage() {
     stopStream(streamRef.current)
     streamRef.current = null
     setHasStream(false)
+    // 「まだ再取得を続けてよい状態か」の単一判定。unmount / 面接終了処理中 / ブロッキング中は false。
+    const canContinue = () =>
+      canCommitMediaStream({
+        mounted: mountedRef.current,
+        ending: endTriggeredRef.current,
+        blocking: blockingErrorRef.current,
+      })
     try {
       let acquired: MediaStream | null = null
       try {
         acquired = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       } catch {
+        // Codex P2-①: フォールバック音声取得を始める前に、まだ続けてよい状態かを必ず再確認する
+        //（結合取得 pending 中に離脱/終了/ブロッキングになったら、マイク許可プロンプトを出さず即 return）。
+        if (!canContinue()) return
         acquired = await navigator.mediaDevices.getUserMedia({ audio: true })
       }
-      // P2: 取得完了前にページ離脱/面接終了で unmount していたら、保存も state 更新もせず即 stop する
-      //（アンマウント後にカメラ/マイクが生き続けない）。二重 stop は stopStream で安全。
-      const stream = commitOrStopStream(acquired, mountedRef.current)
+      // Codex P2-②: 保存条件を mounted だけにしない。面接終了処理中/ブロッキング中は（まだ mounted でも）
+      // 取得済み stream を即 stop し、streamRef へ保存せず state も更新しない＝カメラ/マイクを再アクティブ化しない
+      //（/end がハングしても終了/ブロッキング画面でランプが再点灯しない）。二重 stop は stopStream で安全。
+      const stream = commitOrStopStream(acquired, canContinue())
       if (!stream) return
       streamRef.current = stream
       const hasVideo = stream.getVideoTracks().length > 0
@@ -335,7 +347,7 @@ export default function SessionPage() {
         videoRef.current.play().catch(() => {})
       }
     } catch {
-      if (mountedRef.current) setMicLost(true) // マイクも取れない → 案内継続（unmount 後は更新しない）
+      if (canContinue()) setMicLost(true) // マイクも取れない → 案内継続（離脱/終了/ブロッキング後は更新しない）
     } finally {
       reacquiringRef.current = false
     }
