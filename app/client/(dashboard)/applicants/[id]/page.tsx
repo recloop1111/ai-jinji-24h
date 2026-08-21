@@ -9,6 +9,8 @@ import { ChevronLeft as ChevronLeftIcon, ChevronDown as ChevronDownIcon, Play as
 import TranscriptLog from '@/components/interview/TranscriptLog'
 import { buildFinalTranscriptReadModel } from '@/lib/interview/transcript-view'
 import type { TranscriptReadItem } from '@/lib/interview/transcript-read'
+import EvaluationReport from '@/components/evaluation/EvaluationReport'
+import { buildEvaluationDisplayModel } from '@/lib/evaluation/display'
 
 // TODO: Phase 4 実データに差替え
 // TODO: Phase 4 - 面接完了時にステータスを自動で「未対応」に設定
@@ -494,6 +496,10 @@ export default function ApplicantDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   )
+
+  // PR-4D: EBCA 評価レポート表示モデル（実 interview_results から導出。未評価は null＝正直な空状態）。
+  // EBCA writer（4E）未実装のため本番は空。synthetic/DUMMY は混入させない（実データのみ）。
+  const evaluationModel = useMemo(() => buildEvaluationDisplayModel(interviewResult), [interviewResult])
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'summary', label: '概要' },
@@ -1077,102 +1083,13 @@ export default function ApplicantDetailPage() {
               <p className="text-slate-600 font-medium">面接が完了していないため、詳細評価は生成されていません</p>
             </div>
           ) : (
-            <>
-              {/* セクション1: AI面接評価 */}
-              <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 overflow-hidden">
-                <div className="p-6 sm:p-7">
-                  <h3 className="text-base font-bold text-slate-900 mb-6">AI面接評価</h3>
-                  
-                  {/* 総合スコア */}
-                  {interviewResult?.total_score != null && (
-                    <div className="mb-6">
-                      <p className="text-sm text-slate-500 mb-1">総合スコア</p>
-                      <p className="text-3xl font-bold text-slate-900">
-                        {interviewResult.total_score}<span className="text-lg font-normal text-slate-400"> / 100</span>
-                      </p>
-                    </div>
-                  )}
-
-                  {/* 推薦度 */}
-                  {interviewResult?.detail_json?.recommendation_rank && (
-                    <div className="mb-6">
-                      <p className="text-sm text-slate-500 mb-1">推薦度</p>
-                      <p className="text-lg font-semibold text-slate-900">
-                        {interviewResult.detail_json.recommendation_rank}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* 性格タイプ */}
-                  {interviewResult?.personality_type && (
-                    <div className="mb-6">
-                      <p className="text-sm text-slate-500 mb-2">性格タイプ</p>
-                      <span className="inline-block px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-full">
-                        {interviewResult.personality_type}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* 性格説明 */}
-                  {interviewResult?.personality_description && (
-                    <div className="mb-6">
-                      <p className="text-sm text-slate-500 mb-1">性格説明</p>
-                      <p className="text-sm text-gray-600 leading-relaxed">
-                        {interviewResult.personality_description}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* 強み */}
-                  {interviewResult?.strengths && Array.isArray(interviewResult.strengths) && interviewResult.strengths.length > 0 && (
-                    <div className="mb-6">
-                      <p className="text-sm text-slate-500 mb-2">強み</p>
-                      <ul className="list-disc list-inside space-y-1">
-                        {interviewResult.strengths.map((s: string, idx: number) => (
-                          <li key={idx} className="text-sm text-slate-700">{s}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* 改善点 */}
-                  {interviewResult?.improvement_points && Array.isArray(interviewResult.improvement_points) && interviewResult.improvement_points.length > 0 && (
-                    <div className="mb-6">
-                      <p className="text-sm text-slate-500 mb-2">改善点</p>
-                      <ul className="list-disc list-inside space-y-1">
-                        {interviewResult.improvement_points.map((p: string, idx: number) => (
-                          <li key={idx} className="text-sm text-slate-700">{p}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* 総合所見 */}
-                  {interviewResult?.summary_text && (
-                    <div className="mb-6">
-                      <p className="text-sm text-slate-500 mb-2">総合所見</p>
-                      <div className="bg-slate-50 rounded-lg p-4 border border-slate-100">
-                        <p className="text-sm text-slate-700 leading-relaxed">{interviewResult.summary_text}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* フィードバック */}
-                  {interviewResult?.feedback_text && (
-                    <div>
-                      <p className="text-sm text-slate-500 mb-2">フィードバック</p>
-                      <p className="text-sm text-slate-700 leading-relaxed">{interviewResult.feedback_text}</p>
-                    </div>
-                  )}
-
-                  {/* データがない場合のフォールバック */}
-                  {!interviewResult?.total_score && !interviewResult?.detail_json?.recommendation_rank && !interviewResult?.personality_type && (
-                    <p className="text-sm text-slate-400">AI面接評価データがありません</p>
-                  )}
-                </div>
-              </div>
-
-            </>
+            // PR-4D: EBCA 評価レポート（実 interview_results 由来。未評価は正直な空状態）。
+            // 会話ログ導線は同ページ内タブ切替（conversation）を利用。
+            <EvaluationReport
+              model={evaluationModel}
+              state={evaluationModel ? 'ready' : 'empty'}
+              onViewTranscript={() => setActiveTab('conversation')}
+            />
           )}
         </div>
       )}
