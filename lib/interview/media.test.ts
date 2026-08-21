@@ -9,6 +9,7 @@ import {
   commitOrStopStream,
   canCommitMediaStream,
   micLossActionForMode,
+  cameraFlagsForStream,
 } from './media'
 
 // Phase I-5: メディア制御ロジック（ブラウザ差吸収・安全なトラック操作）。
@@ -180,5 +181,20 @@ describe('micLossActionForMode (マイク切断時の分岐・mode のみ依存)
   it('connecting / mock → reconnect（ローカル再接続で復旧＝再接続案内）', () => {
     expect(micLossActionForMode('connecting')).toBe('reconnect')
     expect(micLossActionForMode('mock')).toBe('reconnect')
+  })
+})
+
+describe('cameraFlagsForStream (カメラUIフラグ導出・凍結表示を残さない)', () => {
+  it('video track あり → 表示ON（hasVideoTrack=true, cameraOn=true）', () => {
+    const s = fakeStream([fakeTrack('audio'), fakeTrack('video')])
+    expect(cameraFlagsForStream(s)).toEqual({ hasVideoTrack: true, cameraOn: true })
+  })
+  it('audio のみ → カメラOFF（両方 false）', () => {
+    const s = fakeStream([fakeTrack('audio')])
+    expect(cameraFlagsForStream(s)).toEqual({ hasVideoTrack: false, cameraOn: false })
+  })
+  it('null（旧ストリーム破棄時）→ 両方 false（凍結映像/「カメラON」を残さない）', () => {
+    expect(cameraFlagsForStream(null)).toEqual({ hasVideoTrack: false, cameraOn: false })
+    expect(cameraFlagsForStream(undefined)).toEqual({ hasVideoTrack: false, cameraOn: false })
   })
 })

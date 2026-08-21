@@ -106,6 +106,16 @@ export function commitOrStopStream(
   return stream ?? null
 }
 
+// 取得ストリームからカメラUIフラグ（表示/操作ボタンの状態）を導出する。
+// video track があれば hasVideoTrack=true・初期 cameraOn=true。無ければ両方 false。
+// 旧ストリーム破棄時は null を渡して {false,false} を得る＝停止済みトラックの凍結映像や「カメラON」表示を残さない。
+export function cameraFlagsForStream(
+  stream: MediaStream | null | undefined,
+): { hasVideoTrack: boolean; cameraOn: boolean } {
+  const has = !!stream && stream.getVideoTracks().length > 0
+  return { hasVideoTrack: has, cameraOn: has }
+}
+
 // 面接セッションのモード（connecting=Realtime試行中 / realtime=AI音声面接 / mock=既存モック自動進行）。
 export type SessionMode = 'connecting' | 'realtime' | 'mock'
 

@@ -24,6 +24,7 @@ import {
   commitOrStopStream,
   canCommitMediaStream,
   micLossActionForMode,
+  cameraFlagsForStream,
   type SessionMode,
 } from '@/lib/interview/media'
 import { Mic, MicOff, Video, VideoOff, Volume2 } from 'lucide-react'
@@ -323,6 +324,14 @@ export default function SessionPage() {
     stopStream(streamRef.current)
     streamRef.current = null
     setHasStream(false)
+    // Codex P2: 旧ストリーム停止と同時に UI 上のカメラ状態もリセットする。カメラ小窓/操作ボタンは
+    // hasStream ではなく hasVideoTrack/cameraOn から描画するため、リセットしないと停止済みトラックの
+    // 凍結映像や「カメラON」表示が再取得 pending 中（失敗時は恒久的に）残る。
+    {
+      const cleared = cameraFlagsForStream(null) // {false,false}
+      setHasVideoTrack(cleared.hasVideoTrack)
+      setCameraOn(cleared.cameraOn)
+    }
     // 「まだ再取得を続けてよい状態か」の単一判定。unmount / 面接終了処理中 / ブロッキング中は false。
     const canContinue = () =>
       canCommitMediaStream({
@@ -346,13 +355,14 @@ export default function SessionPage() {
       const stream = commitOrStopStream(acquired, canContinue())
       if (!stream) return
       streamRef.current = stream
-      const hasVideo = stream.getVideoTracks().length > 0
-      setHasVideoTrack(hasVideo)
-      setCameraOn(hasVideo)
+      // 成功時のみ、実際に video track がある場合だけカメラ表示/操作を復帰させる（audio only は OFF のまま）。
+      const flags = cameraFlagsForStream(stream)
+      setHasVideoTrack(flags.hasVideoTrack)
+      setCameraOn(flags.cameraOn)
       setMicMuted(false)
       attachTrackListeners(stream)
       setHasStream(true)
-      if (videoRef.current && hasVideo) {
+      if (videoRef.current && flags.hasVideoTrack) {
         videoRef.current.srcObject = stream
         videoRef.current.play().catch(() => {})
       }
