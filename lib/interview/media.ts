@@ -106,6 +106,18 @@ export function commitOrStopStream(
   return stream ?? null
 }
 
+// 面接セッションのモード（connecting=Realtime試行中 / realtime=AI音声面接 / mock=既存モック自動進行）。
+export type SessionMode = 'connecting' | 'realtime' | 'mock'
+
+// マイク切断時にどう振る舞うか（純粋・mode のみに依存）。
+//   realtime: ローカル再取得では PeerConnection の sender track を張り替えられない（＝#21）ため
+//             無音送出を続けず「途中終了」する（'end'）。
+//   connecting / mock: ローカル再接続で復旧できるため再接続案内を出す（'reconnect'）。
+// ※ 必ず「同期的に最新の mode」（modeRef）を渡すこと。stale な mode を渡すと mock 誤終了 / dead track 見逃しになる。
+export function micLossActionForMode(mode: SessionMode): 'end' | 'reconnect' {
+  return mode === 'realtime' ? 'end' : 'reconnect'
+}
+
 // 再取得したメディアストリームを保存（commit）してよいか。
 // マウント中で、かつ「面接終了処理中でない」「ブロッキングエラー中でない」ときのみ true。
 // 終了/ブロッキング中は（コンポーネントがまだ mounted でも）カメラ/マイクを再アクティブ化させないため false。

@@ -8,6 +8,7 @@ import {
   hasLiveTrack,
   commitOrStopStream,
   canCommitMediaStream,
+  micLossActionForMode,
 } from './media'
 
 // Phase I-5: メディア制御ロジック（ブラウザ差吸収・安全なトラック操作）。
@@ -169,5 +170,15 @@ describe('canCommitMediaStream (終了/ブロッキング中は保存しない)'
   it('複数条件が重なっても false', () => {
     expect(canCommitMediaStream({ mounted: false, ending: true, blocking: true })).toBe(false)
     expect(canCommitMediaStream({ mounted: true, ending: true, blocking: true })).toBe(false)
+  })
+})
+
+describe('micLossActionForMode (マイク切断時の分岐・mode のみ依存)', () => {
+  it('realtime → end（ローカル再取得で PC track を張り替えられない＝#21 のため途中終了）', () => {
+    expect(micLossActionForMode('realtime')).toBe('end')
+  })
+  it('connecting / mock → reconnect（ローカル再接続で復旧＝再接続案内）', () => {
+    expect(micLossActionForMode('connecting')).toBe('reconnect')
+    expect(micLossActionForMode('mock')).toBe('reconnect')
   })
 })

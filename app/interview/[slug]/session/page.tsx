@@ -23,6 +23,8 @@ import {
   hasLiveTrack,
   commitOrStopStream,
   canCommitMediaStream,
+  micLossActionForMode,
+  type SessionMode,
 } from '@/lib/interview/media'
 import { Mic, MicOff, Video, VideoOff, Volume2 } from 'lucide-react'
 import InterviewerAvatar from '@/components/interview/InterviewerAvatar'
@@ -73,7 +75,8 @@ export default function SessionPage() {
   const [blockingError, setBlockingError] = useState<string | null>(null)
   const [questionList, setQuestionList] = useState<string[]>([])
   // 面接モード: connecting=Realtime試行中 / realtime=AI音声面接 / mock=既存モック自動進行。
-  const [mode, setMode] = useState<'connecting' | 'realtime' | 'mock'>('connecting')
+  // ※ 直接 setModeState を呼ばず、必ず下の setMode ラッパ経由にする（modeRef を同期更新するため）。
+  const [mode, setModeState] = useState<SessionMode>('connecting')
   // カメラ/マイク取得が失敗（マイク拒否等）したら Realtime 不可 → モックへ落とすためのフラグ。
   const [mediaFailed, setMediaFailed] = useState(false)
   // Phase I-5: マイク=必須 / カメラ=任意。取得できた種別・ミュート/OFF・切断・音声自動再生ブロックを管理。
@@ -91,10 +94,17 @@ export default function SessionPage() {
   // Codex P1: トラック切断ハンドラ（安定 useCallback）から現在の mode / 最新 handleEndInterview を参照するための ref。
   // realtime 中のマイク切断はローカル再取得では PeerConnection の sender track を張り替えられない（＝#21）。
   // その場合はローカル再接続 UI を出さず、無音送出のまま継続させず「途中終了」で終了する（PR-11 の切断→終了と整合）。
-  const modeRef = useRef<'connecting' | 'realtime' | 'mock'>('connecting')
+  const modeRef = useRef<SessionMode>('connecting')
   const endInterviewRef = useRef<
     ((endReason?: '全質問完了' | '時間切れ' | '自主終了', answeredOverride?: number) => void) | null
   >(null)
+  // Codex P2: mode と modeRef をアトミックに更新する統一ラッパ。全ての mode 遷移はこれ経由にする
+  //（setModeState を直接呼ばない）。modeRef.current を先に同期更新してから React state を更新するため、
+  // mode 遷移直後に発火するハンドラ（track ended 等）も常に最新 mode を参照する（受動 useEffect 同期の遅延窓を廃止）。
+  const setMode = useCallback((next: SessionMode) => {
+    modeRef.current = next
+    setModeState(next)
+  }, [])
   const realtimeRef = useRef<{ close: () => void } | null>(null)
   const realtimeAttemptedRef = useRef(false)
   // 追加P1（Codex）: AI が一度でも応答（transcript）したか。初回 response.create が失敗すると AI が話し始めず
@@ -194,12 +204,12 @@ export default function SessionPage() {
     startInterview()
   }, [slug, router])
 
-  // Codex P1: マイク切断時の分岐（安定ハンドラ・ref のみ参照）。
-  //   realtime: ローカル再取得では PeerConnection の sender track を張り替えられない（＝#21）。
-  //             無音を送り続けないよう「途中終了」で終了する（誤った復旧 UI を出さない）。
-  //   mock/connecting: ローカル再接続で復旧できるため、再接続バナー＋ボタンを出す。
+  // Codex P1/P2: マイク切断時の分岐（安定ハンドラ・ref のみ参照）。判定は純関数 micLossActionForMode へ委譲。
+  //   modeRef は setMode ラッパで遷移とアトミックに更新されるため、遷移直後の切断でも常に最新 mode を参照する。
+  //   'end'（realtime）: ローカル再取得では PC の sender track を張り替えられない（#21）→ 途中終了で終了。
+  //   'reconnect'（connecting/mock）: ローカル再接続で復旧できる → 再接続バナー＋ボタンを出す。
   const handleMicLost = useCallback(() => {
-    if (modeRef.current === 'realtime') {
+    if (micLossActionForMode(modeRef.current) === 'end') {
       endInterviewRef.current?.('自主終了', answeredRef.current)
       return
     }
@@ -380,10 +390,8 @@ export default function SessionPage() {
     }
   }, [])
 
-  // Codex P1: 安定ハンドラから最新の mode / handleEndInterview を参照するための ref を毎レンダー同期（state 更新なし）。
-  useEffect(() => {
-    modeRef.current = mode
-  }, [mode])
+  // Codex P2: modeRef は setMode ラッパで mode 遷移とアトミックに更新する（受動 useEffect 同期は撤去）。
+  // endInterviewRef は安定ハンドラ（track ended 等）から最新 handleEndInterview を参照するため毎レンダー同期（state 更新なし）。
   useEffect(() => {
     endInterviewRef.current = handleEndInterview
   })
@@ -712,7 +720,7 @@ export default function SessionPage() {
       }
     }, 10000)
     return () => clearTimeout(t)
-  }, [mode, interviewId, questionList])
+  }, [mode, interviewId, questionList, setMode])
 
   // 追加P1（Codex）: realtime 確立後「初回 AI 応答」ウォッチドッグ（one-shot）。初回 response.create が
   // recoverable error で失敗する等で AI が話し始めないと無音のまま 60分放置され得るため、一定時間で AI 応答が
@@ -731,7 +739,7 @@ export default function SessionPage() {
       }
     }, REALTIME_RESPONSE_TIMEOUT_MS)
     return () => clearTimeout(t)
-  }, [mode])
+  }, [mode, setMode])
 
   // 追加P2（Codex）: 初期画面で選択され sessionStorage に保存された言語を、session のドロップダウン表示へ
   // 反映する（クライアントのみ・マウント後に読む＝SSR/hydration 安全）。realtime へ渡す値は接続時に
