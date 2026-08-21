@@ -5,7 +5,9 @@
 
 import { checkEvaluationEligibility, type EvaluationAuthContext, type InterviewEvalContext } from './eligibility'
 import { runWithRetry, DEFAULT_EVALUATION_RETRY_POLICY, type RetryPolicy } from './retry'
-import type { EvaluationServiceResult } from './service'
+import { computeTranscriptHash, type EvaluationServiceResult, type EvaluationRepository } from './service'
+import type { EvaluationLock } from './lock'
+import { buildFinalTranscriptReadModel } from '../interview/transcript-view'
 import type { EvaluationJobContext } from './prompt'
 import type { EvaluationResult } from './ebca'
 import type { InterviewResultRecord } from './mapping'
@@ -41,6 +43,10 @@ export interface RunInterviewEvaluationDeps {
   sleep: (ms: number) => Promise<void> // retry backoff（注入・実時間 sleep しない）
   retryPolicy?: RetryPolicy
   jobContext?: EvaluationJobContext | null
+  // 並行ロック（任意）。lock+repo を渡すと、Provider 呼び出し前に atomic lock を取り、
+  // ロック前後で already_evaluated を double-check して二重課金を防ぐ（本番経路）。未指定なら従来どおり。
+  lock?: EvaluationLock
+  repo?: EvaluationRepository
 }
 
 export async function runInterviewEvaluation(input: {
@@ -65,24 +71,53 @@ export async function runInterviewEvaluation(input: {
   const rows = await deps.loadTranscriptRows(interviewId)
   const policy = deps.retryPolicy ?? DEFAULT_EVALUATION_RETRY_POLICY
 
-  // 5) EvaluationService（hash/idempotency/insufficient/provider/validation/save）を retry 付きで実行。
-  //    retryable は provider_temporary のみ。permanent/insufficient/success/already_evaluated は再試行しない。
-  let result: EvaluationServiceResult
-  try {
-    result = await runWithRetry(
-      () => deps.service.evaluate({ interviewId, transcriptRows: rows, job: deps.jobContext ?? null }),
-      {
-        isRetryable: (r) => r.status === 'failed' && r.failureReason === 'provider_temporary',
-        policy,
-        sleep: deps.sleep,
-      },
-    )
-  } catch {
-    // provider/repository の例外（DB save 失敗等）→ success にしない。非 PII の failed（error 本文は出さない）。
-    return { status: 'failed', reason: 'execution_error' }
+  const runService = () =>
+    runWithRetry(() => deps.service.evaluate({ interviewId, transcriptRows: rows, job: deps.jobContext ?? null }), {
+      isRetryable: (r) => r.status === 'failed' && r.failureReason === 'provider_temporary',
+      policy,
+      sleep: deps.sleep,
+    })
+
+  // 5) 並行ロックあり（本番経路）: pre-check → lock 取得 → double-check → service → 必ず release。
+  if (deps.lock && deps.repo) {
+    const hash = computeTranscriptHash(buildFinalTranscriptReadModel(rows))
+    // 5-1) pre-check: 既に同 hash が保存済みなら Provider を呼ばない（ロックも取らない）。
+    const pre = await deps.repo.findByInterviewAndHash(interviewId, hash).catch(() => 'ERR' as const)
+    if (pre === 'ERR') return { status: 'failed', reason: 'execution_error' }
+    if (pre) return { status: 'already_evaluated', transcriptHash: hash, record: pre.record }
+
+    // 5-2) atomic lock 取得。競合=409相当 / 障害=fail-closed（Provider へ進まない）。
+    const claim = await deps.lock.acquire(interviewId).catch(() => 'error' as const)
+    if (claim === 'contended') return { status: 'conflict', reason: 'evaluation_in_progress', transcriptHash: hash }
+    if (claim === 'error') return { status: 'failed', reason: 'lock_error', transcriptHash: hash }
+
+    try {
+      // 5-3) double-check: ロック取得前に別リクエストが完了していないか再確認（二重課金防止の要）。
+      const post = await deps.repo.findByInterviewAndHash(interviewId, hash)
+      if (post) return { status: 'already_evaluated', transcriptHash: hash, record: post.record }
+      // 5-4) service 実行（retry 付き）。
+      const result = await runService()
+      return mapServiceResult(result)
+    } catch {
+      return { status: 'failed', reason: 'execution_error', transcriptHash: hash }
+    } finally {
+      // release 失敗は元の結果を success に変えない（TTL で自然回復）。
+      await deps.lock.release(interviewId).catch(() => {})
+    }
   }
 
-  // 6) service 結果 → run 結果へ（失敗と insufficient_data を混同しない）。
+  // 6) ロック未指定（従来経路）: service を retry 付きで実行。
+  let result: EvaluationServiceResult
+  try {
+    result = await runService()
+  } catch {
+    return { status: 'failed', reason: 'execution_error' }
+  }
+  return mapServiceResult(result)
+}
+
+// service 結果 → run 結果（失敗と insufficient_data を混同しない）。
+function mapServiceResult(result: EvaluationServiceResult): EvaluationRunResult {
   switch (result.status) {
     case 'success':
       return { status: 'success', transcriptHash: result.transcriptHash, evaluation: result.evaluation, record: result.record }
