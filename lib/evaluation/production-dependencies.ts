@@ -12,6 +12,7 @@ import { createSupabaseEvaluationRepository, type EvaluationDbClient } from './s
 import { createEvaluationLock, createSupabaseEvaluationLockStore, type PgLikeClient } from './lock'
 import { createOpenAIEvaluationProvider, type FetchImpl } from './openai-provider'
 import { isEvaluationEnabled } from '../config/evaluation'
+import { TRANSCRIPT_READ_COLUMNS } from '../interview/transcript-company-read'
 import type { RunInterviewEvaluationDeps } from './orchestration'
 import type { InterviewEvalContext } from './eligibility'
 
@@ -62,7 +63,7 @@ function makeTranscriptLoader(client: LoaderDbClient) {
   return async (interviewId: string): Promise<unknown> => {
     const res = await client
       .from('interview_transcripts')
-      .select('id, interview_id, speaker, text, seq, final, source, dedup_key, language, created_at')
+      .select(TRANSCRIPT_READ_COLUMNS) // PR-19G: 企業 UI と共有（同一 query を二重定義しない）
       .eq('interview_id', interviewId)
       .order('seq', { ascending: true })
     if (res.error || !Array.isArray(res.data)) return []

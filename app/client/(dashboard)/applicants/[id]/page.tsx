@@ -7,8 +7,7 @@ import { createClientBrowserClient } from '@/lib/supabase/client'
 import { deriveCurrentStatus, CURRENT_STATUS_LABEL } from '@/lib/applicants/displayStatus'
 import { ChevronLeft as ChevronLeftIcon, ChevronDown as ChevronDownIcon, Play as PlayIcon, Download, Mail, LinkIcon, Copy, Check } from 'lucide-react'
 import TranscriptLog from '@/components/interview/TranscriptLog'
-import { buildFinalTranscriptReadModel } from '@/lib/interview/transcript-view'
-import type { TranscriptReadItem } from '@/lib/interview/transcript-read'
+import { TRANSCRIPT_READ_COLUMNS, resolveTranscriptFetch, type TranscriptFetchView } from '@/lib/interview/transcript-company-read'
 import EvaluationReport from '@/components/evaluation/EvaluationReport'
 import { buildEvaluationDisplayModel } from '@/lib/evaluation/display'
 
@@ -264,6 +263,7 @@ type ApplicantRow = {
 }
 
 type InterviewRow = {
+  id?: string | null
   status?: string | null
   started_at?: string | null
   ended_at?: string | null
@@ -484,18 +484,38 @@ export default function ApplicantDetailPage() {
   const [shareMessage, setShareMessage] = useState('')
   const [linkCopied, setLinkCopied] = useState(false)
 
-  // PR-3D: 会話ログ（Transcript）表示の read model。
-  // 実データ源（interview_transcripts）は PR-3A migration 適用後に、company スコープ
-  //（interview → applicant → company の RLS / GET API）経由で結線する。本 PR では未接続。
-  // 本番で synthetic を実データのように表示しないため、現段階の source は空＝正しい空状態を表示する。
-  // ordering / final 判定は buildFinalTranscriptReadModel（PR-3C read model）に委譲し UI で再実装しない。
-  const transcriptRows: unknown[] = []
-  const transcriptItems: TranscriptReadItem[] = useMemo(
-    () => buildFinalTranscriptReadModel(transcriptRows),
-    // transcriptRows は現状常に空（未接続）。実源結線時に interview?.id 等を依存に追加する。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  )
+  // PR-19G: 会話ログ（Transcript）表示を実 interview_transcripts へ結線。
+  //   スコープ = 既にロード済みの「この応募者の最新 interview」(evaluation と同じ interview selection)。
+  //   取得は browser Supabase の RLS(company_select_interview_transcripts)＋ interview_id 絞り込みで company/
+  //   applicant/interview を二重に限定（service-role をブラウザに出さない・companyId をブラウザから信用しない）。
+  //   final-only / seq 昇順 / DUMMY 非補完 / テーブル未作成の honest empty は resolveTranscriptFetch に集約。
+  const [transcriptView, setTranscriptView] = useState<TranscriptFetchView>({ items: [], error: false })
+  const [transcriptLoading, setTranscriptLoading] = useState(false)
+
+  useEffect(() => {
+    const interviewId = interview?.id
+    let cancelled = false
+    const loadTranscript = async () => {
+      if (!interviewId) {
+        setTranscriptView({ items: [], error: false })
+        setTranscriptLoading(false)
+        return
+      }
+      setTranscriptLoading(true)
+      const res = await supabase
+        .from('interview_transcripts')
+        .select(TRANSCRIPT_READ_COLUMNS)
+        .eq('interview_id', interviewId)
+        .order('seq', { ascending: true })
+      if (cancelled) return
+      setTranscriptView(resolveTranscriptFetch(res)) // final-only/seq/error/空 は純ヘルパに委譲
+      setTranscriptLoading(false)
+    }
+    loadTranscript()
+    return () => {
+      cancelled = true
+    }
+  }, [interview?.id, supabase])
 
   // PR-4D: EBCA 評価レポート表示モデル（実 interview_results から導出。未評価は null＝正直な空状態）。
   // EBCA writer（4E）未実装のため本番は空。synthetic/DUMMY は混入させない（実データのみ）。
@@ -1094,7 +1114,7 @@ export default function ApplicantDetailPage() {
         </div>
       )}
 
-      {/* タブ3: 会話ログ（PR-3D: read model 駆動の TranscriptLog。実データ源は PR-3A 適用後に結線） */}
+      {/* タブ3: 会話ログ（PR-3D read model 駆動の TranscriptLog。PR-19G で実 interview_transcripts を結線） */}
       {activeTab === 'conversation' && (
         <div className="space-y-6">
           {applicant?.status === '準備中' ? (
@@ -1104,9 +1124,9 @@ export default function ApplicantDetailPage() {
               <p className="text-sm text-slate-500 mt-2">面接が開始され次第、会話ログが表示されます。</p>
             </div>
           ) : (
-            // transcriptItems は現状常に空（未接続）→ TranscriptLog が正しい空状態を表示する。
-            // synthetic を本番で実データのように出さない（空配列のみ渡す）。
-            <TranscriptLog items={transcriptItems} />
+            // PR-19G: 実 interview_transcripts 由来の read model を表示（final-only/seq 昇順）。
+            // loading/error/empty は TranscriptLog の honest state。DUMMY/synthetic は一切渡さない。
+            <TranscriptLog items={transcriptView.items} loading={transcriptLoading} error={transcriptView.error} />
           )}
         </div>
       )}
