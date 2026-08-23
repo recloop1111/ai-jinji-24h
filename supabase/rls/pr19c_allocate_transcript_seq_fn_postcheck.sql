@@ -10,11 +10,18 @@ FROM information_schema.columns
 WHERE table_schema = 'public' AND table_name = 'interviews' AND column_name = 'next_transcript_seq';
 -- 期待: next_transcript_seq / integer / NO / 0
 
--- 2) 採番 function が存在し、SECURITY INVOKER・search_path='' であること。
+-- 2) 採番 function が存在し、SECURITY DEFINER・search_path='' であること（PR-19F）。
 SELECT p.proname,
        pg_get_function_identity_arguments(p.oid) AS args,
-       p.prosecdef AS security_definer,   -- 期待: false（= SECURITY INVOKER）
-       p.proconfig AS config              -- 期待: {search_path=""}
+       p.prosecdef AS security_definer,   -- 期待: true（= SECURITY DEFINER）
+       p.proconfig AS config,             -- 期待: {search_path=""}
+       pg_get_userbyid(p.proowner) AS owner -- 期待: 特権ロール（postgres / supabase_admin 等）。anon/authenticated 禁止
+FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public' AND p.proname = 'allocate_transcript_seq';
+
+-- 2b) owner が interviews を UPDATE できる特権を持つ（DEFINER 実行の前提）ことの確認。
+SELECT pg_get_userbyid(p.proowner) AS fn_owner,
+       has_table_privilege(pg_get_userbyid(p.proowner), 'public.interviews', 'UPDATE') AS owner_can_update_interviews -- 期待: true
 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public' AND p.proname = 'allocate_transcript_seq';
 
@@ -24,6 +31,12 @@ FROM information_schema.role_routine_grants
 WHERE routine_schema = 'public' AND routine_name = 'allocate_transcript_seq'
 ORDER BY grantee;
 -- 期待: grantee = service_role の EXECUTE のみ（PUBLIC / anon / authenticated が現れない）。
+-- SECURITY DEFINER では特に重要: PUBLIC に EXECUTE が残ると誰でも owner 権限で実行できてしまうため 0 件必須。
+
+-- 3b) 直接呼び出し可否の実効確認（anon / authenticated は EXECUTE 不可）。
+SELECT has_function_privilege('anon', 'public.allocate_transcript_seq(uuid)', 'EXECUTE') AS anon_execute,          -- 期待: false
+       has_function_privilege('authenticated', 'public.allocate_transcript_seq(uuid)', 'EXECUTE') AS authed_execute, -- 期待: false
+       has_function_privilege('service_role', 'public.allocate_transcript_seq(uuid)', 'EXECUTE') AS service_execute;  -- 期待: true
 
 -- 4) 既存行に副作用が無いこと（全行 next_transcript_seq = 0）。
 SELECT count(*) AS total_rows,
