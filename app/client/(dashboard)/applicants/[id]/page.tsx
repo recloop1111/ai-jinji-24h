@@ -47,12 +47,7 @@ const DUMMY = {
     { label: '誠実性・一貫性', value: 58, comment: '発言に一貫性があるが、深掘りされた際にやや曖昧な回答があった' }, // 左下（150度）
     { label: '主体性・行動力', value: 70, comment: '自ら動いた経験はあるが、自己認識の深さにやや欠ける' }, // 左上（210度）
   ],
-  // 概要タブ: 性格タイプ・強み・弱み（旧レポートタブから統合）
-  personalityType: '実行型リーダー',
-  personalityDesc:
-    '目標達成に向けて計画的に行動し、チームを率いる力がある。決断力が高い反面、他者の意見を取り入れる柔軟性にやや欠ける場面がある。組織内ではプロジェクト推進役として機能しやすい。',
-  personalityForCompany:
-    '管理職やリーダーポジションに適性あり。ただし、チーム内の合意形成プロセスに課題が出る可能性がある。',
+  // 概要タブ: 強み・弱み（EBCA 一本化: 旧 personality 系 DUMMY は撤去）
   strengths: [
     { title: '数値に基づく説明力', desc: '売上やスタッフ数など具体的な数値を交えて実績を説明する力がある' },
     { title: '課題解決への主体性', desc: '問題に対して自ら解決策を考え実行した経験を複数持つ' },
@@ -285,8 +280,6 @@ type InterviewResultRow = {
   } | null
   summary_text?: string | null
   feedback_text?: string | null
-  personality_type?: string | null
-  personality_description?: string | null
   strengths?: string[] | null
   improvement_points?: string[] | null
   evaluation_axes?: unknown
@@ -1020,15 +1013,6 @@ export default function ApplicantDetailPage() {
                 })()}
               </div>
 
-              {/* パーソナリティタイプ（旧レポートタブから統合） */}
-              <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
-                <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">パーソナリティタイプ</h2>
-                {interviewResult.personality_type && <p className="text-lg font-bold text-slate-900 mb-3 tracking-tight">{interviewResult.personality_type}</p>}
-                {interviewResult.personality_description && <p className="text-sm text-slate-600 leading-relaxed">{interviewResult.personality_description}</p>}
-                {!interviewResult.personality_type && !interviewResult.personality_description && (
-                  <p className="text-sm text-slate-500">パーソナリティデータはまだありません。</p>
-                )}
-              </div>
 
               {/* 強み */}
               <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">

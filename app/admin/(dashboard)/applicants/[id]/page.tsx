@@ -417,8 +417,8 @@ export default function AdminApplicantDetailPage() {
                   </div>
                 ) : (
                   <>
-                    {/* 人物概要（profile_summary.persona 優先 / 無ければ既存DB項目で代替） */}
-                    {(interviewResult.detail_json?.profile_summary?.persona || interviewResult.personality_type || interviewResult.summary_text || interviewResult.feedback_text) && (
+                    {/* 人物概要（profile_summary.persona / 総評 / 面接での印象。EBCA 一本化: 旧 personality_type 系は表示しない） */}
+                    {(interviewResult.detail_json?.profile_summary?.persona || interviewResult.summary_text || interviewResult.feedback_text) && (
                       <div className="rounded-2xl bg-indigo-900/30 border-l-4 border-indigo-500 p-6 sm:p-7 border border-indigo-800/50">
                         <h2 className="text-xs font-semibold text-indigo-400 uppercase tracking-wider mb-5">人物概要</h2>
                         <div className="space-y-5 text-sm sm:text-base text-gray-300 leading-relaxed">
@@ -427,23 +427,12 @@ export default function AdminApplicantDetailPage() {
                               <p className="font-bold text-gray-100 whitespace-pre-wrap">{interviewResult.detail_json.profile_summary.persona}</p>
                             </section>
                           ) : (
-                            <>
-                              {interviewResult.personality_type && (
-                                <section>
-                                  <p className="font-semibold text-gray-200 mb-1">人物像</p>
-                                  <p className="font-bold text-gray-100">{interviewResult.personality_type}</p>
-                                  {interviewResult.personality_description && (
-                                    <p className="mt-1.5">{interviewResult.personality_description}</p>
-                                  )}
-                                </section>
-                              )}
-                              {interviewResult.summary_text && (
-                                <section>
-                                  <p className="font-semibold text-gray-200 mb-1.5">総評</p>
-                                  <p>{interviewResult.summary_text}</p>
-                                </section>
-                              )}
-                            </>
+                            interviewResult.summary_text && (
+                              <section>
+                                <p className="font-semibold text-gray-200 mb-1.5">総評</p>
+                                <p>{interviewResult.summary_text}</p>
+                              </section>
+                            )
                           )}
                           {interviewResult.feedback_text && (
                             <section>
@@ -674,22 +663,6 @@ export default function AdminApplicantDetailPage() {
                         </div>
                       )}
 
-                      {interviewResult?.personality_type && (
-                        <div className="mb-6">
-                          <p className="text-sm text-gray-500 mb-2">性格タイプ</p>
-                          <span className="inline-block px-3 py-1.5 text-sm font-medium text-indigo-300 bg-indigo-900/50 border border-indigo-700 rounded-full">
-                            {interviewResult.personality_type}
-                          </span>
-                        </div>
-                      )}
-
-                      {interviewResult?.personality_description && (
-                        <div className="mb-6">
-                          <p className="text-sm text-gray-500 mb-1">性格説明</p>
-                          <p className="text-sm text-gray-400 leading-relaxed">{interviewResult.personality_description}</p>
-                        </div>
-                      )}
-
                       {interviewResult?.strengths && Array.isArray(interviewResult.strengths) && interviewResult.strengths.length > 0 && (
                         <div className="mb-6">
                           <p className="text-sm text-gray-500 mb-2">強み</p>
@@ -728,7 +701,7 @@ export default function AdminApplicantDetailPage() {
                         </div>
                       )}
 
-                      {!interviewResult?.total_score && !interviewResult?.detail_json?.recommendation_rank && !interviewResult?.personality_type && (
+                      {!interviewResult?.total_score && !interviewResult?.detail_json?.recommendation_rank && (
                         <p className="text-sm text-gray-500">AI面接評価データがありません</p>
                       )}
                     </div>
