@@ -19,6 +19,10 @@
 --   2) evaluation_status text                … （任意）UI 状態復元用: not_started / evaluating / completed / failed。
 --        ※ interview_results は「成功結果のみ」を持つ設計のため、進行中/失敗の状態は interviews 側に持つのが自然。
 --   3) evaluation_error_code text            … （任意）失敗理由の「code のみ」（RATE_LIMIT 等）。PII/prompt/transcript/raw は保存しない。
+--   4) evaluation_retry_after timestamptz    … （PR-19I cooldown）temporary provider 失敗後の「再試行抑制」期限。
+--        並行ロック(1)とは別概念（release されない・TTL≈60秒で自然失効）。active 中は Provider を呼ばない。
+--   5) evaluation_cooldown_hash text         … （PR-19I cooldown）cooldown が適用される transcript_hash（非可逆・非 PII）。
+--        scope = interviewId + hash。別 transcript(別 hash)の評価を古い失敗で止めないために保持。
 --
 -- 適用前後の確認 / 巻き戻し（別ファイル・いずれも未実行）:
 --   precheck : supabase/rls/pr4e3_evaluation_lock_state_precheck.sql
@@ -35,9 +39,11 @@ SET lock_timeout = '3s';
 BEGIN;
 
 ALTER TABLE public.interviews
-  ADD COLUMN IF NOT EXISTS evaluation_locked_until timestamptz,
-  ADD COLUMN IF NOT EXISTS evaluation_status       text,
-  ADD COLUMN IF NOT EXISTS evaluation_error_code   text;
+  ADD COLUMN IF NOT EXISTS evaluation_locked_until  timestamptz,
+  ADD COLUMN IF NOT EXISTS evaluation_status        text,
+  ADD COLUMN IF NOT EXISTS evaluation_error_code    text,
+  ADD COLUMN IF NOT EXISTS evaluation_retry_after   timestamptz,  -- PR-19I cooldown 期限
+  ADD COLUMN IF NOT EXISTS evaluation_cooldown_hash text;         -- PR-19I cooldown 対象 transcript_hash
 
 -- evaluation_status の値集合（NULL = 未評価扱い）。
 ALTER TABLE public.interviews

@@ -10,6 +10,7 @@
 import { EvaluationService } from './service'
 import { createSupabaseEvaluationRepository, type EvaluationDbClient } from './supabase-repository'
 import { createEvaluationLock, createSupabaseEvaluationLockStore, type PgLikeClient } from './lock'
+import { createEvaluationCooldown, createSupabaseEvaluationCooldownStore, type CooldownDbClient } from './cooldown'
 import { createOpenAIEvaluationProvider, type FetchImpl } from './openai-provider'
 import { isEvaluationEnabled } from '../config/evaluation'
 import { TRANSCRIPT_READ_COLUMNS } from '../interview/transcript-company-read'
@@ -77,6 +78,7 @@ const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(reso
 export function createProductionEvaluationDependencies(opts: ProductionEvaluationDepsOptions): RunInterviewEvaluationDeps {
   const repo = createSupabaseEvaluationRepository(opts.client as EvaluationDbClient)
   const lock = createEvaluationLock(createSupabaseEvaluationLockStore(opts.client as PgLikeClient), { now: opts.now })
+  const cooldown = createEvaluationCooldown(createSupabaseEvaluationCooldownStore(opts.client as CooldownDbClient), { now: opts.now })
   const provider = createOpenAIEvaluationProvider({
     fetchImpl: opts.fetchImpl,
     apiKey: opts.apiKey,
@@ -93,5 +95,6 @@ export function createProductionEvaluationDependencies(opts: ProductionEvaluatio
     sleep: realSleep,
     lock,
     repo,
+    cooldown,
   }
 }

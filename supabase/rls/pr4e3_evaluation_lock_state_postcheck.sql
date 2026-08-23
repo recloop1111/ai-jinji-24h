@@ -6,7 +6,7 @@
 SELECT column_name, data_type, is_nullable, column_default
 FROM information_schema.columns
 WHERE table_schema = 'public' AND table_name = 'interviews'
-  AND column_name IN ('evaluation_locked_until', 'evaluation_status', 'evaluation_error_code')
+  AND column_name IN ('evaluation_locked_until', 'evaluation_status', 'evaluation_error_code', 'evaluation_retry_after', 'evaluation_cooldown_hash')
 ORDER BY column_name;
 -- 期待: evaluation_locked_until = timestamp with time zone / YES / NULL
 --       evaluation_status = text / YES / NULL, evaluation_error_code = text / YES / NULL

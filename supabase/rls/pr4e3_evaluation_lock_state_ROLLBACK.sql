@@ -13,7 +13,9 @@ ALTER TABLE public.interviews DROP CONSTRAINT IF EXISTS interviews_evaluation_st
 ALTER TABLE public.interviews
   DROP COLUMN IF EXISTS evaluation_locked_until,
   DROP COLUMN IF EXISTS evaluation_status,
-  DROP COLUMN IF EXISTS evaluation_error_code;
+  DROP COLUMN IF EXISTS evaluation_error_code,
+  DROP COLUMN IF EXISTS evaluation_retry_after,
+  DROP COLUMN IF EXISTS evaluation_cooldown_hash;
 
 COMMIT;
 
@@ -22,4 +24,4 @@ RESET lock_timeout;
 -- 確認（期待: 0行 = 列が消えている）。
 SELECT column_name FROM information_schema.columns
 WHERE table_schema = 'public' AND table_name = 'interviews'
-  AND column_name IN ('evaluation_locked_until', 'evaluation_status', 'evaluation_error_code');
+  AND column_name IN ('evaluation_locked_until', 'evaluation_status', 'evaluation_error_code', 'evaluation_retry_after', 'evaluation_cooldown_hash');
