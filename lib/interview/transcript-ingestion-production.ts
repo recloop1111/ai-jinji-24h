@@ -57,11 +57,12 @@ function asApplicant(data: unknown): ApplicantRowLike | null {
   if (typeof r.id !== 'string' || typeof r.company_id !== 'string') return null
   return { id: r.id, company_id: r.company_id }
 }
-function asInterview(data: unknown): InterviewRowLike | null {
+function asInterview(data: unknown): (InterviewRowLike & { endedAt: string | null }) | null {
   if (!data || typeof data !== 'object') return null
   const r = data as Record<string, unknown>
   if (typeof r.id !== 'string' || typeof r.applicant_id !== 'string' || typeof r.status !== 'string') return null
-  return { id: r.id, applicant_id: r.applicant_id, status: r.status }
+  // PR-19D: completion grace 用に ended_at を随伴（/end が確定時に set する completed 時刻の Source of Truth）。
+  return { id: r.id, applicant_id: r.applicant_id, status: r.status, endedAt: typeof r.ended_at === 'string' ? r.ended_at : null }
 }
 
 // route が createServiceRoleClient() を渡す（service-role・RLS bypass）。create では DB を触らない。
@@ -75,7 +76,7 @@ export function createProductionIngestionContext(client: unknown): IngestionCont
         ? await entityClient.from('applicants').select('id, company_id').eq('id', applicantId).maybeSingle()
         : { data: null, error: null }
       const interviewRes = interviewId
-        ? await entityClient.from('interviews').select('id, applicant_id, status').eq('id', interviewId).maybeSingle()
+        ? await entityClient.from('interviews').select('id, applicant_id, status, ended_at').eq('id', interviewId).maybeSingle()
         : { data: null, error: null }
       return {
         company: asCompany(companyRes.data),

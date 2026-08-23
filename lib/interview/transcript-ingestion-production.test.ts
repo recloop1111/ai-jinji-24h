@@ -42,7 +42,7 @@ describe('createProductionIngestionContext（AK: create で副作用0）', () =>
         const rows: Record<string, unknown> =
           table === 'companies' ? { id: 'co-1' }
           : table === 'applicants' ? { id: 'app-1', company_id: 'co-1' }
-          : { id: 'iv-1', applicant_id: 'app-1', status: 'in_progress' }
+          : { id: 'iv-1', applicant_id: 'app-1', status: 'in_progress', ended_at: null }
         const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: rows, error: null }) }
         return q
       },
@@ -52,7 +52,7 @@ describe('createProductionIngestionContext（AK: create で副作用0）', () =>
     const ent = await ctx.loadEntities({ slug: 'demo', applicantId: 'app-1', interviewId: 'iv-1' })
     expect(ent.company).toEqual({ id: 'co-1' })
     expect(ent.applicant).toEqual({ id: 'app-1', company_id: 'co-1' })
-    expect(ent.interview).toEqual({ id: 'iv-1', applicant_id: 'app-1', status: 'in_progress' })
+    expect(ent.interview).toEqual({ id: 'iv-1', applicant_id: 'app-1', status: 'in_progress', endedAt: null })
     expect(calls).toEqual(['companies', 'applicants', 'interviews'])
   })
 
