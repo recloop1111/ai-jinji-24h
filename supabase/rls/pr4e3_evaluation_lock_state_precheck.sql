@@ -9,7 +9,7 @@ SELECT to_regclass('public.interviews') AS interviews_table;
 SELECT column_name
 FROM information_schema.columns
 WHERE table_schema = 'public' AND table_name = 'interviews'
-  AND column_name IN ('evaluation_locked_until', 'evaluation_status', 'evaluation_error_code');
+  AND column_name IN ('evaluation_locked_until', 'evaluation_status', 'evaluation_error_code', 'evaluation_retry_after', 'evaluation_cooldown_hash');
 
 -- 3) 既存の同名 CHECK 制約が無いこと（期待: 0行）。
 SELECT conname FROM pg_constraint

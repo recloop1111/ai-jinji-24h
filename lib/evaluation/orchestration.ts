@@ -7,6 +7,7 @@ import { checkEvaluationEligibility, type EvaluationAuthContext, type InterviewE
 import { runWithRetry, DEFAULT_EVALUATION_RETRY_POLICY, type RetryPolicy } from './retry'
 import { computeTranscriptHash, type EvaluationServiceResult, type EvaluationRepository } from './service'
 import type { EvaluationLock } from './lock'
+import type { EvaluationCooldown } from './cooldown'
 import { buildFinalTranscriptReadModel } from '../interview/transcript-view'
 import type { EvaluationJobContext } from './prompt'
 import type { EvaluationResult } from './ebca'
@@ -21,6 +22,7 @@ export type EvaluationRunStatus =
   | 'unauthorized'
   | 'not_found'
   | 'conflict'
+  | 'cooldown' // PR-19I: temporary 失敗後の短時間再試行抑制中（Provider を呼ばない）
 
 export interface EvaluationRunResult {
   status: EvaluationRunStatus
@@ -28,6 +30,7 @@ export interface EvaluationRunResult {
   transcriptHash?: string
   evaluation?: EvaluationResult
   record?: InterviewResultRecord
+  retryAfterMs?: number // PR-19I: cooldown 残り時間（非機密メタ）
 }
 
 // EvaluationService の evaluate だけを関数境界で受ける（class 全体に結合しない＝fake しやすい）。
@@ -47,6 +50,8 @@ export interface RunInterviewEvaluationDeps {
   // ロック前後で already_evaluated を double-check して二重課金を防ぐ（本番経路）。未指定なら従来どおり。
   lock?: EvaluationLock
   repo?: EvaluationRepository
+  // PR-19I: cooldown（任意）。lock 経路でのみ機能。temporary 最終失敗後の連打を DB backed で抑制する。
+  cooldown?: EvaluationCooldown
 }
 
 export async function runInterviewEvaluation(input: {
@@ -86,6 +91,13 @@ export async function runInterviewEvaluation(input: {
     if (pre === 'ERR') return { status: 'failed', reason: 'execution_error' }
     if (pre) return { status: 'already_evaluated', transcriptHash: hash, record: pre.record }
 
+    // 5-1b) PR-19I: cooldown 判定（lock 取得前）。active なら Provider を絶対に呼ばず即返す（連打で課金しない）。
+    //   scope = interviewId + hash。cooldown 障害は握って通常フローへ（cost guard の欠如＝従来挙動に劣化させない）。
+    if (deps.cooldown) {
+      const cd = await deps.cooldown.check(interviewId, hash).catch(() => null)
+      if (cd?.active) return { status: 'cooldown', reason: 'evaluation_cooldown', transcriptHash: hash, retryAfterMs: cd.retryAfterMs }
+    }
+
     // 5-2) atomic lock 取得。競合=409相当 / 障害=fail-closed（Provider へ進まない）。
     const claim = await deps.lock.acquire(interviewId).catch(() => 'error' as const)
     if (claim === 'contended') return { status: 'conflict', reason: 'evaluation_in_progress', transcriptHash: hash }
@@ -97,6 +109,15 @@ export async function runInterviewEvaluation(input: {
       if (post) return { status: 'already_evaluated', transcriptHash: hash, record: post.record }
       // 5-4) service 実行（retry 付き）。
       const result = await runService()
+      // 5-5) PR-19I: temporary 最終失敗のみ cooldown を設定（permanent/DB/insufficient は対象外）。
+      //   成功/insufficient は stale cooldown を消す。cooldown 書込失敗は結果を変えない（best-effort）。
+      if (deps.cooldown) {
+        if (result.status === 'failed' && result.failureReason === 'provider_temporary') {
+          await deps.cooldown.markTemporaryFailure(interviewId, hash).catch(() => {})
+        } else if (result.status === 'success' || result.status === 'insufficient') {
+          await deps.cooldown.clear(interviewId).catch(() => {})
+        }
+      }
       return mapServiceResult(result)
     } catch {
       return { status: 'failed', reason: 'execution_error', transcriptHash: hash }

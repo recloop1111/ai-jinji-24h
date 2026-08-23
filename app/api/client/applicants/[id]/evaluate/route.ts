@@ -1,4 +1,4 @@
-import { type NextRequest } from 'next/server'
+import { type NextRequest, NextResponse } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError, errorJson } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
@@ -23,6 +23,14 @@ function mapRunResult(r: EvaluationRunResult) {
       return r.reason === 'evaluation_in_progress'
         ? errorJson('EVALUATION_IN_PROGRESS', '評価を実行中です。しばらくしてからお試しください', 409)
         : errorJson('NOT_COMPLETED', '面接が完了していないため評価できません', 409)
+    case 'cooldown': {
+      // PR-19I: temporary 失敗後の連打抑制。内部 provider error(429/5xx 等) を露出せず非 PII code のみ。
+      const retryAfterSeconds = Math.max(1, Math.ceil((r.retryAfterMs ?? 0) / 1000))
+      return NextResponse.json(
+        { error: { code: 'EVALUATION_COOLDOWN', message: '現在評価処理を再試行できません。少し時間をおいて再度お試しください' }, retry_after_seconds: retryAfterSeconds },
+        { status: 429 },
+      )
+    }
     case 'unauthorized':
       return apiError('FORBIDDEN', 'アクセス権限がありません')
     case 'not_found':
