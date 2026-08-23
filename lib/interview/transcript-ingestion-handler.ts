@@ -24,18 +24,22 @@ import {
 import { parseRealtimeTranscriptEvent, buildTranscriptIngestionDTO } from './realtime-transcript-adapter'
 import { ingestUtterance, TranscriptIngestLimitError, type IngestBase } from './transcript-ingestion'
 import { SeqAllocError } from './transcript-seq-allocator'
+import { isWithinCompletionGrace } from './transcript-grace'
 
 // item_id / response_id の長さ上限。dedup_key = `${speaker}:${itemId}:${contentIndex}` を
 // TRANSCRIPT_DEDUP_KEY_MAX(200) 以内に収めるための保守的な上限（speaker+区切り+index の余裕を残す）。
 export const TRANSCRIPT_ITEM_ID_MAX = 128
 export const TRANSCRIPT_RESPONSE_ID_MAX = 128
 
+// PR-19D: completion grace 用に interview へ endedAt を随伴（authz は status のみ見る・grace はここで別判定）。
+export type IngestionInterview = InterviewRowLike & { endedAt?: string | null }
+
 // 認可後に service-role で DB read / 採番 / 保存を行う実行コンテキスト（本番実装は production 側・fake も同形）。
 export interface IngestionContext {
   loadEntities(keys: { slug: string; applicantId: string; interviewId: string }): Promise<{
     company: CompanyRowLike | null
     applicant: ApplicantRowLike | null
-    interview: InterviewRowLike | null
+    interview: IngestionInterview | null
   }>
   repo: TranscriptRepository
   allocator: SeqAllocator
@@ -46,6 +50,8 @@ export interface IngestionHandlerDeps {
   verifyToken: (token: string | null) => TokenPayloadLike | null
   // gate ON かつ token 有効のときにのみ呼ばれる（service-role client 生成をここに閉じ込める）。
   openContext: () => IngestionContext
+  // PR-19D: grace 判定用の clock（省略時 Date.now）。テストで固定するために注入可能。
+  now?: () => number
 }
 
 export interface IngestionHandlerResult {
@@ -110,8 +116,17 @@ export async function handleTranscriptIngestion(
     applicant,
     interview,
   })
-  if (!authz.ok) return mapAuthz(authz.code)
-  // authz.ok の時点で interview は非 null かつ in_progress。以降 interview.id を書込対象に使う（body 値は使わない）。
+  if (!authz.ok) {
+    // PR-19D: completion grace。/end 直後に着弾した末尾 transcript を短時間だけ拾う。
+    //   status='completed' かつ ended_at から grace 以内のときだけ NOT_IN_PROGRESS を上書きして許可。
+    //   cancelled / grace 超過 / in_progress 以外の失敗理由（UNAUTHORIZED 等）は許可しない。
+    const graceAllowed =
+      authz.code === 'NOT_IN_PROGRESS' &&
+      !!interview &&
+      isWithinCompletionGrace(interview.status, interview.endedAt, (deps.now ?? Date.now)())
+    if (!graceAllowed) return mapAuthz(authz.code)
+  }
+  // authz.ok または grace 許可。interview は非 null（authz が NOT_FOUND を返さない）。書込対象は interview.id（body 値は使わない）。
   const interviewId = interview!.id
 
   // 5) request limits（本文サイズ・metadata 長）。text は既存 TRANSCRIPT_TEXT_MAX を Source of Truth に。

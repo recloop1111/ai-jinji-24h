@@ -42,9 +42,10 @@ const aiBody = (over: Record<string, unknown> = {}) => ({
 interface Overrides {
   gate?: boolean
   payload?: TokenPayloadLike | null
-  entities?: { company: CompanyRowLike | null; applicant: ApplicantRowLike | null; interview: InterviewRowLike | null }
+  entities?: { company: CompanyRowLike | null; applicant: ApplicantRowLike | null; interview: (InterviewRowLike & { endedAt?: string | null }) | null }
   repo?: TranscriptRepository
   allocator?: SeqAllocator
+  now?: number
 }
 function makeDeps(o: Overrides = {}) {
   const repo = o.repo ?? new InMemoryTranscriptRepository()
@@ -56,7 +57,7 @@ function makeDeps(o: Overrides = {}) {
   const openContext = vi.fn(() => ctx)
   const verifyToken = vi.fn(() => (o.payload === undefined ? okPayload : o.payload))
   const gate = vi.fn(() => o.gate ?? true)
-  const deps: IngestionHandlerDeps = { gate, verifyToken, openContext }
+  const deps: IngestionHandlerDeps = { gate, verifyToken, openContext, now: o.now !== undefined ? () => o.now! : undefined }
   return { deps, repo: repo as InMemoryTranscriptRepository, allocSpy, loadEntities, openContext, verifyToken, gate }
 }
 
@@ -309,5 +310,56 @@ describe('PII / response / no-side-effect', () => {
     const r = await handleTranscriptIngestion(applicantBody(), SLUG, deps)
     expect(JSON.stringify(r)).not.toContain('iv-1')
     expect(JSON.stringify(r)).not.toContain('前職では営業')
+  })
+})
+
+describe('completion grace (PR-19D)', () => {
+  const T0 = Date.parse('2026-01-01T00:00:00.000Z')
+  const endedAt = new Date(T0).toISOString()
+
+  it('AI: in_progress → 許可（grace 非依存）', async () => {
+    const { deps, repo } = makeDeps()
+    expect((await handleTranscriptIngestion(applicantBody(), SLUG, deps)).httpStatus).toBe(200)
+    expect(repo.all()).toHaveLength(1)
+  })
+
+  it('AF: completed かつ grace 以内 → 書込許可（末尾着弾を拾う）', async () => {
+    const { deps, repo } = makeDeps({
+      entities: { company, applicant, interview: { ...interview, status: 'completed', endedAt } },
+      now: T0 + 10_000,
+    })
+    const r = await handleTranscriptIngestion(applicantBody(), SLUG, deps)
+    expect(r).toMatchObject({ ok: true, httpStatus: 200 })
+    expect(repo.all()).toHaveLength(1)
+  })
+
+  it('AG: completed だが grace 超過 → 409 INTERVIEW_NOT_ACTIVE', async () => {
+    const { deps, repo } = makeDeps({
+      entities: { company, applicant, interview: { ...interview, status: 'completed', endedAt } },
+      now: T0 + 10 * 60_000,
+    })
+    const r = await handleTranscriptIngestion(applicantBody(), SLUG, deps)
+    expect(r).toMatchObject({ httpStatus: 409, code: 'INTERVIEW_NOT_ACTIVE' })
+    expect(repo.all()).toHaveLength(0)
+  })
+
+  it('AG: completed で ended_at 欠落 → 拒否（既存 test 後方互換）', async () => {
+    const { deps } = makeDeps({ entities: { company, applicant, interview: { ...interview, status: 'completed' } } })
+    expect((await handleTranscriptIngestion(applicantBody(), SLUG, deps)).httpStatus).toBe(409)
+  })
+
+  it('AH: cancelled は grace 以内でも拒否', async () => {
+    const { deps, repo } = makeDeps({
+      entities: { company, applicant, interview: { ...interview, status: 'cancelled', endedAt } },
+      now: T0 + 5_000,
+    })
+    expect((await handleTranscriptIngestion(applicantBody(), SLUG, deps)).httpStatus).toBe(409)
+    expect(repo.all()).toHaveLength(0)
+  })
+
+  it('grace 許可でも UNAUTHORIZED 等は上書きしない（NOT_IN_PROGRESS 限定）', async () => {
+    // slug 不一致は 401 のまま（grace は completed の in_progress 相当のみ緩和）。
+    const { deps } = makeDeps({ payload: { slug: 'other', applicant_id: 'app-1' } })
+    expect((await handleTranscriptIngestion(applicantBody(), SLUG, deps)).httpStatus).toBe(401)
   })
 })

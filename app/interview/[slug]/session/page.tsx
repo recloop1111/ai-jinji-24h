@@ -9,6 +9,7 @@ import {
   INTERVIEW_WARNING_REMAINING_MINUTES,
 } from '@/lib/config/interview-policy'
 import { connectRealtimeCall } from '@/lib/interview/realtime-client'
+import { createTranscriptDelivery, type TranscriptDelivery } from '@/lib/interview/transcript-delivery'
 import {
   createMockPresenceDriver,
   type InterviewPhase,
@@ -122,6 +123,8 @@ export default function SessionPage() {
   const remoteAudioRef = useRef<HTMLAudioElement>(null)
   // transcript は PR-2 ではメモリ保持のみ（DB保存は PR-3）。
   const transcriptRef = useRef<{ role: 'applicant' | 'ai'; text: string }[]>([])
+  // PR-19D: FINAL transcript を secure ingestion API へ配送する delivery（React rerender で失わないよう useRef 保持）。
+  const deliveryRef = useRef<TranscriptDelivery | null>(null)
   // 二重 /end 防止（自動完了・手動終了・時間切れの競合を同期的に弾く）
   const endTriggeredRef = useRef(false)
   // モック質問プログレッションを1セッションにつき1回だけ起動させるガード
@@ -655,6 +658,12 @@ export default function SessionPage() {
             // AI が一度でも応答したら初回応答ウォッチドッグを解除（セッションは生きている）。
             if (t.role === 'ai') aiRespondedRef.current = true
           },
+          // PR-19D: FINAL transcript event（item metadata 付き）を secure ingestion API へ配送キューへ。
+          //   speaker/source/seq/final/dedup_key は送らない（server が event_type から導出・採番・生成）。
+          //   gate OFF なら delivery が 503 で自己無効化（storm なし）。本文は log しない。
+          onTranscriptEvent: (meta) => {
+            deliveryRef.current?.enqueue(meta)
+          },
           // P2-b / 追加P1: realtime のターン数は answeredQuestions に反映しない。
           // ターン数（follow-up / VAD 分割 / ノイズ）は「回答済み質問数」ではないため、これで完了判定
           // （answeredQuestions >= totalQuestions → completed）を駆動すると、切断/時間切れ/手動終了で
@@ -794,6 +803,21 @@ export default function SessionPage() {
     }
   }, [])
 
+  // PR-19D: transcript delivery のライフサイクル。interviewId 確定後に 1 インスタンス生成し、unmount で destroy
+  // （timer を残さない）。gate OFF（503）時は delivery が session 中に自己無効化するため UX を壊さない。
+  useEffect(() => {
+    if (!interviewId || !applicantId) return
+    const token = sessionStorage.getItem(`interview_${slug}_token`)
+    if (!token) return
+    const language = sessionStorage.getItem(`interview_${slug}_language`) || null
+    const delivery = createTranscriptDelivery({ slug, context: { token, applicantId, interviewId, language } })
+    deliveryRef.current = delivery
+    return () => {
+      delivery.destroy()
+      if (deliveryRef.current === delivery) deliveryRef.current = null
+    }
+  }, [interviewId, applicantId, slug])
+
   // 面接タイマー（60分で自動終了）。interviewId 確定（start 成功）後のみ作動させる。
   useEffect(() => {
     if (!interviewId) return
@@ -881,10 +905,21 @@ export default function SessionPage() {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
     }
-    // Realtime 接続を切断（P2P セッションを残さない）。
+    // Realtime 接続を切断（P2P セッションを残さない）。close() は「新規 event の受付」を止めるだけで、
+    // 既に onTranscriptEvent 済みの末尾発話は delivery の queue に残る（close で失われない）。
     if (realtimeRef.current) {
       realtimeRef.current.close()
       realtimeRef.current = null
+    }
+
+    // PR-19D: /end より前に transcript を flush（末尾発話の欠落を減らす）。失敗/timeout でも終了を止めない
+    // （応募者を終了画面から出られなくしない）。flush 結果（success/partial_failure/timeout）は内部限りで UI へ出さない。
+    if (deliveryRef.current) {
+      try {
+        await deliveryRef.current.flush()
+      } catch {
+        /* noop: flush 失敗は面接終了を止めない（残りは server の completion grace で拾える範囲） */
+      }
     }
 
     // 面接終了: interviewsテーブルをUPDATE
