@@ -1,3 +1,5 @@
+import { parseRealtimeTranscriptEvent, type RealtimeTranscriptEventMeta } from './realtime-transcript-adapter'
+
 // ブラウザ側 WebRTC クライアント（PR-2・SDP proxy 方式）。
 // ブラウザは OpenAI と直接ではなく、自社 /api/interview/[slug]/realtime-call へ offer SDP を送り、
 // application/sdp の answer を受け取って P2P メディアを確立する。API キー/client_secret は扱わない。
@@ -8,6 +10,9 @@ export type RealtimeCallbacks = {
   onRemoteStream?: (stream: MediaStream) => void
   // 文字起こし（PR-2 はメモリ保持のみ。永続化は PR-3）。
   onTranscript?: (t: { role: 'applicant' | 'ai'; text: string }) => void
+  // PR-19A: FINAL transcript event の「生 metadata」を surface（item_id/content_index/response_id を含む）。
+  // 既存 onTranscript は後方互換で維持。19C の trusted ingestion がこの meta を使って speaker 正規化/dedup 生成する。
+  onTranscriptEvent?: (meta: RealtimeTranscriptEventMeta) => void
   // 応募者ターンの完了（進捗表示用。PR-2 では /end を自動発火しない）。
   onApplicantTurnComplete?: () => void
   // 全質問完了シグナル（サーバー定義 tool complete_interview を AI が呼んだとき）。
@@ -215,15 +220,14 @@ export function dispatchEvent(raw: string, cb: RealtimeCallbacks | undefined): v
     cb.onInterviewComplete?.()
     return
   }
-  // 応募者の発話文字起こし完了 → transcript ＋ ターン完了（進行カウント）。
-  if (type.includes('input_audio_transcription') && type.endsWith('completed')) {
-    if (text) cb.onTranscript?.({ role: 'applicant', text })
-    cb.onApplicantTurnComplete?.()
-    return
-  }
-  // AI の応答文字起こし完了。
-  if (type.includes('audio_transcript') && type.endsWith('done')) {
-    if (text) cb.onTranscript?.({ role: 'ai', text })
+  // PR-19A: FINAL transcript event（応募者 completed / AI done）。判定・話者・item metadata 抽出は adapter に集約。
+  //   既存挙動は不変（onTranscript は text があるときのみ・応募者は onApplicantTurnComplete）。
+  //   追加で onTranscriptEvent に item_id/content_index/response_id を surface（19C ingestion 用）。
+  const meta = parseRealtimeTranscriptEvent(evt)
+  if (meta) {
+    if (text) cb.onTranscript?.({ role: meta.role, text })
+    cb.onTranscriptEvent?.(meta)
+    if (meta.role === 'applicant') cb.onApplicantTurnComplete?.()
     return
   }
   // 未知イベントは無視（スキーマ差異に強くする）。
