@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { User } from '@supabase/supabase-js'
+import { assertSupabaseSafeForDev } from '@/lib/supabase/env-guard'
 
 // ポータル別にセッションを refresh/取得する。storageKey（cookieOptions.name）を指定すると、
 // その cookie だけを読み書きする（admin は admin cookie、client は client cookie）。
@@ -15,6 +16,7 @@ export async function updateSession(
 }> {
   let supabaseResponse = NextResponse.next({ request })
 
+  assertSupabaseSafeForDev(process.env.NEXT_PUBLIC_SUPABASE_URL)
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

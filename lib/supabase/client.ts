@@ -1,5 +1,6 @@
 import { createBrowserClient } from '@supabase/ssr'
 import { ADMIN_AUTH_STORAGE_KEY, CLIENT_AUTH_STORAGE_KEY } from '@/lib/config/auth-cookies'
+import { assertSupabaseSafeForDev } from '@/lib/supabase/env-guard'
 
 // 運営(admin)/企業(client) のブラウザ用 Supabase クライアントを **完全分離** する。
 // それぞれ別の cookie（cookieOptions.name）を使うため、同一ブラウザで同時ログインできる。
@@ -8,6 +9,7 @@ import { ADMIN_AUTH_STORAGE_KEY, CLIENT_AUTH_STORAGE_KEY } from '@/lib/config/au
 //   cookie 名だけ変えても同じ cached インスタンスが返る事故を防ぐため、両方に必ず
 //   `isSingleton: false` を指定する。
 function makePortalBrowserClient(storageKey: string) {
+  assertSupabaseSafeForDev(process.env.NEXT_PUBLIC_SUPABASE_URL)
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -38,6 +40,7 @@ export function createClientBrowserClient() {
 // 旧 default cookie を使う汎用ブラウザクライアント（公開フロー等の互換用）。
 // ポータル領域（admin/client）では使わない。新しい認証 cookie とは別物。
 export function createClient() {
+  assertSupabaseSafeForDev(process.env.NEXT_PUBLIC_SUPABASE_URL)
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

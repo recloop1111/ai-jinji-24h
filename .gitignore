@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...but DO commit the non-secret template (real secrets never committed).
+!.env.example
 
 # disposable local ops scripts (do not commit)
 scripts/reset-demo-password.mjs
@@ -43,3 +45,8 @@ scripts/reset-demo-password.mjs
 *.tsbuildinfo
 next-env.d.ts
 .next 2
+
+# P2-5 local Supabase (do not commit generated/secret artifacts)
+supabase/.temp/
+supabase/.branches/
+.env.local

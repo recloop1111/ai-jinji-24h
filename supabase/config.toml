@@ -1,0 +1,49 @@
+# ai-jinji-24h — LOCAL-ONLY isolated Supabase config (P2-5 Phase A).
+# 目的: store-growth-os(既存 local Supabase・ports 54321-54327) と衝突せず、Production にも接続しない
+#       ai-jinji-24h 専用の隔離 local スタックを立てる。全ポートを 544xx へオフセット。
+# 【重要】このプロジェクトは remote へ link しない（supabase link 禁止）。db reset/push は local のみに作用する。
+project_id = "ai-jinji-24h-local"
+
+[api]
+enabled = true
+port = 54421
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54422
+shadow_port = 54420
+major_version = 15
+
+[db.pooler]
+enabled = false
+port = 54429
+
+[realtime]
+enabled = true
+
+[studio]
+enabled = true
+port = 54423
+api_url = "http://127.0.0.1"
+
+[inbucket]
+enabled = true
+port = 54424
+
+[storage]
+enabled = false
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["http://127.0.0.1:3000"]
+jwt_expiry = 3600
+enable_signup = true
+
+[analytics]
+enabled = false
+
+[edge_runtime]
+enabled = false
