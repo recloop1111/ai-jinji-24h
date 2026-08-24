@@ -1,6 +1,7 @@
 'use client'
 
 import { useParams, useRouter } from 'next/navigation'
+import { APP_NAME } from '@/constants'
 import { CheckCircle, Lightbulb } from 'lucide-react'
 
 // TODO: Phase 4 - GPT-4oで面接内容からフィードバックを自動生成
@@ -102,7 +103,7 @@ export default function FeedbackPage() {
 
         {/* フッター */}
         <footer className="mt-8 sm:mt-12 pt-6 sm:pt-8 border-t border-white/10">
-          <p className="text-center text-xs sm:text-sm text-gray-400">Powered by AI人事24h</p>
+          <p className="text-center text-xs sm:text-sm text-gray-400">Powered by {APP_NAME}</p>
         </footer>
       </div>
     </div>

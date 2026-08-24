@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { APP_NAME } from '@/constants'
 import { useTemplates, type Template } from '../../contexts/TemplatesContext'
 import { Plus as PlusIcon, Copy as CopyIcon, Pencil as PencilIcon, Trash2 as TrashIcon } from 'lucide-react'
 
@@ -182,7 +183,7 @@ export default function TemplatesPage() {
                     type="text"
                     value={formSubject}
                     onChange={(e) => setFormSubject(e.target.value)}
-                    placeholder="例: 【AI人事24h】面接のご案内"
+                    placeholder={`例: 【${APP_NAME}】面接のご案内`}
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
                   />
                 </div>

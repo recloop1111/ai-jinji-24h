@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { APP_NAME } from '@/constants'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createAdminBrowserClient } from '@/lib/supabase/client'
@@ -85,7 +86,7 @@ export default function AdminDashboardShell({ children }: { children: React.Reac
         {/* ロゴ */}
         <div className="p-5 border-b border-white/5 shrink-0 flex items-center">
           <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400 text-lg font-bold">
-            AI人事24h
+            {APP_NAME}
           </span>
           <span className="ml-2 bg-gradient-to-r from-red-500 to-rose-500 text-white text-xs px-2 py-0.5 rounded-full font-medium">
             運営管理

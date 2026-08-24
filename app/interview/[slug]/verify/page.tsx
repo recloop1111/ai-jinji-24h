@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { APP_NAME } from '@/constants'
 import { useParams, useRouter } from 'next/navigation'
 import { normalizeDigits } from '@/lib/utils/normalizeDigits'
 
@@ -208,7 +209,7 @@ export default function VerifyPage() {
 
       {/* ロゴと会社名 */}
       <div className="pt-4 pb-3">
-        <h1 className="text-blue-700 font-bold text-base text-center">AI人事24h</h1>
+        <h1 className="text-blue-700 font-bold text-base text-center">{APP_NAME}</h1>
         <p className="text-gray-600 text-xs text-center mb-3">{displayCompany.name}</p>
       </div>
 

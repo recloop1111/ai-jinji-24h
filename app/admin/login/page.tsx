@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { APP_NAME } from '@/constants'
 import { useRouter } from 'next/navigation'
 import PasswordInput from '@/components/shared/PasswordInput'
 import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget'
@@ -49,7 +50,7 @@ export default function AdminLoginPage() {
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-white">AI人事24h</h1>
+          <h1 className="text-2xl font-bold text-white">{APP_NAME}</h1>
           <p className="text-sm text-slate-400 mt-1">運営管理画面</p>
         </div>
 

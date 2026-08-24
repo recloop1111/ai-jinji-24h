@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { APP_NAME } from '@/constants'
 import { useParams, useRouter } from 'next/navigation'
 import { Volume2, User, AlertCircle, Check, RefreshCw } from 'lucide-react'
 import {
@@ -282,7 +283,7 @@ export default function PreparePage() {
     <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen pb-8">
       {/* ロゴと会社名 */}
       <div className="pt-4 pb-3">
-        <h1 className="text-blue-700 font-bold text-base text-center">AI人事24h</h1>
+        <h1 className="text-blue-700 font-bold text-base text-center">{APP_NAME}</h1>
         <p className="text-gray-600 text-xs text-center mb-3">{displayCompany.name}</p>
       </div>
 
