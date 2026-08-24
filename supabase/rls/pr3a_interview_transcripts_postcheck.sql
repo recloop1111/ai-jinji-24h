@@ -80,3 +80,23 @@ SELECT conname, confrelid::regclass AS references_table, confdeltype AS on_delet
 FROM pg_constraint
 WHERE conrelid = 'public.interview_transcripts'::regclass AND contype = 'f';
 -- 期待: references_table = interviews、on_delete = 'c'（CASCADE）。
+
+-- 9) 明示 table privilege（ambient に依存しない）。実効権限を has_table_privilege で確認。
+SELECT
+  has_table_privilege('authenticated', 'public.interview_transcripts', 'SELECT') AS authenticated_select, -- 期待 true
+  has_table_privilege('authenticated', 'public.interview_transcripts', 'INSERT') AS authenticated_insert, -- 期待 false
+  has_table_privilege('authenticated', 'public.interview_transcripts', 'UPDATE') AS authenticated_update, -- 期待 false
+  has_table_privilege('authenticated', 'public.interview_transcripts', 'DELETE') AS authenticated_delete, -- 期待 false
+  has_table_privilege('anon',          'public.interview_transcripts', 'SELECT') AS anon_select,          -- 期待 false
+  has_table_privilege('anon',          'public.interview_transcripts', 'INSERT') AS anon_insert,          -- 期待 false
+  has_table_privilege('service_role',  'public.interview_transcripts', 'SELECT') AS service_select,       -- 期待 true
+  has_table_privilege('service_role',  'public.interview_transcripts', 'INSERT') AS service_insert,       -- 期待 true
+  has_table_privilege('service_role',  'public.interview_transcripts', 'UPDATE') AS service_update;       -- 期待 true
+
+-- 10) 明示 GRANT の一覧（PUBLIC/anon に SELECT/DML が残っていないこと）。
+SELECT grantee, string_agg(privilege_type, ',' ORDER BY privilege_type) AS privs
+FROM information_schema.role_table_grants
+WHERE table_schema = 'public' AND table_name = 'interview_transcripts'
+  AND grantee IN ('anon', 'authenticated', 'service_role', 'PUBLIC')
+GROUP BY grantee ORDER BY grantee;
+-- 期待: authenticated=SELECT / service_role=DELETE,INSERT,SELECT,UPDATE / anon・PUBLIC は SELECT/DML を含まない。

@@ -111,6 +111,21 @@ CREATE POLICY admin_select_interview_transcripts ON public.interview_transcripts
 -- INSERT / UPDATE / DELETE の policy は「与えない」＝anon/authenticated からは不可。
 -- 書き込みは service-role（RLS bypass）API（PR-3B）でのみ行う。anon には SELECT policy も無い＝一切不可。
 
+-- ── 明示的 table privilege（ambient / default privilege に依存しない＝fresh Supabase へ移植可能）─────────
+--   Supabase の default privilege は環境により new table へ SELECT/DML を自動付与しない場合があり、
+--   その場合 RLS policy が正しくても authenticated は「permission denied」、service-role writer も INSERT 不可になる。
+--   よって既存 auth_login_throttle と同じく REVOKE ALL + 明示 GRANT で権限を確定する（RLS が row isolation を担う）。
+--     authenticated : SELECT のみ（company/admin policy 経由で自社/全社 row を読む。INSERT/UPDATE/DELETE 不可）。
+--     anon          : 何も付与しない（SELECT/DML すべて不可）。
+--     service_role  : SELECT/INSERT/UPDATE/DELETE（server-side writer=saveUtterance / reader=loader / retention）。RLS bypass。
+--     PUBLIC        : 何も残さない（PUBLIC 経由の権限漏れを防ぐ）。
+REVOKE ALL ON public.interview_transcripts FROM PUBLIC;
+REVOKE ALL ON public.interview_transcripts FROM anon;
+REVOKE ALL ON public.interview_transcripts FROM authenticated;
+REVOKE ALL ON public.interview_transcripts FROM service_role;
+GRANT SELECT ON public.interview_transcripts TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.interview_transcripts TO service_role;
+
 COMMIT;
 
 RESET lock_timeout;
