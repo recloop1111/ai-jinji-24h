@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { ADMIN_AUTH_STORAGE_KEY, CLIENT_AUTH_STORAGE_KEY } from '@/lib/config/auth-cookies'
+import { assertSupabaseSafeForDev } from '@/lib/supabase/env-guard'
 
 /**
  * Service Role Key を使用するサーバー専用クライアント。
@@ -9,6 +10,8 @@ import { ADMIN_AUTH_STORAGE_KEY, CLIENT_AUTH_STORAGE_KEY } from '@/lib/config/au
  * API Route の管理者操作でのみ使用すること。
  */
 export function createServiceRoleClient() {
+  // dev で Production Supabase を指していたら fail-fast（本番誤書込を防ぐ・本番/preview/test は無影響）。
+  assertSupabaseSafeForDev(process.env.NEXT_PUBLIC_SUPABASE_URL)
   return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -19,6 +22,7 @@ export function createServiceRoleClient() {
 // storageKey（cookieOptions.name）で読み書きする cookie を限定するため、
 // admin server client は admin cookie だけ、client server client は client cookie だけを扱う。
 async function createPortalServerClient(storageKey: string | undefined) {
+  assertSupabaseSafeForDev(process.env.NEXT_PUBLIC_SUPABASE_URL)
   const cookieStore = await cookies()
 
   return createServerClient(
