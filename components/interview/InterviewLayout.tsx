@@ -1,6 +1,7 @@
 'use client'
 
 import { ReactNode } from 'react'
+import { APP_NAME } from '@/constants'
 
 type MaxWidth = 'sm' | 'md' | 'lg'
 
@@ -35,7 +36,7 @@ export default function InterviewLayout({
                 className="h-12 mx-auto mb-3"
               />
             ) : (
-              <span className="text-lg font-bold text-blue-600">AI人事24h</span>
+              <span className="text-lg font-bold text-blue-600">{APP_NAME}</span>
             )}
             {companyName && (
               <h1 className="text-xl font-bold text-gray-900 mt-3">{companyName}</h1>
@@ -45,7 +46,7 @@ export default function InterviewLayout({
         </div>
       </div>
       <footer className="py-4 text-center text-sm text-gray-500">
-        Powered by AI人事24h
+        Powered by {APP_NAME}
       </footer>
     </div>
   )

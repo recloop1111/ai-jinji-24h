@@ -1,6 +1,7 @@
 'use client'
 
 import { useRouter, useParams } from 'next/navigation'
+import { APP_NAME } from '@/constants'
 
 export default function TermsPage() {
   const router = useRouter()
@@ -24,7 +25,7 @@ export default function TermsPage() {
           <div>
             <h2 className="text-base font-bold text-gray-800 mt-6 mb-2">第1条（サービスの概要）</h2>
             <p className="text-sm text-gray-600 leading-relaxed">
-              本サービス「AI人事24h」（以下「本サービス」）は、人工知能（AI）技術を活用したオンライン面接システムです。応募者様は、インターネットに接続された端末を通じて、AIによる面接を受けることができます。本サービスを利用することにより、応募者様は本利用規約に同意したものとみなされます。
+              本サービス「{APP_NAME}」（以下「本サービス」）は、人工知能（AI）技術を活用したオンライン面接システムです。応募者様は、インターネットに接続された端末を通じて、AIによる面接を受けることができます。本サービスを利用することにより、応募者様は本利用規約に同意したものとみなされます。
             </p>
           </div>
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { APP_NAME } from '@/constants'
 import { useParams } from 'next/navigation'
 import {
   parseInterviewSummary,
@@ -79,7 +80,7 @@ export default function CompletePage() {
       <div className="flex-1 flex flex-col max-w-lg mx-auto w-full px-4 sm:px-6 py-6 sm:py-8">
         {/* ヘッダー */}
         <header className="text-center shrink-0 mb-8">
-          <span className="text-sm font-bold tracking-wide text-blue-600">AI人事24h</span>
+          <span className="text-sm font-bold tracking-wide text-blue-600">{APP_NAME}</span>
           <h1 className="text-lg sm:text-xl font-semibold text-gray-900 tracking-tight mt-2">面接お疲れ様でした</h1>
           <p className="text-sm text-gray-600 mt-2">結果は企業の担当者よりご連絡いたします。</p>
         </header>
@@ -151,7 +152,7 @@ export default function CompletePage() {
           ) : (
             <p className="text-center text-gray-600 text-sm">ご協力ありがとうございます</p>
           )}
-          <p className="text-center text-xs text-gray-400 mt-4">Powered by AI人事24h</p>
+          <p className="text-center text-xs text-gray-400 mt-4">Powered by {APP_NAME}</p>
         </footer>
       </div>
     </div>
