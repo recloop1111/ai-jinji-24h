@@ -195,8 +195,11 @@ export default function VerifyPage() {
     )
   }
 
-  const displayCompany = company || { id: '', name: '企業名', logo_url: null, is_suspended: false }
+  const displayCompany = company || { id: '', name: '企業名', logo_url: null, is_suspended: false, is_demo: false }
   const isCodeComplete = code.every((digit) => digit !== '')
+  // デモ企業判定は public-config（server が slug→company を解決した結果）の is_demo のみを表示に使う。
+  // 実際の認証可否は sms/verify 側で server が再判定するため、この表示はあくまで UX。
+  const isDemo = company?.is_demo === true
 
   return (
     <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen pb-8">
@@ -226,18 +229,39 @@ export default function VerifyPage() {
           {/* タイトル */}
           <div className="text-center">
             <h2 className="text-xl font-bold text-gray-800 text-center">本人確認</h2>
-            <p className="text-sm text-gray-500 text-center mt-2">
-              ご入力いただいた電話番号にSMSで認証コードを送信しました。<br />
-              届いた4桁のコードを入力してください。
-            </p>
+            {isDemo ? (
+              <p className="text-sm text-gray-500 text-center mt-2">
+                これはデモ環境です。SMSは送信されません。<br />
+                下記のデモ用コードを入力してください。
+              </p>
+            ) : (
+              <p className="text-sm text-gray-500 text-center mt-2">
+                ご入力いただいた電話番号にSMSで認証コードを送信しました。<br />
+                届いた4桁のコードを入力してください。
+              </p>
+            )}
           </div>
 
-          {/* 電話番号表示 */}
-          <div className="text-center">
-            <div className="text-gray-700 font-mono bg-gray-50 rounded-lg py-2 px-4 inline-block">
-              090-****-5678
+          {isDemo ? (
+            /* デモ企業: 実SMSは送らず固定コードで認証。応募者にデモであることと入力コードを明示する。 */
+            <div
+              className="text-center bg-blue-50 border border-blue-200 rounded-lg py-3 px-4"
+              role="status"
+            >
+              <p className="text-sm text-blue-800 font-medium">
+                デモ環境のため、認証コード「
+                <span className="font-mono font-bold tracking-widest">1234</span>
+                」を入力してください。
+              </p>
             </div>
-          </div>
+          ) : (
+            /* 通常企業: 送信先電話番号（マスク表示） */
+            <div className="text-center">
+              <div className="text-gray-700 font-mono bg-gray-50 rounded-lg py-2 px-4 inline-block">
+                090-****-5678
+              </div>
+            </div>
+          )}
 
           {/* 認証コード入力 */}
           <div className="flex justify-center gap-3">
@@ -270,15 +294,17 @@ export default function VerifyPage() {
             認証する
           </button>
 
-          {/* コードが届かない場合 */}
-          <p className="text-center">
-            <button
-              onClick={handleResend}
-              className="text-sm text-blue-600 hover:text-blue-700 underline"
-            >
-              コードが届かない場合
-            </button>
-          </p>
+          {/* コードが届かない場合（デモ企業は実SMSを送らないため非表示） */}
+          {!isDemo && (
+            <p className="text-center">
+              <button
+                onClick={handleResend}
+                className="text-sm text-blue-600 hover:text-blue-700 underline"
+              >
+                コードが届かない場合
+              </button>
+            </p>
+          )}
 
           {/* 面接をキャンセルする */}
           <p className="text-center">
