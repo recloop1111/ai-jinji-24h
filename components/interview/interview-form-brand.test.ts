@@ -61,4 +61,23 @@ describe('#2 form: 「次へ進む」が silent に失敗しない', () => {
     expect(FORM).toContain('setSubmitting(true)')
     expect(FORM).toContain('TURNSTILE_SITE_KEY && !captchaToken') // captcha を弱めない
   })
+  it('API のエラーメッセージを honest に表示（captcha 失敗を「保存失敗」で覆い隠さない）', () => {
+    // json.error.message を優先表示し、無い場合のみ汎用文言に fallback。
+    expect(FORM).toContain("json?.error?.message || '情報の保存に失敗しました")
+  })
+})
+
+describe('性別: 男性 / 女性 の 2 択（その他 は撤去）', () => {
+  // 性別 InputField ブロックだけを抜き出して検証（EDUCATION_OPTIONS の その他 と混同しない）。
+  const start = FORM.indexOf('label="性別"')
+  const genderBlock = FORM.slice(start, FORM.indexOf('</InputField>', start))
+  it('男性・女性 の選択肢がある', () => {
+    expect(start).toBeGreaterThan(0)
+    expect(genderBlock).toContain("{ value: 'male', label: '男性' }")
+    expect(genderBlock).toContain("{ value: 'female', label: '女性' }")
+  })
+  it('その他（other）は性別の選択肢から撤去されている', () => {
+    expect(genderBlock).not.toContain("value: 'other'")
+    expect(genderBlock).not.toContain('その他')
+  })
 })

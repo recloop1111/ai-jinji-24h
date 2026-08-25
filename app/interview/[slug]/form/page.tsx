@@ -243,7 +243,9 @@ export default function FormPage() {
       const json = await res.json().catch(() => null)
 
       if (!res.ok || !json?.applicant_id) {
-        setErrors({ submit: '情報の保存に失敗しました。もう一度お試しください。' })
+        // API が返す具体的な原因（例: 認証に失敗しました＝captcha 検証失敗）をそのまま表示し、
+        // 原因を「保存失敗」で覆い隠さない。メッセージが無い場合のみ汎用文言に fallback。
+        setErrors({ submit: json?.error?.message || '情報の保存に失敗しました。もう一度お試しください。' })
         setCaptchaToken('')
         turnstileRef.current?.reset()
         setSubmitting(false)
@@ -360,7 +362,6 @@ export default function FormPage() {
               options={[
                 { value: 'male', label: '男性' },
                 { value: 'female', label: '女性' },
-                { value: 'other', label: 'その他' },
               ]}
               placeholder="選択してください"
             />
