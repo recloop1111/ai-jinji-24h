@@ -47,6 +47,9 @@ export default function FormPage() {
   const slug = params.slug as string
 
   const [companyId, setCompanyId] = useState<string | null>(null)
+  // 上部に表示する「応募先企業名/ロゴ」（/interview/[slug] と同じ public-config を情報源に再利用）。
+  const [companyName, setCompanyName] = useState('')
+  const [companyLogo, setCompanyLogo] = useState<string | null>(null)
   const [isDemo, setIsDemo] = useState(false)
   const [jobTypes, setJobTypes] = useState<{ value: string; label: string; employmentType: string }[]>([])
   const [loading, setLoading] = useState(true)
@@ -95,6 +98,8 @@ export default function FormPage() {
       }
 
       setCompanyId(company.id)
+      setCompanyName(company.name ?? '')
+      setCompanyLogo(company.logo_url ?? null)
       setIsDemo(company.is_demo ?? false)
 
       // デモモードの場合はテスト用初期値を設定
@@ -176,8 +181,20 @@ export default function FormPage() {
   }
 
   async function handleSubmit() {
-    if (!validate()) return
-    if (!companyId) return
+    if (!validate()) {
+      // validate() が各フィールドの errors を setErrors 済み。必須項目が画面外でも「押しても進めない理由」が
+      // 分かるよう、ボタン付近にも必ず要約メッセージを出す（silent に進めないだけにしない）。
+      setErrors((prev) => ({
+        ...prev,
+        submit: prev.submit || '未入力またはエラーの項目があります。各項目のエラー表示をご確認ください。',
+      }))
+      return
+    }
+    if (!companyId) {
+      // 企業情報の解決に失敗している状態。silent no-op にせず honest error を表示する。
+      setErrors({ submit: '企業情報を取得できませんでした。ページを再読み込みしてお試しください。' })
+      return
+    }
 
     setSubmitting(true)
 
@@ -247,7 +264,7 @@ export default function FormPage() {
 
   if (loading) {
     return (
-      <InterviewLayout>
+      <InterviewLayout companyName={companyName} companyLogo={companyLogo ?? undefined}>
         <div className="flex items-center justify-center py-12">
           <svg
             className="animate-spin h-8 w-8 text-blue-600"
@@ -275,7 +292,7 @@ export default function FormPage() {
   }
 
   return (
-    <InterviewLayout>
+    <InterviewLayout companyName={companyName} companyLogo={companyLogo ?? undefined}>
       <div className="mb-6">
         <StepIndicator currentStep={2} totalSteps={5} labels={STEP_LABELS} />
       </div>
