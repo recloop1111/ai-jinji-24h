@@ -5,6 +5,12 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClientBrowserClient } from '@/lib/supabase/client'
 import { deriveCurrentStatus, CURRENT_STATUS_LABEL } from '@/lib/applicants/displayStatus'
+import TranscriptLog from '@/components/interview/TranscriptLog'
+import {
+  TRANSCRIPT_DISPLAY_COLUMNS,
+  resolveTranscriptFetchState,
+  type TranscriptFetchState,
+} from '@/lib/interview/transcript-company-read'
 import { ChevronLeft as ChevronLeftIcon, ChevronDown as ChevronDownIcon, Play as PlayIcon, Download, Mail, LinkIcon, Copy, Check } from 'lucide-react'
 
 // TODO: Phase 4 実データに差替え
@@ -259,6 +265,7 @@ type ApplicantRow = {
 }
 
 type InterviewRow = {
+  id?: string | null
   status?: string | null
   started_at?: string | null
   ended_at?: string | null
@@ -399,6 +406,10 @@ export default function ApplicantDetailPage() {
   const [interview, setInterview] = useState<InterviewRow | null>(null)
   const [interviewResult, setInterviewResult] = useState<InterviewResultRow | null>(null)
   const [loading, setLoading] = useState(true)
+  // P3: 会話ログ（Transcript）。この応募者の最新 interview を browser Supabase(RLS) で取得。
+  //   4状態（ready/empty/schema_pending/error）を区別。missing-schema のみ safe empty へ縮退。
+  const [transcriptState, setTranscriptState] = useState<TranscriptFetchState>({ status: 'empty', items: [] })
+  const [transcriptLoading, setTranscriptLoading] = useState(false)
 
   // Supabaseから応募者データと面接データを取得
   useEffect(() => {
@@ -459,6 +470,34 @@ export default function ApplicantDetailPage() {
     }
     fetchApplicant()
   }, [id, supabase])
+
+  // P3: 会話ログ取得。最新 interview の transcript を RLS(company_select_interview_transcripts)＋
+  //   interview_id 絞り込みで取得（service-role をブラウザに出さない・companyId をブラウザから信用しない）。
+  //   最小列のみ SELECT・seq 昇順。missing-schema/permission/unknown は resolveTranscriptFetchState が区別。
+  useEffect(() => {
+    const interviewId = interview?.id
+    let cancelled = false
+    async function loadTranscript() {
+      if (!interviewId) {
+        setTranscriptState({ status: 'empty', items: [] })
+        setTranscriptLoading(false)
+        return
+      }
+      setTranscriptLoading(true)
+      const res = await supabase
+        .from('interview_transcripts')
+        .select(TRANSCRIPT_DISPLAY_COLUMNS)
+        .eq('interview_id', interviewId)
+        .order('seq', { ascending: true })
+      if (cancelled) return
+      setTranscriptState(resolveTranscriptFetchState(res))
+      setTranscriptLoading(false)
+    }
+    loadTranscript()
+    return () => {
+      cancelled = true
+    }
+  }, [interview?.id, supabase])
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -1161,28 +1200,21 @@ export default function ApplicantDetailPage() {
         </div>
       )}
 
-      {/* タブ3: 会話ログ */}
+      {/* タブ3: 会話ログ（P3: 実 interview_transcripts を RLS 経由で表示。4状態を区別） */}
       {activeTab === 'conversation' && (
         <div className="space-y-6">
-          {applicant?.status === '準備中' ? (
-            // 準備中時はメッセージ表示
+          {applicant?.status === '準備中' && !interview ? (
+            // 面接前（interview 無し）は準備中メッセージ（会話ログ取得の前段）
             <div className="rounded-2xl bg-white border border-slate-200/80 p-8 shadow-sm text-center">
               <p className="text-slate-600">回答ログはありません</p>
               <p className="text-sm text-slate-500 mt-2">面接が開始され次第、回答ログが表示されます。</p>
             </div>
           ) : (
-            <>
-              {/* 会話ログ（質問・回答のトランスクリプト）は現状データ源が無いため空状態。
-                  interview_logs は0件・transcript列なし。AI面接ログ生成（P-10/OpenAI）が前提 */}
-              <div className="rounded-2xl bg-white border border-slate-200/80 p-8 shadow-sm text-center">
-                <p className="text-slate-600">回答ログはありません</p>
-                <p className="text-sm text-slate-500 mt-2">
-                  {applicant?.status === '途中離脱'
-                    ? '面接が途中で終了したため、回答ログが記録されていません。'
-                    : '会話ログ（質問・回答のトランスクリプト）は現状記録されていません。'}
-                </p>
-              </div>
-            </>
+            <TranscriptLog
+              status={transcriptState.status}
+              items={transcriptState.items}
+              loading={transcriptLoading}
+            />
           )}
         </div>
       )}
