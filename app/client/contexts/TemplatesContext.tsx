@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, useState, useCallback } from 'react'
+import { APP_NAME } from '@/constants'
 
 // TODO: 実データに差替え
 export type Template = {
@@ -18,7 +19,7 @@ const DEFAULT_TEMPLATES: Template[] = [
     id: '1',
     name: '二次面接のご案内',
     updatedAt: '2025-02-08',
-    subject: '【AI人事24h】二次面接のご案内',
+    subject: `【${APP_NAME}】二次面接のご案内`,
     description: 'AI面接通過者に二次面接の日程を案内するメール',
     body: `この度はAI面接にご参加いただき、誠にありがとうございました。
 厳正なる選考の結果、二次面接へお進みいただくこととなりました。
@@ -34,7 +35,7 @@ const DEFAULT_TEMPLATES: Template[] = [
     id: '2',
     name: '不採用通知メール',
     updatedAt: '2025-02-03',
-    subject: '【AI人事24h】選考結果のお知らせ',
+    subject: `【${APP_NAME}】選考結果のお知らせ`,
     description: '不採用となった応募者に結果を通知するメール',
     body: `この度はAI面接にご参加いただき、誠にありがとうございました。
 慎重に選考を進めさせていただきましたが、誠に残念ながら今回はご期待に沿えない結果となりました。

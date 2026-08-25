@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { APP_NAME } from '@/constants'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClientBrowserClient } from '@/lib/supabase/client'
@@ -104,7 +105,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       >
         {/* ロゴ */}
         <div className="p-5 border-b border-slate-200 shrink-0">
-          <h1 className="text-lg font-bold text-slate-900">AI人事24h</h1>
+          <h1 className="text-lg font-bold text-slate-900">{APP_NAME}</h1>
           <p className="text-xs text-slate-500 mt-0.5">企業管理画面</p>
         </div>
 
