@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import PasswordInput from '@/components/shared/PasswordInput'
 import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget'
+import { APP_NAME } from '@/constants'
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
@@ -49,7 +50,7 @@ export default function ClientLoginPage() {
     <div className="min-h-screen bg-white flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-slate-900">AI人事24h</h1>
+          <h1 className="text-2xl font-bold text-slate-900">{APP_NAME}</h1>
           <p className="text-sm text-slate-500 mt-1">企業管理画面</p>
         </div>
 

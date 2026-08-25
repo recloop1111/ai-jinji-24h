@@ -1,6 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import { APP_NAME } from '@/constants'
 import { ChevronLeft } from 'lucide-react'
 
 // 動物キャラクターSVGアイコンコンポーネント（ゆるキャラ・LINEスタンプ風）
@@ -689,7 +690,7 @@ export default function DiagnosisPage() {
           </div>
 
           {/* Powered by */}
-          <p className="text-xs text-gray-400 text-center mt-2">Powered by AI人事24h</p>
+          <p className="text-xs text-gray-400 text-center mt-2">Powered by {APP_NAME}</p>
         </div>
 
         {/* 12タイプ一覧グリッド（モバイル） */}
@@ -803,7 +804,7 @@ export default function DiagnosisPage() {
             </div>
 
             {/* Powered by */}
-            <p className="text-xs text-gray-400 text-center mt-2">Powered by AI人事24h</p>
+            <p className="text-xs text-gray-400 text-center mt-2">Powered by {APP_NAME}</p>
           </div>
 
           {/* 12タイプ一覧グリッド */}
