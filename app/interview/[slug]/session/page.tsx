@@ -650,11 +650,17 @@ export default function SessionPage() {
                 .then(() => setAudioBlocked(false))
                 .catch(() => setAudioBlocked(true))
             }
+            // AI 音声チャンネルが有効化＝AI が最初に挨拶/質問する側 → speaking 表示（3状態アバター）。
+            setPhase('speaking')
           },
           onTranscript: (t) => {
             transcriptRef.current.push(t) // メモリ保持（表示/ウォッチドッグ用）
             // AI が一度でも応答したら初回応答ウォッチドッグを解除（セッションは生きている）。
             if (t.role === 'ai') aiRespondedRef.current = true
+            // 3状態アバターの turn ベース切替（realtime のみ・mock は presence driver が駆動）:
+            //   AI 発話の区切り(role='ai') → 応募者の番＝listening / 応募者発話の区切り(role='applicant') → AI が応答＝speaking。
+            //   FINAL イベント由来の近似（精緻なタイミングは R1 で確認）。ending 中は setPhase 側ガードで無視。
+            setPhase(t.role === 'ai' ? 'listening' : 'speaking')
           },
           // R1-A: FINAL transcript を server 権威 ingest へ best-effort POST（gate OFF＝TRANSCRIPT_INGEST_ENABLED 未設定なら
           //   route が 503 を返し DB 未到達＝no-op）。speaker/source/seq は server が event_type から導出（client は送らない）。

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { AI_INTERVIEWER } from '@/lib/interview/interviewer-identity'
 import {
   PrimaryButton,
 } from '@/components/interview/FormComponents'
@@ -371,14 +372,14 @@ export default function PracticePage() {
           <div className="flex flex-col items-center">
             <div className="rounded-full ring-4 ring-blue-500/20 shadow-2xl">
               <img
-                src="/images/ai-interviewer.jpg"
-                alt="AI面接官"
+                src={AI_INTERVIEWER.images.neutral}
+                alt={AI_INTERVIEWER.imageAlt}
                 className="w-[220px] h-[220px] md:w-[300px] md:h-[300px] rounded-full object-cover border-4 border-white/20"
               />
             </div>
 
-            {/* AI面接官テキスト */}
-            <p className="text-sm sm:text-base text-white/90 mt-3">AI面接官（練習モード）</p>
+            {/* AI面接官テキスト（共通 SoT） */}
+            <p className="text-sm sm:text-base text-white/90 mt-3">{AI_INTERVIEWER.displayName}（練習モード）</p>
 
             {/* 練習モードバッジ（アバター名の直下） */}
             <div className="mt-2">

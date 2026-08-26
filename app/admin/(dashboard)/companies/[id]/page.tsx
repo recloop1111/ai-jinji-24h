@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter, useSearchParams, usePathname } from 'next/navigation'
-import { ArrowLeft, Link as LinkIcon, User, Info, X } from 'lucide-react'
+import { ArrowLeft, Link as LinkIcon, Info, X } from 'lucide-react'
 import JobManager from '@/components/shared/JobManager'
 import QuestionEditor from '@/components/shared/QuestionEditor'
 import PasswordInput from '@/components/shared/PasswordInput'
@@ -33,13 +33,12 @@ const EBCA_AXES = [
   { name: '誠実性', desc: '回答の正直さ・一貫した態度' },
 ]
 
-const TABS = ['基本情報', 'ブランド設定', 'アバター設定', '質問設定', '評価設定', '求人管理', '利用状況', '請求先情報', 'セキュリティ'] as const
+const TABS = ['基本情報', 'ブランド設定', '質問設定', '評価設定', '求人管理', '利用状況', '請求先情報', 'セキュリティ'] as const
 
 // タブ状態を URL query(?tab=<slug>) に保持して、応募者一覧などへ遷移→戻った時に元タブへ復帰させる。
 const TAB_SLUGS: Record<(typeof TABS)[number], string> = {
   '基本情報': 'basic',
   'ブランド設定': 'brand',
-  'アバター設定': 'avatar',
   '質問設定': 'questions',
   '評価設定': 'evaluation',
   '求人管理': 'jobs',
@@ -115,12 +114,7 @@ export default function CompanyDetailPage() {
   const [completeMessage, setCompleteMessage] = useState('本日は面接にご参加いただき、誠にありがとうございました。選考結果は1週間以内にメールにてご連絡いたします。')
   const logoInputRef = useRef<HTMLInputElement>(null)
 
-  // アバター設定 state
-  const [avatarName, setAvatarName] = useState('採用担当のさくら')
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
-  const avatarFileRef = useRef<HTMLInputElement>(null)
-  const [voiceType, setVoiceType] = useState<'alloy' | 'nova' | 'echo'>('alloy')
-  const [toneTemplate, setToneTemplate] = useState('です・ます調（丁寧）')
+  // 旧アバター設定 state は廃止（AI面接官は全企業共通 = lib/interview/interviewer-identity.ts）。
 
   useEffect(() => {
     async function fetchCompany() {
@@ -139,13 +133,7 @@ export default function CompanyDetailPage() {
           setCsMonthlyLimit(String(data.monthly_interview_limit ?? 5))
           setCsNextLimit(data.next_month_interview_limit != null ? String(data.next_month_interview_limit) : '')
           setCsStatus(data.is_suspended ? 'suspended' : 'active')
-          // アバター設定（companies.avatar_config jsonb）から復元（保存値がリロードで残るように）
-          const ac = (data.avatar_config ?? null) as { name?: string; voice?: string; tone?: string } | null
-          if (ac) {
-            if (typeof ac.name === 'string' && ac.name) setAvatarName(ac.name)
-            if (ac.voice === 'alloy' || ac.voice === 'nova' || ac.voice === 'echo') setVoiceType(ac.voice)
-            if (typeof ac.tone === 'string' && ac.tone) setToneTemplate(ac.tone)
-          }
+          // 旧 avatar_config（企業別キャラ/声/口調）は廃止のため読み込まない（AI面接官は全企業共通）。
         }
       } catch {
         // fetch failed
@@ -374,29 +362,8 @@ export default function CompanyDetailPage() {
     reader.readAsDataURL(file)
   }
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      setAvatarPreview(reader.result as string)
-    }
-    reader.readAsDataURL(file)
-  }
-
-  async function saveAvatarSettings() {
-    // 保存先は companies.avatar_config（jsonb）。画像は R2/Storage 導入まで保存せず UI プレビューのみ。
-    const result = await patchCompany({
-      avatar_config: { name: avatarName, voice: voiceType, tone: toneTemplate },
-    })
-    showToast(result.ok ? 'アバター設定を保存しました' : (result.error || '保存に失敗しました'))
-  }
-
-  function deleteAvatarImage() {
-    // 画像は未保存（一時プレビュー扱い）。削除はローカルのプレビュー解除のみ。
-    setAvatarPreview(null)
-    showToast('アバター画像を削除しました')
-  }
+  // 旧アバター設定ハンドラ（handleAvatarUpload / saveAvatarSettings / deleteAvatarImage）は廃止
+  //（AI面接官は全企業共通 = lib/interview/interviewer-identity.ts。企業別のキャラ/声/口調カスタムは非対応）。
 
   // 請求先情報（company_billing_profiles）の代行確認/編集
   const BILLING_FIELDS = [
@@ -878,140 +845,8 @@ export default function CompanyDetailPage() {
           </div>
         )}
 
-        {/* タブ3: アバター設定 */}
-        {activeTab === 'アバター設定' && (
-          <div className={`${CARD_BASE} p-6`}>
-            <div className="flex flex-col lg:flex-row lg:gap-8">
-              <div className="flex-1 space-y-6 max-w-2xl">
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider">面接官の表示名</label>
-                  <input
-                    type="text"
-                    value={avatarName}
-                    onChange={(e) => setAvatarName(e.target.value)}
-                    className="mt-2 bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm w-full max-w-md focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 outline-none"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">面接中にこの名前で自己紹介します</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider">アバター画像</label>
-                  <div className="flex items-center gap-4 mt-2">
-                    <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-500/20 to-blue-500/20 border border-white/10 flex items-center justify-center shrink-0 overflow-hidden">
-                      {avatarPreview ? (
-                        <img src={avatarPreview} alt="Avatar" className="w-full h-full object-cover" />
-                      ) : (
-                        <User className="w-10 h-10 text-gray-500" />
-                      )}
-                    </div>
-                    <div>
-                      <input
-                        ref={avatarFileRef}
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp"
-                        onChange={handleAvatarUpload}
-                        className="hidden"
-                      />
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => avatarFileRef.current?.click()}
-                          className="bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 rounded-xl px-4 py-2 text-sm"
-                        >
-                          画像をアップロード
-                        </button>
-                        {avatarPreview && (
-                          <button
-                            type="button"
-                            onClick={deleteAvatarImage}
-                            className="text-red-400 text-xs cursor-pointer hover:text-red-300"
-                          >
-                            削除
-                          </button>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1">推奨サイズ: 256x256px、PNG/JPG/WebP</p>
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider">音声タイプ</label>
-                  <div className="flex flex-wrap gap-3 mt-2">
-                    {(['alloy', 'nova', 'echo'] as const).map((v) => (
-                      <div key={v} className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setVoiceType(v)}
-                          className={`rounded-xl p-3 cursor-pointer border transition-colors ${
-                            voiceType === v ? 'border-blue-500/50 bg-blue-500/10' : 'bg-white/[0.05] border-white/[0.08] hover:border-white/15'
-                          }`}
-                        >
-                          <span className="text-sm text-white block">{v}</span>
-                          <span className="text-xs text-gray-500 block mt-0.5">
-                            {v === 'alloy' && '落ち着いた女性の声'}
-                            {v === 'nova' && '明るい女性の声'}
-                            {v === 'echo' && '落ち着いた男性の声'}
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => alert('音声サンプルはAPI接続後に再生可能になります')}
-                          className="text-blue-400 hover:text-blue-300 text-lg"
-                          title="サンプル再生"
-                        >
-                          ▶
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">※API接続後にサンプル再生が有効になります</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider">口調テンプレート</label>
-                  <select
-                    value={toneTemplate}
-                    onChange={(e) => setToneTemplate(e.target.value)}
-                    className="mt-2 bg-white/[0.05] border border-white/[0.08] rounded-xl text-white px-4 py-2.5 text-sm w-full max-w-md focus:border-blue-500/50 outline-none"
-                  >
-                    <option value="です・ます調（丁寧）">です・ます調（丁寧）</option>
-                    <option value="フレンドリー">フレンドリー</option>
-                    <option value="ビジネスフォーマル">ビジネスフォーマル</option>
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">面接官の話し方のトーンを設定します</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={saveAvatarSettings}
-                  className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-all shadow-[0_4px_16px_rgba(59,130,246,0.3)]"
-                >
-                  保存する
-                </button>
-              </div>
-              {/* 面接画面プレビュー */}
-              <div className="lg:w-96 shrink-0 mt-8 lg:mt-0">
-                <p className="text-sm text-gray-400 mb-3">プレビュー（面接中の画面イメージ）</p>
-                <div className="bg-gray-900 rounded-2xl overflow-hidden w-full max-w-sm aspect-[4/3] relative">
-                  {/* 中央メイン領域（AIアバター） */}
-                  {avatarPreview ? (
-                    <img src={avatarPreview} alt="Avatar" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <User className="w-24 h-24 text-gray-500" />
-                    </div>
-                  )}
-                  {/* 左上小窓（応募者カメラ） */}
-                  <div className="absolute top-3 left-3 w-20 h-15 bg-gray-700 rounded-lg flex items-center justify-center px-2 py-3">
-                    <span className="text-[10px] text-gray-400">応募者</span>
-                  </div>
-                  {/* 右下UIパーツ */}
-                  <div className="absolute bottom-3 right-3 flex gap-2">
-                    <div className="w-6 h-6 bg-gray-700 rounded-full" />
-                    <div className="w-6 h-6 bg-gray-700 rounded-full" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* 旧「アバター設定」タブは廃止（AIMEN24 標準AI面接官を全企業共通に統一。企業別のキャラ/声/口調は非対応）。
+            共通 SoT = lib/interview/interviewer-identity.ts。 */}
 
         {/* タブ4: 質問設定 */}
         {activeTab === '質問設定' && (
