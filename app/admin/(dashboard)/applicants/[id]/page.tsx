@@ -6,18 +6,16 @@ import Link from 'next/link'
 import { createAdminBrowserClient } from '@/lib/supabase/client'
 import { deriveDisplayStatusJa } from '@/lib/applicants/displayStatus'
 import { ChevronLeft as ChevronLeftIcon, Play as PlayIcon } from 'lucide-react'
+import {
+  normalizeEvaluationAxesForDisplay,
+  sortAxesForDisplay,
+  confidenceText,
+  CONFIDENCE_DISPLAY_LABEL,
+  type DisplayAxis,
+} from '@/lib/evaluation/evaluation-view'
 
-// EBCA（Evidence-based Competency Analysis）の1軸。score=null は「判断材料不足」。
-type EvalAxis = {
-  label: string
-  score: number | null
-  rank: string | null
-  evidence: string[]
-  confidence: 'high' | 'medium' | 'low' | null
-  insufficientReason: string | null
-}
-
-const CONFIDENCE_LABELS: Record<'high' | 'medium' | 'low', string> = { high: '高', medium: '中', low: '低' }
+// EBCA 6軸の正規化・表示ロジックは lib/evaluation/evaluation-view.ts（SoT）を企業画面(P6)と共通利用。
+// 新形式 evidence [{seq,quote}] と旧 string[] の両対応・null≠0・評価確度・protected 非関連を集約。
 
 // 経歴要約の表示用ラベル（不明な値は生値をそのまま表示）
 const EDUCATION_LABELS: Record<string, string> = {
@@ -25,53 +23,6 @@ const EDUCATION_LABELS: Record<string, string> = {
   junior_college: '短期大学卒業', university: '大学卒業', graduate: '大学院卒業', other: 'その他',
 }
 const INDUSTRY_EXP_LABELS: Record<string, string> = { experienced: '経験あり', inexperienced: '未経験' }
-
-// 6評価軸キー → 日本語ラベル（evaluation_axes が label を持たない場合のフォールバック）
-const AXIS_LABELS: Record<string, string> = {
-  communication: 'コミュニケーション',
-  logical_thinking: '論理的思考',
-  initiative: '主体性・行動力',
-  desire: '仕事意欲',
-  stress_tolerance: 'ストレス耐性・柔軟性',
-  integrity: '誠実性・一貫性',
-}
-
-// interview_results.evaluation_axes を安全に正規化（EBCA形式）。
-// 配列 [{axis,label,score,rank,evidence[],confidence,insufficient_reason}] が主。
-// 旧形式 [{label,value}] / オブジェクト {key:number} にも最低限対応。
-// 重要: score=null（判断材料不足）は 0 に変換せず null のまま保持する。想定外/空/null は [] を返す（DUMMY補完なし）。
-function normalizeEvaluationAxes(raw: unknown): EvalAxis[] {
-  if (!raw || typeof raw !== 'object') return []
-  const toAxis = (
-    label: string, scoreRaw: unknown, rankRaw: unknown,
-    evidenceRaw: unknown, confRaw: unknown, insuffRaw: unknown,
-  ): EvalAxis => {
-    const score = typeof scoreRaw === 'number' && Number.isFinite(scoreRaw) ? scoreRaw : null
-    const rank = typeof rankRaw === 'string' && rankRaw ? rankRaw : null
-    const evidence = Array.isArray(evidenceRaw)
-      ? evidenceRaw.filter((e): e is string => typeof e === 'string' && e.length > 0)
-      : []
-    const confidence = confRaw === 'high' || confRaw === 'medium' || confRaw === 'low' ? confRaw : null
-    const insufficientReason = typeof insuffRaw === 'string' && insuffRaw ? insuffRaw : null
-    return { label, score, rank, evidence, confidence, insufficientReason }
-  }
-  const out: EvalAxis[] = []
-  if (Array.isArray(raw)) {
-    for (const item of raw) {
-      if (!item || typeof item !== 'object') continue
-      const obj = item as Record<string, unknown>
-      const keyStr = typeof obj.axis === 'string' ? obj.axis : typeof obj.key === 'string' ? obj.key : ''
-      const labelRaw = obj.label ?? obj.name
-      const label = typeof labelRaw === 'string' && labelRaw ? labelRaw : AXIS_LABELS[keyStr] ?? (keyStr || '評価軸')
-      out.push(toAxis(label, obj.score ?? obj.value, obj.rank, obj.evidence, obj.confidence, obj.insufficient_reason))
-    }
-  } else {
-    for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
-      out.push(toAxis(AXIS_LABELS[key] ?? key, val, undefined, undefined, undefined, undefined))
-    }
-  }
-  return out
-}
 
 const STATUS_OPTIONS = [
   { value: 'pending', label: '未対応' },
@@ -246,7 +197,8 @@ export default function AdminApplicantDetailPage() {
   }
 
   // 評価軸は interview_results.evaluation_axes の実データのみ（DUMMY補完なし）。空なら空状態。
-  const evalAxes = normalizeEvaluationAxes(interviewResult?.evaluation_axes)
+  // 企業画面(P6)と同じ共通 view-model（新旧 evidence 両対応・null≠0）。SoT 順にソート。
+  const evalAxes: DisplayAxis[] = sortAxesForDisplay(normalizeEvaluationAxesForDisplay(interviewResult?.evaluation_axes))
   // レーダーは判定済み（score≠null）の軸のみで描画。判断材料不足の軸は除外（0点として描かない）。
   const scoredAxes = evalAxes.filter((a) => a.score != null)
   const axisCount = scoredAxes.length
@@ -581,15 +533,22 @@ export default function AdminApplicantDetailPage() {
                                 )}
                               </div>
                               {d.confidence && (
-                                <p className="text-xs text-gray-500 mb-1">信頼度: {CONFIDENCE_LABELS[d.confidence]}</p>
+                                <p className="text-xs text-gray-500 mb-1">{CONFIDENCE_DISPLAY_LABEL}: {confidenceText(d.confidence)}</p>
                               )}
                               {d.score == null && d.insufficientReason && (
-                                <p className="text-xs text-amber-300/80 mb-1">{d.insufficientReason}</p>
+                                <p className="text-xs text-amber-300/80 mb-1 break-words">{d.insufficientReason}</p>
                               )}
                               {d.evidence.length > 0 && (
-                                <ul className="mt-1.5 space-y-1">
+                                <ul className="mt-1.5 space-y-1.5">
                                   {d.evidence.map((e, j) => (
-                                    <li key={j} className="text-xs text-gray-400 leading-relaxed border-l-2 border-gray-600 pl-2.5">{e}</li>
+                                    <li key={j} className="text-xs text-gray-400 leading-relaxed border-l-2 border-gray-600 pl-2.5 break-words">
+                                      {e.seq != null && (
+                                        <span className="inline-block mr-1.5 rounded bg-gray-700 px-1.5 py-0.5 text-[10px] font-semibold text-gray-300 align-middle">
+                                          発話 #{e.seq}
+                                        </span>
+                                      )}
+                                      <span className="align-middle">「{e.quote}」</span>
+                                    </li>
                                   ))}
                                 </ul>
                               )}
