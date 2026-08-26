@@ -16,6 +16,32 @@ export const EBCA_AXIS_IDS = [
 ] as const
 export type EbcaAxisId = (typeof EBCA_AXIS_IDS)[number]
 
+// 軸の日本語表示名（表示 SoT。UI 側で再ハードコードしない＝ここを唯一の権威にする）。
+export const EBCA_AXIS_LABELS: Record<EbcaAxisId, string> = {
+  communication: 'コミュニケーション',
+  logical_thinking: '論理的思考',
+  initiative: '主体性・行動力',
+  desire: '仕事意欲',
+  stress_tolerance: 'ストレス耐性・柔軟性',
+  integrity: '誠実性・一貫性',
+}
+
+// 採用担当者向けの軸の意味（1行）。過度な断定を避けた説明。表示は任意（情報過多を避ける）。
+export const EBCA_AXIS_DEFINITIONS: Record<EbcaAxisId, string> = {
+  communication: '相手の意図を汲み、分かりやすく伝える力',
+  logical_thinking: '筋道立てて考え、根拠を示して説明する力',
+  initiative: '自ら考え、行動を起こす力',
+  desire: '仕事への意欲・目的意識',
+  stress_tolerance: '困難や変化に柔軟に対応する力',
+  integrity: '発言の一貫性・誠実さ',
+}
+
+// 軸 id → 表示名（未知 id は id 文字列 or 既定へフォールバック。UI が個別に辞書を持たないための唯一の入口）。
+export function getAxisLabel(axisId: string | null | undefined): string {
+  if (axisId && (EBCA_AXIS_LABELS as Record<string, string>)[axisId]) return (EBCA_AXIS_LABELS as Record<string, string>)[axisId]
+  return axisId || '評価軸'
+}
+
 // 軸スコアは 0〜20 の整数 or null（null=判断材料不足。0 として扱わない）。
 export const AXIS_SCORE_MIN = 0
 export const AXIS_SCORE_MAX = 20
