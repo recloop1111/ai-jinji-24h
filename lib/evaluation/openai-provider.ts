@@ -25,18 +25,32 @@ import type { EvaluationPrompt } from './prompt'
 export interface OpenAiEvaluationProviderConfig {
   apiKey: string
   model: string
+  requestOptions?: OpenAiEvaluationRequestOptions // temperature/reasoning の出し分け（model capability 由来）
   fetchImpl?: typeof fetch // 注入（未指定は global fetch）。test は fake のみ渡す。
   url?: string // 既定は config SoT。test override 用。
   timeoutMs?: number
   now?: () => number
 }
 
+// request オプション（model capability により temperature/reasoning を出し分け）。config SoT から供給。
+export interface OpenAiEvaluationRequestOptions {
+  temperature?: number | null // null/未指定は temperature を送らない（reasoning model 対応）
+  reasoningEffort?: string | null // null/未指定は reasoning を送らない
+}
+
 // OpenAI Responses API へ送る request body を構築（純関数・送信しない）。
 //   response schema（json_schema strict）は P4 prompt.responseSchema をそのまま使う（軸/フィールドが一致）。
-export function buildOpenAiEvaluationRequest(prompt: EvaluationPrompt, model: string): Record<string, unknown> {
+//   temperature は「全 model 共通の必須パラメータ」にしない（reasoning model へ送ると 400 になるため条件付き）。
+export function buildOpenAiEvaluationRequest(
+  prompt: EvaluationPrompt,
+  model: string,
+  opts?: OpenAiEvaluationRequestOptions,
+): Record<string, unknown> {
   // 入力上限（暴走入力防御 / cost guard）。超過は末尾を切る（保存物ではないので truncate 可）。
   const clip = (s: string) => (s.length > EVALUATION_MAX_INPUT_CHARS ? s.slice(0, EVALUATION_MAX_INPUT_CHARS) : s)
-  return {
+  // temperature: 明示 null は送らない。未指定（undefined）は後方互換で既定値を送る。
+  const temperature = opts && 'temperature' in opts ? opts.temperature : EVALUATION_TEMPERATURE
+  const body: Record<string, unknown> = {
     model,
     input: [
       { role: 'system', content: clip(prompt.system) },
@@ -44,9 +58,11 @@ export function buildOpenAiEvaluationRequest(prompt: EvaluationPrompt, model: st
     ],
     // structured output（strict json_schema）。P4 の responseSchema をそのまま採用。
     text: { format: { type: 'json_schema', name: 'ebca_evaluation', strict: true, schema: prompt.responseSchema } },
-    temperature: EVALUATION_TEMPERATURE,
     max_output_tokens: EVALUATION_MAX_OUTPUT_TOKENS,
   }
+  if (temperature !== null && temperature !== undefined) body.temperature = temperature
+  if (opts?.reasoningEffort) body.reasoning = { effort: opts.reasoningEffort }
+  return body
 }
 
 // Responses API のレスポンスから「モデルが生成した JSON テキスト」を安全に取り出す（複数スキーマ差異に耐性）。
@@ -103,7 +119,7 @@ export function createOpenAiEvaluationProvider(config: OpenAiEvaluationProviderC
             'content-type': 'application/json',
             authorization: `Bearer ${config.apiKey}`,
           },
-          body: JSON.stringify(buildOpenAiEvaluationRequest(prompt, config.model)),
+          body: JSON.stringify(buildOpenAiEvaluationRequest(prompt, config.model, config.requestOptions)),
           signal: controller.signal,
         })
         if (!res.ok) {

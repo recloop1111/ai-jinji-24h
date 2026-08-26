@@ -26,3 +26,28 @@ export function resolveEvaluationModel(explicit?: string | null): string | null 
   const fromEnv = process.env.OPENAI_EVALUATION_MODEL
   return typeof fromEnv === 'string' && fromEnv.trim() ? fromEnv.trim() : null
 }
+
+// reasoning 系モデル（gpt-5* / o1/o3/o4 系）は temperature 非対応（送ると 400）で reasoning.effort を持つ。
+//   現行公式（docs/OPENAI_SPEC_AUDIT.md）: gpt-5.6-terra/luna/sol は reasoning model・structured outputs 対応。
+//   gpt-4o 系は temperature 対応・reasoning なし。model 文字列から capability を判定（1 箇所に集約）。
+export function isReasoningEvaluationModel(model: string): boolean {
+  const m = model.trim().toLowerCase()
+  return /^(o[1-9])/.test(m) || m.startsWith('gpt-5')
+}
+
+export const EVALUATION_REASONING_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+
+// model capability に応じた request オプション（temperature を全 model 共通必須にしない）。
+//   - reasoning model: temperature を送らない（null）。reasoning.effort は env 明示時のみ（未設定は既定に委ねる）。
+//   - 非 reasoning model: temperature=EVALUATION_TEMPERATURE。reasoning は載せない。
+export function evaluationRequestOptionsForModel(
+  model: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { temperature: number | null; reasoningEffort: string | null } {
+  if (isReasoningEvaluationModel(model)) {
+    const e = (env.OPENAI_EVALUATION_REASONING_EFFORT ?? '').trim()
+    const reasoningEffort = (EVALUATION_REASONING_EFFORTS as readonly string[]).includes(e) ? e : null
+    return { temperature: null, reasoningEffort }
+  }
+  return { temperature: EVALUATION_TEMPERATURE, reasoningEffort: null }
+}

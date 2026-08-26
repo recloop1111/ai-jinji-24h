@@ -6,6 +6,8 @@ import { OPENAI_REALTIME_CLIENT_SECRETS_URL, OPENAI_FETCH_TIMEOUT_MS } from '@/l
 import {
   isRealtimeEnabled,
   resolveRealtimeModel,
+  resolveRealtimeTranscriptionModel,
+  resolveRealtimeReasoningEffort,
   isCompanyAllowed,
   buildRealtimeInstructions,
   buildClientSecretPayload,
@@ -113,7 +115,14 @@ export async function POST(
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(buildClientSecretPayload({ model, instructions })),
+        body: JSON.stringify(
+          buildClientSecretPayload({
+            model,
+            instructions,
+            transcriptionModel: resolveRealtimeTranscriptionModel(),
+            reasoningEffort: resolveRealtimeReasoningEffort(),
+          }),
+        ),
         signal: controller.signal,
         cache: 'no-store',
       })

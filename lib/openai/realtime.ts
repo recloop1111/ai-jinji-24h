@@ -6,7 +6,9 @@ import {
   REALTIME_DEFAULT_MODEL,
   REALTIME_ALLOWED_MODELS,
   REALTIME_VOICE,
-  REALTIME_TRANSCRIPTION_MODEL,
+  REALTIME_TRANSCRIPTION_DEFAULT_MODEL,
+  REALTIME_TRANSCRIPTION_ALLOWED_MODELS,
+  REALTIME_REASONING_EFFORTS,
   REALTIME_MAX_FOLLOWUPS,
 } from '@/lib/config/openai'
 import { DEMO_COMPANY_ID } from '@/lib/config/demo'
@@ -35,10 +37,23 @@ export function isRealtimeEnabled(env: NodeJS.ProcessEnv = process.env): boolean
   return env.OPENAI_REALTIME_ENABLED === 'true'
 }
 
-// モデル解決: OPENAI_REALTIME_MODEL が許可候補（gpt-realtime / gpt-realtime-2）なら採用、それ以外/未設定は既定。
+// モデル解決: OPENAI_REALTIME_MODEL が許可候補なら採用、それ以外/未設定は既定（gpt-realtime-2.1）。
 export function resolveRealtimeModel(env: NodeJS.ProcessEnv = process.env): string {
   const m = (env.OPENAI_REALTIME_MODEL ?? '').trim()
   return (REALTIME_ALLOWED_MODELS as readonly string[]).includes(m) ? m : REALTIME_DEFAULT_MODEL
+}
+
+// input transcription model 解決: OPENAI_REALTIME_TRANSCRIPTION_MODEL が許可候補なら採用、他/未設定は既定（whisper-1）。
+export function resolveRealtimeTranscriptionModel(env: NodeJS.ProcessEnv = process.env): string {
+  const m = (env.OPENAI_REALTIME_TRANSCRIPTION_MODEL ?? '').trim()
+  return (REALTIME_TRANSCRIPTION_ALLOWED_MODELS as readonly string[]).includes(m) ? m : REALTIME_TRANSCRIPTION_DEFAULT_MODEL
+}
+
+// reasoning effort 解決: 明示（OPENAI_REALTIME_REASONING_EFFORT）が許可値のときだけ返す。未設定/不正は null。
+//   null のときは session に reasoning を載せない（モデル既定・未検証パラメータを actual へ送らない）。
+export function resolveRealtimeReasoningEffort(env: NodeJS.ProcessEnv = process.env): string | null {
+  const e = (env.OPENAI_REALTIME_REASONING_EFFORT ?? '').trim()
+  return (REALTIME_REASONING_EFFORTS as readonly string[]).includes(e) ? e : null
 }
 
 // 企業ガード: is_demo / テスト株式会社(DEMO_COMPANY_ID) は Realtime 禁止。
@@ -147,8 +162,10 @@ export function buildRealtimeSessionConfig(input: {
   model: string
   instructions: string
   voice?: string
+  transcriptionModel?: string // 未指定は resolver（既定 whisper-1）
+  reasoningEffort?: string | null // 未指定/null は reasoning を載せない（未検証パラメータを送らない）
 }): Record<string, unknown> {
-  return {
+  const config: Record<string, unknown> = {
     type: 'realtime',
     model: input.model,
     instructions: input.instructions,
@@ -157,12 +174,15 @@ export function buildRealtimeSessionConfig(input: {
     tool_choice: 'auto',
     audio: {
       input: {
-        transcription: { model: REALTIME_TRANSCRIPTION_MODEL },
+        transcription: { model: input.transcriptionModel ?? REALTIME_TRANSCRIPTION_DEFAULT_MODEL },
         turn_detection: { type: 'server_vad' },
       },
       output: { voice: input.voice ?? REALTIME_VOICE },
     },
   }
+  // gpt-realtime-2.1 等で reasoning effort を明示する場合のみ載せる（null は載せない＝モデル既定）。
+  if (input.reasoningEffort) config.reasoning = { effort: input.reasoningEffort }
+  return config
 }
 
 // GA /v1/realtime/client_secrets のリクエスト payload（session ラッパー）。realtime-session（PR-1・代替経路）用。
@@ -170,6 +190,8 @@ export function buildClientSecretPayload(input: {
   model: string
   instructions: string
   voice?: string
+  transcriptionModel?: string
+  reasoningEffort?: string | null
 }): Record<string, unknown> {
   return { session: buildRealtimeSessionConfig(input) }
 }

@@ -9,6 +9,8 @@ import { OPENAI_REALTIME_CALLS_URL, OPENAI_FETCH_TIMEOUT_MS } from '@/lib/config
 import {
   isRealtimeEnabled,
   resolveRealtimeModel,
+  resolveRealtimeTranscriptionModel,
+  resolveRealtimeReasoningEffort,
   resolveRealtimeLanguage,
   isCompanyAllowed,
   buildRealtimeInstructions,
@@ -217,7 +219,12 @@ export async function POST(
     // 10) サーバー確定の session 設定＋offer SDP を OpenAI /v1/realtime/calls へ（multipart/form-data）。
     //     Content-Type（boundary）は fetch が自動付与するため手動指定しない。timeout・no-store。
     const model = resolveRealtimeModel()
-    const sessionConfig = buildRealtimeSessionConfig({ model, instructions })
+    const sessionConfig = buildRealtimeSessionConfig({
+      model,
+      instructions,
+      transcriptionModel: resolveRealtimeTranscriptionModel(),
+      reasoningEffort: resolveRealtimeReasoningEffort(),
+    })
     const form = new FormData()
     form.append('sdp', offerSdp)
     form.append('session', JSON.stringify(sessionConfig))
