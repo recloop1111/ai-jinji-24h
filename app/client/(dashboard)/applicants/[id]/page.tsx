@@ -11,6 +11,15 @@ import {
   resolveTranscriptFetchState,
   type TranscriptFetchState,
 } from '@/lib/interview/transcript-company-read'
+import {
+  normalizeEvaluationAxesForDisplay,
+  resolveEvaluationDisplayState,
+  sortAxesForDisplay,
+  confidenceText,
+  CONFIDENCE_DISPLAY_LABEL,
+  CONFIDENCE_HINT,
+  type DisplayAxis,
+} from '@/lib/evaluation/evaluation-view'
 import { ChevronLeft as ChevronLeftIcon, ChevronDown as ChevronDownIcon, Play as PlayIcon, Download, Mail, LinkIcon, Copy, Check } from 'lucide-react'
 
 // TODO: Phase 4 実データに差替え
@@ -294,17 +303,7 @@ type InterviewResultRow = {
   evaluation_axes?: unknown
 }
 
-// EBCA（Evidence-based Competency Analysis）の1軸。score=null は「判断材料不足」。
-type EvalAxis = {
-  label: string
-  score: number | null
-  rank: string | null
-  evidence: string[]
-  confidence: 'high' | 'medium' | 'low' | null
-  insufficientReason: string | null
-}
-
-const CONFIDENCE_LABELS: Record<'high' | 'medium' | 'low', string> = { high: '高', medium: '中', low: '低' }
+// EBCA 6軸の正規化・表示ロジックは lib/evaluation/evaluation-view.ts（SoT）へ集約（新旧 evidence 両対応・null≠0）。
 
 // 経歴要約の表示用ラベル（不明な値は生値をそのまま表示）
 const EDUCATION_LABELS: Record<string, string> = {
@@ -312,53 +311,6 @@ const EDUCATION_LABELS: Record<string, string> = {
   junior_college: '短期大学卒業', university: '大学卒業', graduate: '大学院卒業', other: 'その他',
 }
 const INDUSTRY_EXP_LABELS: Record<string, string> = { experienced: '経験あり', inexperienced: '未経験' }
-
-// 6評価軸キー → 日本語ラベル（evaluation_axes が label を持たない場合のフォールバック）
-const AXIS_LABELS: Record<string, string> = {
-  communication: 'コミュニケーション',
-  logical_thinking: '論理的思考',
-  initiative: '主体性・行動力',
-  desire: '仕事意欲',
-  stress_tolerance: 'ストレス耐性・柔軟性',
-  integrity: '誠実性・一貫性',
-}
-
-// interview_results.evaluation_axes を安全に正規化（EBCA形式）。
-// 配列 [{axis,label,score,rank,evidence[],confidence,insufficient_reason}] が主。
-// 旧形式 [{label,value}] / オブジェクト {key:number} にも最低限対応。
-// 重要: score=null（判断材料不足）は 0 に変換せず null のまま保持する。想定外/空/null は [] を返す（DUMMY補完なし）。
-function normalizeEvaluationAxes(raw: unknown): EvalAxis[] {
-  if (!raw || typeof raw !== 'object') return []
-  const toAxis = (
-    label: string, scoreRaw: unknown, rankRaw: unknown,
-    evidenceRaw: unknown, confRaw: unknown, insuffRaw: unknown,
-  ): EvalAxis => {
-    const score = typeof scoreRaw === 'number' && Number.isFinite(scoreRaw) ? scoreRaw : null
-    const rank = typeof rankRaw === 'string' && rankRaw ? rankRaw : null
-    const evidence = Array.isArray(evidenceRaw)
-      ? evidenceRaw.filter((e): e is string => typeof e === 'string' && e.length > 0)
-      : []
-    const confidence = confRaw === 'high' || confRaw === 'medium' || confRaw === 'low' ? confRaw : null
-    const insufficientReason = typeof insuffRaw === 'string' && insuffRaw ? insuffRaw : null
-    return { label, score, rank, evidence, confidence, insufficientReason }
-  }
-  const out: EvalAxis[] = []
-  if (Array.isArray(raw)) {
-    for (const item of raw) {
-      if (!item || typeof item !== 'object') continue
-      const obj = item as Record<string, unknown>
-      const keyStr = typeof obj.axis === 'string' ? obj.axis : typeof obj.key === 'string' ? obj.key : ''
-      const labelRaw = obj.label ?? obj.name
-      const label = typeof labelRaw === 'string' && labelRaw ? labelRaw : AXIS_LABELS[keyStr] ?? (keyStr || '評価軸')
-      out.push(toAxis(label, obj.score ?? obj.value, obj.rank, obj.evidence, obj.confidence, obj.insufficient_reason))
-    }
-  } else {
-    for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
-      out.push(toAxis(AXIS_LABELS[key] ?? key, val, undefined, undefined, undefined, undefined))
-    }
-  }
-  return out
-}
 
 const GRADE_STYLES: Record<string, string> = {
   A: 'bg-emerald-500 text-white shadow-md shadow-emerald-500/25',
@@ -969,17 +921,36 @@ export default function ApplicantDetailPage() {
                 </div>
               )}
 
-              {/* 評価軸スコア（EBCA: Evidence-based Competency Analysis）。score=null は「判断材料不足」。DUMMY補完なし */}
+              {/* 評価軸スコア（EBCA: Evidence-based Competency Analysis）。score=null は「判断材料不足」＝0点ではない。DUMMY補完なし */}
               <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
                 <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">評価軸スコア</h2>
                 {(() => {
-                  const evalAxes = normalizeEvaluationAxes(interviewResult.evaluation_axes)
-                  if (evalAxes.length === 0) {
-                    return <p className="text-sm text-slate-500">評価軸データはまだありません。</p>
+                  const hasLegacyEvaluation = !!(interviewResult.personality_type || interviewResult.personality_description)
+                  const state = resolveEvaluationDisplayState({ evaluationAxes: interviewResult.evaluation_axes, hasLegacyEvaluation })
+                  // Task 8: 状態を同一 empty state にしない（内部エラーコードは出さない）。
+                  if (state.kind === 'not_evaluated') {
+                    return <p className="text-sm text-slate-500">この面接の評価はまだありません。面接が完了すると評価が表示されます。</p>
                   }
+                  if (state.kind === 'legacy_only') {
+                    return <p className="text-sm text-slate-500">この応募者には6軸コンピテンシー評価がありません（過去形式の評価のみ）。</p>
+                  }
+                  if (state.kind === 'malformed') {
+                    return <p className="text-sm text-slate-500">評価データを表示できませんでした。再評価が必要な可能性があります。</p>
+                  }
+                  const axes = sortAxesForDisplay(state.axes)
                   return (
                     <div className="space-y-4">
-                      {evalAxes.map((d, i) => (
+                      {state.kind === 'all_insufficient' && (
+                        <div role="status" className="rounded-lg bg-amber-50 border border-amber-200 px-3.5 py-2.5 text-xs text-amber-800">
+                          今回の面接では、いずれの軸も判定に十分な発言が得られませんでした（判断材料不足）。
+                        </div>
+                      )}
+                      {state.kind === 'partial' && (
+                        <div role="status" className="rounded-lg bg-slate-50 border border-slate-200 px-3.5 py-2.5 text-xs text-slate-600">
+                          一部の軸は判定に十分な発言が得られませんでした（判断材料不足）。点数のある軸のみ評価が確定しています。
+                        </div>
+                      )}
+                      {axes.map((d: DisplayAxis, i: number) => (
                         <div key={i} className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-4">
                           <div className="flex justify-between items-baseline gap-3 mb-1.5">
                             <span className="text-sm font-medium text-slate-800">{d.label}</span>
@@ -989,29 +960,41 @@ export default function ApplicantDetailPage() {
                                 {d.rank && <span className="ml-2 text-xs font-semibold text-blue-600">{d.rank}</span>}
                               </span>
                             ) : (
-                              <span className="text-xs font-semibold text-amber-600 whitespace-nowrap">判断材料不足</span>
+                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 whitespace-nowrap">
+                                <span aria-hidden>—</span>判断材料不足
+                              </span>
                             )}
                           </div>
                           {d.score != null && (
-                            <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden mb-1.5">
+                            <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden mb-1.5" role="presentation">
                               <div className="h-full rounded-full bg-blue-500" style={{ width: `${(Math.max(0, Math.min(20, d.score)) / 20) * 100}%` }} />
                             </div>
                           )}
                           {d.confidence && (
-                            <p className="text-xs text-slate-500 mb-1">信頼度: {CONFIDENCE_LABELS[d.confidence]}</p>
+                            <p className="text-xs text-slate-500 mb-1">{CONFIDENCE_DISPLAY_LABEL}: {confidenceText(d.confidence)}</p>
                           )}
                           {d.score == null && d.insufficientReason && (
-                            <p className="text-xs text-amber-700/80 mb-1">{d.insufficientReason}</p>
+                            <p className="text-xs text-amber-700/80 mb-1 break-words">{d.insufficientReason}</p>
                           )}
                           {d.evidence.length > 0 && (
-                            <ul className="mt-1.5 space-y-1">
+                            <ul className="mt-1.5 space-y-1.5">
                               {d.evidence.map((e, j) => (
-                                <li key={j} className="text-xs text-slate-500 leading-relaxed border-l-2 border-slate-300 pl-2.5">{e}</li>
+                                <li key={j} className="text-xs text-slate-600 leading-relaxed border-l-2 border-slate-300 pl-2.5 break-words">
+                                  {e.seq != null && (
+                                    <span className="inline-block mr-1.5 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 align-middle">
+                                      発話 #{e.seq}
+                                    </span>
+                                  )}
+                                  <span className="align-middle">「{e.quote}」</span>
+                                </li>
                               ))}
                             </ul>
                           )}
                         </div>
                       ))}
+                      <p className="text-[11px] text-slate-400 leading-relaxed pt-1">
+                        各軸は0〜20点。「判断材料不足」は点数化できるだけの発言が得られなかった軸で、0点ではありません。{CONFIDENCE_HINT}根拠は面接での実際の発言に基づきます（会話ログは「会話ログ」タブで確認できます）。
+                      </p>
                     </div>
                   )
                 })()}
@@ -1055,7 +1038,7 @@ export default function ApplicantDetailPage() {
                 </ul>
                 {(() => {
                   // EBCA で判断材料不足（score=null）の軸を「次回面接で確認すべき点」として提示
-                  const insufficient = normalizeEvaluationAxes(interviewResult.evaluation_axes).filter((a) => a.score == null)
+                  const insufficient = normalizeEvaluationAxesForDisplay(interviewResult.evaluation_axes).filter((a) => a.score == null)
                   if (insufficient.length === 0) return null
                   return (
                     <div className="mt-5 pt-4 border-t border-slate-100">
@@ -1074,7 +1057,7 @@ export default function ApplicantDetailPage() {
                   )
                 })()}
                 {(!Array.isArray(interviewResult.improvement_points) || interviewResult.improvement_points.length === 0) &&
-                  normalizeEvaluationAxes(interviewResult.evaluation_axes).filter((a) => a.score == null).length === 0 && (
+                  normalizeEvaluationAxesForDisplay(interviewResult.evaluation_axes).filter((a) => a.score == null).length === 0 && (
                     <p className="text-sm text-slate-500">懸念点・追加確認データはまだありません。</p>
                   )}
               </div>
