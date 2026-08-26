@@ -88,6 +88,15 @@ describe('buildRealtimeInstructions', () => {
     // 「途中で呼び出さない」制約が含まれる
     expect(out).toContain('絶対に呼び出さない')
   })
+  it('P7: 会話 SoT（原則/トーン/禁止トピック/逆質問誠実性）が instructions に構造化されて含まれる', () => {
+    const out = buildRealtimeInstructions([{ question_text: 'Q1' }]) as string
+    expect(out).toContain('# 基本原則')
+    expect(out).toContain('一度に1問だけ質問する')
+    expect(out).toContain('# 話し方（トーン）')
+    expect(out).toContain('# 面接官が能動的に聞いてはいけないこと')
+    expect(out).toContain('宗教・信条')
+    expect(out).toContain('推測や創作をせず') // 逆質問での捏造禁止
+  })
 })
 
 describe('resolveRealtimeLanguage (P2 selected language)', () => {

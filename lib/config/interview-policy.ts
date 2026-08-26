@@ -6,7 +6,9 @@
 //   - 全質問合計（icebreaker + evaluation + closing）最大15問
 //   - evaluation 単体の最大10問は維持
 //   - 録画保存期間 180日（※ R2 未接続。現状は「適用予定値」）
-//   - 深掘り質問 最大1回/質問 は設計仕様だが未実装（実装済みとして扱わない）
+//   - 深掘り質問 最大 REALTIME_MAX_FOLLOWUPS 回/質問（会話ロジック conversation-policy で規定。実接続は R1）
+
+import { REALTIME_MAX_FOLLOWUPS } from '@/lib/config/openai'
 
 export const MAX_INTERVIEW_MINUTES = 60
 export const INTERVIEW_WARNING_MINUTES = 50
@@ -27,5 +29,6 @@ export const MAX_TOTAL_QUESTIONS = 16
 // 録画保存期間（日）。R2 未接続のため現状は適用予定値。
 export const RECORDING_RETENTION_DAYS = 180
 
-// 深掘り質問の上限（設計仕様）。未実装のため挙動には未反映（表示用の参考値）。
-export const DEEP_DIVE_MAX_PER_QUESTION = 1
+// 深掘り質問の上限。会話ロジック（lib/interview/conversation-policy.ts）と instructions builder が
+// 参照する REALTIME_MAX_FOLLOWUPS を唯一の SoT にする（1 と 2 の重複定義を排除）。実接続挙動は R1 で確認。
+export const DEEP_DIVE_MAX_PER_QUESTION = REALTIME_MAX_FOLLOWUPS

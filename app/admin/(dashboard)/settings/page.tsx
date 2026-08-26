@@ -299,7 +299,7 @@ export default function SettingsPage() {
                 <div className="flex justify-between py-2.5"><dt className="text-gray-400">評価質問（evaluation）上限</dt><dd className="text-white font-medium">{MAX_EVALUATION_QUESTIONS}問</dd></div>
                 <div className="flex justify-between py-2.5"><dt className="text-gray-400">クロージング上限</dt><dd className="text-white font-medium">{MAX_CLOSING_QUESTIONS}問</dd></div>
                 <div className="flex justify-between py-2.5"><dt className="text-gray-400">録画保存期間</dt><dd className="text-white font-medium">{RECORDING_RETENTION_DAYS}日（適用予定値）</dd></div>
-                <div className="flex justify-between py-2.5"><dt className="text-gray-400">深掘り質問</dt><dd className="text-amber-300 font-medium">最大{DEEP_DIVE_MAX_PER_QUESTION}回/質問（設計仕様・未実装）</dd></div>
+                <div className="flex justify-between py-2.5"><dt className="text-gray-400">深掘り質問</dt><dd className="text-amber-300 font-medium">最大{DEEP_DIVE_MAX_PER_QUESTION}回/質問（会話ロジックで規定・実接続はR1）</dd></div>
               </dl>
             </div>
 
