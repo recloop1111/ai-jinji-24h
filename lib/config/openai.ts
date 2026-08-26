@@ -9,12 +9,16 @@ export const OPENAI_REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/cal
 
 // モデルは OPENAI_REALTIME_MODEL で切替。許可候補のみ採用（不正値は既定へ）。ここが model 名の唯一の SoT。
 // 現行公式（2026-08 docs 監査・docs/OPENAI_SPEC_AUDIT.md）: gpt-realtime / gpt-realtime-mini は deprecated
-//   （2027-01-20 shutdown）。推奨後継 = gpt-realtime-2.1（silence/noise/interruption/instruction/tool 改善・
-//   reasoning effort 設定可）。よって R1 production candidate = gpt-realtime-2.1 を既定にする。
-export const REALTIME_DEFAULT_MODEL = 'gpt-realtime-2.1'
+//   （2027-01-20 shutdown）。現行の Realtime family = gpt-realtime-2.1 / gpt-realtime-2.1-mini / gpt-realtime-2 / 1.5。
+// モデル方針（AIMEN24 は 1面接4,000円の従量課金＝AI原価を必要品質の範囲で最小化する）:
+//   Primary（R1 標準候補・既定）= gpt-realtime-2.1-mini（WebRTC/function calling 対応・音声 $10/$20 per 1M＝2.1 比 約68%減）。
+//   Fallback（高品質）= gpt-realtime-2.1（音声 $32/$64）。R1 の acceptance criteria を満たさない場合のみ fallback。
+export const REALTIME_DEFAULT_MODEL = 'gpt-realtime-2.1-mini'
+// 高品質 fallback の SoT（品質不足時に切替える先）。
+export const REALTIME_FALLBACK_MODEL = 'gpt-realtime-2.1'
 export const REALTIME_ALLOWED_MODELS = [
-  'gpt-realtime-2.1',
-  'gpt-realtime-2.1-mini',
+  'gpt-realtime-2.1-mini', // primary（既定）
+  'gpt-realtime-2.1', // fallback（高品質）
   'gpt-realtime-2',
   'gpt-realtime-1.5',
   // deprecated（2027-01-20 shutdown）。既存互換のため許可は残すが既定にしない。
@@ -24,8 +28,9 @@ export const REALTIME_ALLOWED_MODELS = [
 // deprecated model（監査・警告用途）。default にしない。
 export const REALTIME_DEPRECATED_MODELS = ['gpt-realtime', 'gpt-realtime-mini'] as const
 
-// gpt-realtime-2.1 は reasoning 対応。会話 latency 悪化を避けるため R1 では低め（low）を候補にする。
-// 既定は未指定（null）＝ session に reasoning を載せない（モデル既定に委ねる）。OPENAI_REALTIME_REASONING_EFFORT で明示可。
+// reasoning effort は gpt-realtime-2.1（fallback）系の機能。mini は reasoning effort を明記しないため、
+// 既定は未指定（null）＝ session に reasoning を載せない（未サポート model へ送って 400 にしない）。
+// 明示したい場合のみ OPENAI_REALTIME_REASONING_EFFORT（2.1 使用時に有効）。
 export const REALTIME_REASONING_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 
 // 音声・文字起こし設定。transcript は評価/結果表示/後追い用（応募者にテキスト入力はさせない）。

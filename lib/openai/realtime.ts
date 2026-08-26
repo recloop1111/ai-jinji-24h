@@ -37,7 +37,7 @@ export function isRealtimeEnabled(env: NodeJS.ProcessEnv = process.env): boolean
   return env.OPENAI_REALTIME_ENABLED === 'true'
 }
 
-// モデル解決: OPENAI_REALTIME_MODEL が許可候補なら採用、それ以外/未設定は既定（gpt-realtime-2.1）。
+// モデル解決: OPENAI_REALTIME_MODEL が許可候補なら採用、それ以外/未設定は既定（gpt-realtime-2.1-mini＝primary）。
 export function resolveRealtimeModel(env: NodeJS.ProcessEnv = process.env): string {
   const m = (env.OPENAI_REALTIME_MODEL ?? '').trim()
   return (REALTIME_ALLOWED_MODELS as readonly string[]).includes(m) ? m : REALTIME_DEFAULT_MODEL

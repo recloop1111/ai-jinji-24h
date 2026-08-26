@@ -8,7 +8,7 @@ R1-B 中に設計判断をしなくてよいよう、事前に確定する。**�
 |---|---|---|---|
 | `OPENAI_REALTIME_ENABLED` | Realtime SDP/session 発行 | `true`（R1中のみ） | realtime-call/session が 503（OpenAI 未呼出・¥0） |
 | `OPENAI_REALTIME_COMPANY_IDS` | Realtime allowlist（1社のみ） | test company id | 空/不一致は非許可（is_demo は常に禁止） |
-| `OPENAI_REALTIME_MODEL` | Realtime model | **任意（既定 gpt-realtime-2.1）** | 不正値は既定へ |
+| `OPENAI_REALTIME_MODEL` | Realtime model | **`gpt-realtime-2.1-mini` を明示設定（controlled R1 では default 依存にせず明示）** | 不正値は既定(mini)へ |
 | `OPENAI_REALTIME_TRANSCRIPTION_MODEL` | input transcription | 任意（既定 whisper-1） | 不正値は既定へ |
 | `OPENAI_REALTIME_REASONING_EFFORT` | 2.1 reasoning effort | 任意（低 latency 重視で `low` 候補・未設定はモデル既定） | 不正/未設定は送らない |
 | `OPENAI_EVALUATION_REASONING_EFFORT` | 評価 reasoning effort（reasoning model 時） | 任意 | 不正/未設定は送らない |
@@ -50,7 +50,7 @@ demo 企業（`is_demo=true`）は全経路で禁止（変更しない）。
 - **C. SQL verification**: 上表の verification query を各実行
 - **D. non-demo test company 確認**: `is_demo=false`・専用 id・URL 非公開
 - **E. OpenAI Billing/API Key**: OpenAI project に月次ハードキャップ設定 + API Key 発行（`OPENAI_API_KEY`）
-- **F. model 設定**: Realtime=**`gpt-realtime-2.1`（既定・env 不要）**。Evaluation=`OPENAI_EVALUATION_MODEL`（**R1 は `gpt-4o` 推奨**＝structured outputs 実績・temperature 対応で変更 risk 最小。将来 `gpt-5.6-terra` へ比較切替は env 差替のみ）。transcription=whisper-1 既定（切替は env）。reasoning effort は latency 重視で当面未設定（or `low`）
+- **F. model 設定（最終決定）**: Realtime=**`gpt-realtime-2.1-mini`（primary）**。default も mini だが、**controlled R1 では曖昧さ回避のため `OPENAI_REALTIME_MODEL=gpt-realtime-2.1-mini` を Production env に明示設定**（どのモデルで課金したかを env で確定できる）。高品質 fallback=`gpt-realtime-2.1`（acceptance 不足時のみ切替）。Evaluation=`OPENAI_EVALUATION_MODEL=gpt-4o`（structured outputs 実績・temperature 対応・変更 risk 最小）。transcription=**whisper-1（確定・R1 で変更しない）**（env 未設定で既定）。reasoning effort は mini では設定しない（未サポート＝未設定のまま）。
 - **G. allowlist**: `OPENAI_REALTIME_COMPANY_IDS = <test company id>`
 - **H. gates**: `OPENAI_REALTIME_ENABLED=true` / `TRANSCRIPT_INGEST_ENABLED=true` / `OPENAI_EVALUATION_ENABLED=true`（SMS_PROVIDER_ENABLED は OFF 維持）
 - **I. deploy**: env 反映（redeploy）
@@ -77,10 +77,25 @@ demo 企業（`is_demo=true`）は全経路で禁止（変更しない）。
 5. **test data cleanup**: test company の interview/transcript/interview_results を削除
 - 判断基準: gate OFF で被害は止まる（課金/接続は即停止）。additive SQL は「消すと再適用コスト＞放置リスク」のため、実害が無ければ据え置き。
 
-## Cost 見積り / Billing hard cap 案（gpt-realtime-2.1）
-- Realtime `gpt-realtime-2.1`: 音声 **$32/1M in・$64/1M out**。3〜5 分の controlled test（数問+follow-up+短 silence+barge-in）は音声 token が限定的で、実コストは **数十〜数百円程度**（精密な円換算は固定しない・Usage で事後確定）。
-- Evaluation 1 回（`gpt-4o` or `gpt-5.6-terra`・出力 ≤2,000 token）: **数十円**。terra は $2/$12/1M でさらに安い。
-- **Billing hard cap 案（人間が OpenAI project 側で設定・本 patch では設定しない）**: 初回 R1 は月次 **$20〜$50** 程度の低い hard cap を推奨（1 回のテストに十分・暴走時の上限）。加えて OpenAI project の使用可能モデル制限で 2.x / 評価 model のみ許可。
+## Cost policy（AIMEN24 原則）
+- **「常に最高性能」ではなく「必要品質を満たす最低コスト」を標準にする**（1面接4,000円の従量課金のため AI 原価を最適化）。
+- **Realtime は AI 原価への影響が最大** → primary を **`gpt-realtime-2.1-mini`（$10/$20 per 1M）** にする。品質不足時のみ `gpt-realtime-2.1`（$32/$64）へ fallback。
+- **Evaluation / Transcription は原価影響が小さい** → 品質・runtime 安定性を優先し R1 は **`gpt-4o` / `whisper-1`** を維持。
+
+## Cost 見積り / Billing hard cap 案（primary=gpt-realtime-2.1-mini）
+- Realtime `gpt-realtime-2.1-mini`: 音声 **$10/1M in・$20/1M out**。3〜5 分の controlled test は音声 token 限定で、実コストは **十数〜百円程度**（2.1 の約 1/3・Usage で事後確定）。
+- Evaluation 1 回（`gpt-4o`・出力 ≤2,000 token）: **数十円**。
+- **Billing hard cap 案（人間が OpenAI project 側で設定・本 patch では未設定）**: 初回 R1 は月次 **$20〜$50** 程度の低い hard cap（1 回テストに十分・暴走上限）。加えて OpenAI project の使用可能モデル制限で mini/2.1 / gpt-4o のみ許可。
+
+## Realtime model policy（primary / fallback・SoT）
+- **Primary（R1 標準候補・既定）**: `gpt-realtime-2.1-mini`（`REALTIME_DEFAULT_MODEL`）。
+- **Fallback（高品質）**: `gpt-realtime-2.1`（`REALTIME_FALLBACK_MODEL`）。切替は env `OPENAI_REALTIME_MODEL=gpt-realtime-2.1` のみ（コード変更不要）。
+- **Fallback 条件（R1 acceptance で判断・主観のみで決めない）**: 日本語音声品質が許容未満 / instruction following 不安定 / follow-up 品質不足 / silence・noise 処理不十分 / barge-in 品質不足 / tool calling reliability 不足。
+
+### mini を本番標準として採用する acceptance（R1 で確認）
+1. 日本語が自然 / 2. 聞き取りやすい / 3. 質問順守（snapshot 順） / 4. follow-up が自然 / 5. silence handling 問題なし /
+6. barge-in 問題なし / 7. instruction following 問題なし / 8. tool calling 正常（complete_interview） / 9. premature complete なし / 10. latency 許容範囲。
+- **PASS → mini を本番標準候補として継続**。**FAIL → `gpt-realtime-2.1` へ fallback し、同一 test company/question で原因を比較**。
 
 ## Task 17 — Option B 境界（変更なし）
 Option B（server relay）は R1-A でも実装しない。R1-B は controlled internal smoke（non-demo test company 1社 / allowlist / gate 通常 OFF / 短時間のみ ON / 外部公開しない / 終了後 OFF）で実施。

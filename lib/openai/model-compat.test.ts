@@ -8,6 +8,7 @@ import {
 } from './realtime'
 import {
   REALTIME_DEFAULT_MODEL,
+  REALTIME_FALLBACK_MODEL,
   REALTIME_ALLOWED_MODELS,
   REALTIME_DEPRECATED_MODELS,
   REALTIME_TRANSCRIPTION_DEFAULT_MODEL,
@@ -22,14 +23,15 @@ import { buildEvaluationPrompt } from '@/lib/evaluation/prompt'
 
 // PR-R1-B model compatibility patch（現行公式仕様・OpenAI 非接続）。
 
-describe('Realtime model SoT（現行 2.x family・deprecated 互換）', () => {
-  it('default は gpt-realtime-2.1（deprecated gpt-realtime を default にしない）', () => {
-    expect(REALTIME_DEFAULT_MODEL).toBe('gpt-realtime-2.1')
+describe('Realtime model SoT（primary=mini / fallback=2.1・deprecated 互換）', () => {
+  it('default(primary) は gpt-realtime-2.1-mini、fallback は gpt-realtime-2.1', () => {
+    expect(REALTIME_DEFAULT_MODEL).toBe('gpt-realtime-2.1-mini')
+    expect(REALTIME_FALLBACK_MODEL).toBe('gpt-realtime-2.1')
     expect(REALTIME_DEPRECATED_MODELS).toContain('gpt-realtime')
-    expect(REALTIME_DEPRECATED_MODELS).not.toContain('gpt-realtime-2.1')
+    expect(REALTIME_DEPRECATED_MODELS).not.toContain('gpt-realtime-2.1-mini')
   })
-  it('allowlist は 2.1 / 2.1-mini / 2 / 1.5 を含む（実在モデルを削除しない）', () => {
-    for (const m of ['gpt-realtime-2.1', 'gpt-realtime-2.1-mini', 'gpt-realtime-2', 'gpt-realtime-1.5']) {
+  it('allowlist は mini(primary) / 2.1(fallback) / 2 / 1.5 を含む（実在モデルを削除しない・2.1 を残す）', () => {
+    for (const m of ['gpt-realtime-2.1-mini', 'gpt-realtime-2.1', 'gpt-realtime-2', 'gpt-realtime-1.5']) {
       expect(REALTIME_ALLOWED_MODELS as readonly string[]).toContain(m)
     }
   })
@@ -76,7 +78,17 @@ describe('Realtime env resolvers（許可値のみ・不正は既定/null）', (
     expect(resolveRealtimeReasoningEffort({} as NodeJS.ProcessEnv)).toBeNull()
   })
   it('model 名は resolver 経由のみ（複数箇所ハードコードしない）', () => {
+    // 未設定 → primary(mini)。明示 → 尊重（fallback 2.1 へ切替は env のみ）。
+    expect(resolveRealtimeModel({} as NodeJS.ProcessEnv)).toBe('gpt-realtime-2.1-mini')
+    expect(resolveRealtimeModel({ OPENAI_REALTIME_MODEL: 'gpt-realtime-2.1-mini' } as NodeJS.ProcessEnv)).toBe('gpt-realtime-2.1-mini')
     expect(resolveRealtimeModel({ OPENAI_REALTIME_MODEL: 'gpt-realtime-2.1' } as NodeJS.ProcessEnv)).toBe('gpt-realtime-2.1')
+  })
+  it('mini の session config が正常（reasoning は既定で載せない＝mini 未サポートへ送らない）', () => {
+    const s = buildRealtimeSessionConfig({ model: 'gpt-realtime-2.1-mini', instructions: 'X' })
+    expect(s.model).toBe('gpt-realtime-2.1-mini')
+    expect('reasoning' in s).toBe(false)
+    const audio = s.audio as Record<string, Record<string, unknown>>
+    expect((audio.input.transcription as Record<string, unknown>).model).toBe('whisper-1')
   })
 })
 
