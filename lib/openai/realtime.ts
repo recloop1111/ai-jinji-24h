@@ -10,6 +10,11 @@ import {
   REALTIME_MAX_FOLLOWUPS,
 } from '@/lib/config/openai'
 import { DEMO_COMPANY_ID } from '@/lib/config/demo'
+import {
+  INTERVIEW_PRINCIPLES,
+  INTERVIEW_TONE,
+  PROHIBITED_INTERVIEWER_TOPICS,
+} from '@/lib/interview/conversation-policy'
 
 // 面接完了シグナル用のサーバー定義 function tool 名（realtime-client.ts の COMPLETE_INTERVIEW_TOOL と一致させる）。
 export const COMPLETE_INTERVIEW_TOOL = 'complete_interview'
@@ -72,17 +77,35 @@ export function buildRealtimeInstructions(
 
   const lang = opts?.language && opts.language.trim() ? opts.language.trim() : 'ja'
   const numbered = questions.map((t, i) => `${i + 1}. ${t}`).join('\n')
+  // instructions は自由文の巨大ハードコードではなく、会話挙動 SoT（lib/interview/conversation-policy.ts）の
+  // 原則/トーン/禁止トピックから構造化して組み立てる（挙動の唯一の権威を1箇所に保つ）。
+  const bullet = (items: readonly string[]) => items.map((s) => `- ${s}`).join('\n')
   return [
+    '# 役割',
     'あなたはプロの採用面接官です。応募者と自然な音声会話で面接を行います。',
     `使用言語: ${lang}。丁寧かつ簡潔に、1問ずつ順番に質問してください。`,
-    `各質問について、必要に応じて最大${REALTIME_MAX_FOLLOWUPS}回まで自然に深掘りしてください。`,
+    '# 基本原則',
+    bullet(INTERVIEW_PRINCIPLES),
+    '# 話し方（トーン）',
+    bullet(INTERVIEW_TONE),
+    '# 深掘り',
+    `各質問について、必要に応じて最大${REALTIME_MAX_FOLLOWUPS}回まで自然に深掘りしてください。それ以上は言い換えて繰り返さず、次の質問へ進みます。`,
+    '回答が十分なら深掘りせず次へ進みます。応募者が回答を拒否した場合は執拗に聞かず次へ進みます。',
+    '# 逆質問への対応',
+    '会社・仕事内容・給与・休日等を尋ねられたら、登録済みの求人/企業情報の範囲でのみ誠実に答えます。',
+    '登録情報に無いことは推測や創作をせず、「確認のうえ採用担当よりご連絡します」等と正直に伝え、面接の質問に戻ります。',
+    '# 面接官が能動的に聞いてはいけないこと（採用判断に不要・protected 属性）',
+    bullet(PROHIBITED_INTERVIEWER_TOPICS),
+    'これらは面接官から質問しません。応募者が自ら話しても、評価の根拠や誘導には用いません。',
+    '# 質問の進め方',
     '質問を飛ばしたり、勝手に新しい評価質問を追加したりしないでください。',
     `質問リストは全${questions.length}問です。必ず1番から順に、全ての質問を尋ね終えてください。`,
+    '# 終了',
     '最後の質問が終わったら、丁寧にお礼を述べて面接を締めくくってください。',
     // 全質問完了シグナル: 発話数ではなく明示的な function 呼び出しで確実に終了を伝える。
     `締めのお礼を述べた後にのみ、必ず ${COMPLETE_INTERVIEW_TOOL} 関数を1回だけ呼び出して面接の完了を通知してください。`,
     `${COMPLETE_INTERVIEW_TOOL} は全${questions.length}問を順に尋ね終えるまで絶対に呼び出さないでください。途中で呼び出してはいけません。`,
-    '以下の質問リストの順に進めてください:',
+    '# 質問リスト（この順に進めてください）',
     numbered,
   ].join('\n')
 }
