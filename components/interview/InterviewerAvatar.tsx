@@ -7,7 +7,10 @@
 // - 装飾（リング/波形/ドット）は aria-hidden。状態は aria-live のラベルで読み上げる。
 // - prefers-reduced-motion: reduce では全ループアニメを停止（静止でも意味が伝わる）。
 
+import { useEffect } from 'react'
 import { INTERVIEW_PHASE_LABELS, type InterviewPhase } from '@/lib/interview/presence'
+import { AI_INTERVIEWER, AI_INTERVIEWER_IMAGE_LIST, interviewerImageForState } from '@/lib/interview/interviewer-identity'
+import { interviewerVisualForPhase } from '@/lib/interview/interviewer-visual'
 import { avatarVariantForPhase, type AvatarTone } from '@/lib/interview/avatarVisual'
 
 const RING_TONE: Record<AvatarTone, string> = {
@@ -32,6 +35,18 @@ const BAR_TONE: Record<AvatarTone, string> = {
 export default function InterviewerAvatar({ phase }: { phase: InterviewPhase }) {
   const v = avatarVariantForPhase(phase)
   const label = INTERVIEW_PHASE_LABELS[phase]
+  // 3 状態画像（neutral/speaking/listening）を presence phase から選択（判定は SoT の純関数へ集約）。
+  const visualState = interviewerVisualForPhase(phase)
+  const imageSrc = interviewerImageForState(visualState)
+
+  // 3 状態画像を事前ロードしてブラウザキャッシュへ入れる（AI 発話開始時に初回 download で切替が遅れるのを防ぐ）。
+  // マウント時に一度だけ。ネットワーク待ちを切替の前に済ませる（各 ~50KB WebP）。
+  useEffect(() => {
+    for (const src of AI_INTERVIEWER_IMAGE_LIST) {
+      const img = new Image()
+      img.src = src
+    }
+  }, [])
 
   return (
     <div className="flex flex-col items-center">
@@ -44,11 +59,16 @@ export default function InterviewerAvatar({ phase }: { phase: InterviewPhase }) 
             v.active ? 'iv-ring-active' : ''
           } iv-ring-${v.motion}`}
         />
-        {/* 既存写真を継続使用。装飾ではなく面接官本体なので alt を付与。 */}
+        {/* 全企業共通の AIMEN24 標準AI面接官（3状態画像は interviewer-identity.ts の SoT。差し替えは 1 箇所）。
+            固定 w/h + object-cover でレイアウトシフトなし・3状態で人物サイズが変わらない。画像エラー時は neutral へ。 */}
+        {/* key を付けず同一 img の src だけを切替＝キャッシュ済み(preload)なら再マウントせず即時差替（白フラッシュ/レイアウトシフトなし）。 */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/images/ai-interviewer.jpg"
-          alt="AI面接官"
+          src={imageSrc}
+          alt={AI_INTERVIEWER.imageAlt}
+          onError={(e) => {
+            if (e.currentTarget.src !== AI_INTERVIEWER.images.neutral) e.currentTarget.src = AI_INTERVIEWER.images.neutral
+          }}
           className="relative w-[200px] h-[200px] sm:w-[240px] sm:h-[240px] md:w-[300px] md:h-[300px] rounded-full object-cover border-4 border-white/20 shadow-2xl"
         />
       </div>
@@ -69,8 +89,8 @@ export default function InterviewerAvatar({ phase }: { phase: InterviewPhase }) 
           ))}
       </div>
 
-      {/* 面接官名 */}
-      <p className="text-sm sm:text-base text-white/90 mt-2">AI面接官</p>
+      {/* 面接官名（共通 SoT）。企業名とは別。 */}
+      <p className="text-sm sm:text-base text-white/90 mt-2">{AI_INTERVIEWER.displayName}</p>
 
       {/* 状態ラベル（aria-live）。idle は非表示。高さ固定でレイアウトを揺らさない。 */}
       <div className="mt-1 h-5 flex items-center justify-center">
