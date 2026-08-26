@@ -7,10 +7,12 @@
 // - 装飾（リング/波形/ドット）は aria-hidden。状態は aria-live のラベルで読み上げる。
 // - prefers-reduced-motion: reduce では全ループアニメを停止（静止でも意味が伝わる）。
 
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { INTERVIEW_PHASE_LABELS, type InterviewPhase } from '@/lib/interview/presence'
 import { AI_INTERVIEWER, AI_INTERVIEWER_IMAGE_LIST, interviewerImageForState } from '@/lib/interview/interviewer-identity'
 import { interviewerVisualForPhase } from '@/lib/interview/interviewer-visual'
+import { nextNodDelayMs, shouldNodNow, nodAllowed } from '@/lib/interview/avatar/avatar-motion'
+import { AVATAR_NOD } from '@/lib/interview/avatar/avatar-config'
 import { avatarVariantForPhase, type AvatarTone } from '@/lib/interview/avatarVisual'
 
 const RING_TONE: Record<AvatarTone, string> = {
@@ -48,6 +50,47 @@ export default function InterviewerAvatar({ phase }: { phase: InterviewPhase }) 
     }
   }, [])
 
+  // reduced-motion（アクセシビリティ）: breathing/nod を無効化。avatar の 3 状態切替自体は維持。
+  const [reducedMotion, setReducedMotion] = useState(false)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const update = () => setReducedMotion(mq.matches)
+    update()
+    mq.addEventListener?.('change', update)
+    return () => mq.removeEventListener?.('change', update)
+  }, [])
+
+  // listening 時のみ「時々」自然な頷き（whole-body 微動＝顔差分アセット不要）。
+  //   固定周期にせず randomized interval + 確率で発火（延々頷かない）。一回だけの短い CSS 頷きを適用。
+  //   実 audio/内容には非依存（企業質問に依存しない）。障害時も面接を壊さない（純 setTimeout のみ）。
+  const [nodding, setNodding] = useState(false)
+  const nodTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!nodAllowed(visualState, reducedMotion)) return
+    let cancelled = false
+    const rng = () => Math.random()
+    const schedule = () => {
+      nodTimerRef.current = setTimeout(() => {
+        if (cancelled) return
+        if (shouldNodNow(rng)) {
+          setNodding(true)
+          nodTimerRef.current = setTimeout(() => {
+            if (!cancelled) setNodding(false)
+            schedule()
+          }, AVATAR_NOD.nodDurationMs)
+        } else {
+          schedule()
+        }
+      }, nextNodDelayMs(rng))
+    }
+    schedule()
+    return () => {
+      cancelled = true
+      if (nodTimerRef.current) clearTimeout(nodTimerRef.current)
+    }
+  }, [visualState, reducedMotion])
+
   return (
     <div className="flex flex-col items-center">
       {/* アバター本体＋リング（コンテナは idle 時のみ breathing） */}
@@ -69,7 +112,7 @@ export default function InterviewerAvatar({ phase }: { phase: InterviewPhase }) 
           onError={(e) => {
             if (e.currentTarget.src !== AI_INTERVIEWER.images.neutral) e.currentTarget.src = AI_INTERVIEWER.images.neutral
           }}
-          className="relative w-[200px] h-[200px] sm:w-[240px] sm:h-[240px] md:w-[300px] md:h-[300px] rounded-full object-cover border-4 border-white/20 shadow-2xl"
+          className={`iv-avatar${nodding && nodAllowed(visualState, reducedMotion) ? ' iv-avatar-nod' : ''} relative w-[200px] h-[200px] sm:w-[240px] sm:h-[240px] md:w-[300px] md:h-[300px] rounded-full object-cover border-4 border-white/20 shadow-2xl`}
         />
       </div>
 
@@ -110,9 +153,16 @@ export default function InterviewerAvatar({ phase }: { phase: InterviewPhase }) 
         .iv-dot { opacity: 0.6; }
         .iv-ring-active { opacity: 0.9; }
 
+        /* Lightweight avatar: ごく僅かな呼吸/微動（全状態・顔差分アセット不要）。GPU 合成される transform のみ。 */
+        .iv-avatar { will-change: transform; transform: translateZ(0); backface-visibility: hidden; }
+
         /* アニメーションは reduced-motion を尊重（reduce 時は付与しない＝静止） */
         @media (prefers-reduced-motion: no-preference) {
           .iv-motion-breathing { animation: iv-breathe 4.5s ease-in-out infinite; }
+          /* 呼吸: ごく僅かな scale + 上下（酔わない・顔が大きく動かない）。listening 頷き時は上書きされる。 */
+          .iv-avatar { animation: iv-avatar-breathe 4.6s ease-in-out infinite; }
+          /* 頷き: 一回だけ適用される小さくゆっくりの上下（whole-body）。JS が随時 class を付与（延々頷かない）。 */
+          .iv-avatar-nod { animation: iv-avatar-nod 700ms ease-in-out 1; }
 
           .iv-ring-connecting { animation: iv-soft 1.8s ease-in-out infinite; }
           .iv-ring-speaking { animation: iv-pulse 1.5s ease-out infinite; }
@@ -132,6 +182,18 @@ export default function InterviewerAvatar({ phase }: { phase: InterviewPhase }) 
         }
 
         @keyframes iv-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.02); } }
+        /* 呼吸: ごく僅か（scale ~1.2%・上下 ~1.2px）。面接画面なのでほぼ気付かない程度。 */
+        @keyframes iv-avatar-breathe {
+          0%, 100% { transform: translateY(0) scale(1); }
+          50% { transform: translateY(-1.2px) scale(1.012); }
+        }
+        /* 頷き: 小さくゆっくり下→戻る（whole-head/body）。大きく動かさない。 */
+        @keyframes iv-avatar-nod {
+          0% { transform: translateY(0) rotate(0deg); }
+          35% { transform: translateY(4px) rotate(1.4deg); }
+          70% { transform: translateY(1px) rotate(0.4deg); }
+          100% { transform: translateY(0) rotate(0deg); }
+        }
         @keyframes iv-soft { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.9; } }
         @keyframes iv-pulse {
           0% { transform: scale(1); opacity: 0.8; }

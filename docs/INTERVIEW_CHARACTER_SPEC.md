@@ -80,8 +80,19 @@
 - 面接官として中立
 - 長い相槌をしない
 
-## Task 13 — アニメーション境界
-- 口パク・過剰なアニメーションは**今回新規実装しない**。
-- 静止画でも、UI 状態（`lib/interview/session-ui.ts` の `ai_speaking` / `listening` / `processing` 等）で
-  「AIが話しています / あなたの回答をお聞きしています」が理解できればよい。
-- 将来の avatar animation は別 scope。
+## Task 13 — アニメーション境界（更新: Lightweight Realtime Avatar）
+- **実装済み（追加アセット不要・原価 0）**: 呼吸 breathing（全状態・ごく僅か）／listening 頷き nod（随時・機械的でない）。
+  reduced-motion で無効化。3 状態切替は維持。ロジック SoT = `lib/interview/avatar/`（audio-analyzer / avatar-motion / avatar-config）。
+- **アセット待ち（同一人物・同一 pose の mouth/eye 差分が必須）**: 音声連動の軽量口パク（lip-sync）／瞬き（blink）。
+  仕様 = `docs/AVATAR_ASSET_CONTRACT.md`。Audio Analyzer（Realtime remote audio→ブラウザ内 RMS→mouth level）は実装済み・配線待ち。
+- **禁止（本 scope 外）**: 音素完全一致 viseme / 動画 avatar / Live2D / Wav2Lip server / 外部 Talking Avatar API /
+  リアルタイム表情生成 / 手振り生成。すべてブラウザ内処理のみ・1 面接あたり追加外部 API 原価 0。
+- **fallback（HARD）**: AudioContext/Analyser 不可・Safari 制約・権限問題でも、静止 3 状態（neutral/speaking/listening）へ安全に退避。
+  アバター障害で面接本体を止めない。
+
+## R1 acceptance（Avatar・実接続時に確認）
+- AI 音声開始と口の開始が自然（極端な遅延なし）／音声停止・barge-in で口が即閉じる。
+- lip movement が激しすぎない・noise で口が jitter しない（noise floor + smoothing）。
+- blink 自然（固定周期でない）／breathing がほぼ気付かない程度／listening nod が時々・自然。
+- iPhone Safari で重くならない・電池を過剰消費しない・**audio latency/品質を悪化させない**。
+- animation 障害でも面接継続（静止 3 状態 fallback）。
