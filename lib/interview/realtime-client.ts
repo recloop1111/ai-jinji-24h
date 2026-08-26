@@ -8,6 +8,9 @@ export type RealtimeCallbacks = {
   onRemoteStream?: (stream: MediaStream) => void
   // 文字起こし（PR-2 はメモリ保持のみ。永続化は PR-3）。
   onTranscript?: (t: { role: 'applicant' | 'ai'; text: string }) => void
+  // R1-A: FINAL transcript event の「生 event」を渡す（server 権威 ingest 用に item_id/content_index/response_id を含む）。
+  //   呼び出し側が /api/interview/[slug]/transcript へ best-effort POST する（gate OFF なら 503・no-op）。
+  onTranscriptEvent?: (evt: unknown) => void
   // 応募者ターンの完了（進捗表示用。PR-2 では /end を自動発火しない）。
   onApplicantTurnComplete?: () => void
   // 全質問完了シグナル（サーバー定義 tool complete_interview を AI が呼んだとき）。
@@ -217,13 +220,19 @@ export function dispatchEvent(raw: string, cb: RealtimeCallbacks | undefined): v
   }
   // 応募者の発話文字起こし完了 → transcript ＋ ターン完了（進行カウント）。
   if (type.includes('input_audio_transcription') && type.endsWith('completed')) {
-    if (text) cb.onTranscript?.({ role: 'applicant', text })
+    if (text) {
+      cb.onTranscript?.({ role: 'applicant', text })
+      cb.onTranscriptEvent?.(evt) // 生 event を server 権威 ingest へ（best-effort・gate OFF なら no-op）
+    }
     cb.onApplicantTurnComplete?.()
     return
   }
   // AI の応答文字起こし完了。
   if (type.includes('audio_transcript') && type.endsWith('done')) {
-    if (text) cb.onTranscript?.({ role: 'ai', text })
+    if (text) {
+      cb.onTranscript?.({ role: 'ai', text })
+      cb.onTranscriptEvent?.(evt)
+    }
     return
   }
   // 未知イベントは無視（スキーマ差異に強くする）。
