@@ -9,6 +9,7 @@ import {
   INTERVIEW_WARNING_REMAINING_MINUTES,
 } from '@/lib/config/interview-policy'
 import { connectRealtimeCall } from '@/lib/interview/realtime-client'
+import { sendTranscriptEvent } from '@/lib/interview/transcript-sender'
 import {
   createMockPresenceDriver,
   type InterviewPhase,
@@ -651,9 +652,21 @@ export default function SessionPage() {
             }
           },
           onTranscript: (t) => {
-            transcriptRef.current.push(t) // PR-2 はメモリ保持のみ（DB保存は PR-3）
+            transcriptRef.current.push(t) // メモリ保持（表示/ウォッチドッグ用）
             // AI が一度でも応答したら初回応答ウォッチドッグを解除（セッションは生きている）。
             if (t.role === 'ai') aiRespondedRef.current = true
+          },
+          // R1-A: FINAL transcript を server 権威 ingest へ best-effort POST（gate OFF＝TRANSCRIPT_INGEST_ENABLED 未設定なら
+          //   route が 503 を返し DB 未到達＝no-op）。speaker/source/seq は server が event_type から導出（client は送らない）。
+          onTranscriptEvent: (evt) => {
+            if (!interviewId) return
+            void sendTranscriptEvent(evt, {
+              slug,
+              token,
+              applicantId: applicant_id,
+              interviewId,
+              language: sessionStorage.getItem(`interview_${slug}_language`) || selectedLanguage,
+            })
           },
           // P2-b / 追加P1: realtime のターン数は answeredQuestions に反映しない。
           // ターン数（follow-up / VAD 分割 / ノイズ）は「回答済み質問数」ではないため、これで完了判定
