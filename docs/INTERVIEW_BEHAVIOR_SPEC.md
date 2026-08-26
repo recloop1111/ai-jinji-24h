@@ -116,3 +116,42 @@ company/job の**登録済み情報の範囲でのみ**回答。無い情報は*
 - 接続後 `session.update` 改変の実挙動（信頼境界・Option B の要否確認）
 
 > R1 は「1社限定・短時間・低コスト・即OFF可能」（`realtime-preflight.ts`）で開始し、上記赤字を実測する。
+
+---
+
+## P7.1 — Server-authoritative Interview Progress（追補）
+
+Realtime の AI/LLM や client を進行状態の SoT にしない。サーバが検証できる最小の状態機械を追加。
+
+### SoT
+- `lib/interview/interview-progress.ts` — `InterviewProgressState`（serializable・PII 無し）＋
+  `applyProgressEvent(state,event)` reducer ＋ `evaluateCompletionRequest(state,{reason})` premature guard ＋
+  reconnect（`restoreProgress`/`canResume`/`resumeIndex`）＋ `InterviewProgressStore`（楽観ロック interface）。
+- 永続化: `interviews.interview_progress jsonb`（additive・1列・**Production 未適用**。`supabase/rls/p7_1_interview_progress.sql`(+ROLLBACK)）。
+  既存列で代替不可（questions_snapshot=不変リスト / seq=発話単位 / status=粗い）。
+
+### 不変条件（テスト固定）
+- index は `ADVANCE` でしか +1（N→N+2 へ飛べない）。未回答質問は ADVANCE 不可。
+- `COMPLETE` は `completedCount >= totalQuestions` のときだけ正常完了。未完了は `rejected_premature`（AI/client の早すぎる complete を弾く）。
+- eventId 冪等（ADVANCE/COMPLETE の再送で二重加算/二重完了しない）。version 楽観ロック（並行更新は片方 conflict）。
+- client 由来 index/count/complete を state に代入しない。別 interviewId の event は `rejected_interview_mismatch`（spoof の 1 層）。
+- 早期終了（applicant_end/time_limit=early_ended、fatal/retry_exhausted=aborted）は正常完了(completed)と区別。
+- 完了/異常終了は `canResume=false`（再開しない＝二重セッション/再課金防止）。reconnect は `resumeIndex` で 0 に戻らない。
+
+### 完了権威 / 認可
+- 状態確定の最終権威はサーバ（`/end` の in_progress 条件付き UPDATE＝冪等）。progress reducer は「completed か early か premature か」を判定して `/end` の final_status を決める材料になる。
+- 認可（company/applicant/interview/token）は既存 route 層を維持（progress SoT は interview-scoped）。
+
+### R1 wiring interface（本 PR では未結線）
+```
+Realtime normalized event → applyProgressEvent(state, event)
+  → (COMPLETE 時) evaluateCompletionRequest → 正常/early/premature
+  → InterviewProgressStore.save(state, expectedVersion)  // 楽観ロック
+  → /end（final_status = completed | cancelled）
+```
+巨大実装を R1 に残さない。R1 は「正規化イベントの供給」と「store の Supabase adapter（実証済み CAS SQL から実装）」を結線するのみ。
+
+### Option B（server relay）との整合
+progress reducer は「正規化イベントの供給元」に非依存。Option B（サーバがメディア経路に入り正規化イベントを emit）でも、
+transcript-ingestion 経由でも、同じ `ProgressEvent` を消費する。Option B は本 reducer を**供給する transport**であり、
+reducer は**その上の検証層**＝設計衝突なし。SDP-proxy 信頼境界（一般公開前 blocker）は本 PR の対象外で、変更しない。
