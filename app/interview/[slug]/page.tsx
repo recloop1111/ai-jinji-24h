@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { User, MessageSquare, Camera, PlayCircle, Video, Globe, ArrowRight, ShieldCheck } from 'lucide-react'
+import { Clock, MonitorSmartphone, CalendarClock, PlayCircle, HelpCircle, ShieldCheck, Globe, Quote } from 'lucide-react'
+import { AI_INTERVIEWER } from '@/lib/interview/interviewer-identity'
 
 const SUPPORT_EMAIL = 'support@ai-jinji24h.com'
 import { useParams, useRouter } from 'next/navigation'
@@ -16,13 +17,20 @@ const LANGUAGES = [
   { code: 'pt', label: 'Português' },
 ]
 
-// 面接の流れ（STEP）。文言・順序・アイコンは既存のまま。反復記述を配列に集約して見た目のみ刷新する。
-const INTERVIEW_STEPS = [
-  { icon: User, label: 'STEP 1', title: '基本情報の入力' },
-  { icon: MessageSquare, label: 'STEP 2', title: '本人確認' },
-  { icon: Camera, label: 'STEP 3', title: 'カメラ・マイクの確認' },
-  { icon: PlayCircle, label: 'STEP 4', title: '面接練習（約3分）' },
-  { icon: Video, label: 'STEP 5', title: 'AI面接（最大60分）' },
+// 面接概要の情報ボックス（3つ）。意味は「所要時間の目安 / 受験環境 / 受験可能時間」。
+const INFO_BOXES = [
+  { icon: Clock, label: '所要時間の目安', value: '約30〜40分' },
+  { icon: MonitorSmartphone, label: '受験環境', value: 'スマホ・PC対応' },
+  { icon: CalendarClock, label: '受験可能時間', value: '24時間いつでも' },
+]
+
+// 面接の流れ（横並び 01〜05）。順序は既存フローを維持し、横並び表示向けの短いラベルにする。
+const FLOW_STEPS = [
+  { no: '01', lines: ['基本情報', '入力'] },
+  { no: '02', lines: ['本人確認'] },
+  { no: '03', lines: ['環境確認'] },
+  { no: '04', lines: ['練習', '（任意）'] },
+  { no: '05', lines: ['AI面接', '（本番）'] },
 ]
 
 export default function InterviewPage() {
@@ -160,23 +168,23 @@ export default function InterviewPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-blue-50/60 pb-12">
-      {/* ヘッダー: 会社名（左）＋ 言語切替（右）。max-w で中央寄せ、面接カードと横位置を揃える。 */}
-      <header className="mx-auto flex max-w-lg items-center justify-between gap-3 px-4 pt-5 sm:pt-7">
+    <div className="min-h-screen bg-slate-100">
+      {/* ヘッダー: 会社名（左）＋ 言語切替（右）。全幅・余白ゆとり・境界は薄く上品に。 */}
+      <header className="flex items-center justify-between gap-3 border-b border-slate-200/70 bg-white/70 px-5 py-4 backdrop-blur sm:px-8">
         <div className="flex min-w-0 items-center gap-2.5">
           {company.logo_url ? (
             <img
               src={company.logo_url}
               alt={company.name}
-              className="h-9 w-9 flex-shrink-0 rounded-lg border border-slate-200 object-cover"
+              className="h-8 w-8 flex-shrink-0 rounded-lg border border-slate-200 object-cover"
             />
           ) : null}
-          <span className="truncate text-sm font-semibold text-slate-800">{company.name}</span>
+          <span className="truncate text-base font-bold text-slate-900">{company.name}</span>
         </div>
 
         {/* 言語切替: グローブ付きの上品なピル。native select を維持しキーボード/読み上げ対応を保つ。 */}
         <div className="relative flex-shrink-0">
-          <Globe className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <Globe className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <select
             value={selectedLanguage}
             onChange={(e) => {
@@ -189,7 +197,7 @@ export default function InterviewPage() {
               }
             }}
             aria-label="言語を選択"
-            className="cursor-pointer rounded-full border border-slate-200 bg-white/80 py-1.5 pl-7 pr-2.5 text-xs font-medium text-slate-700 shadow-sm backdrop-blur transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="cursor-pointer rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             {LANGUAGES.map((lang) => (
               <option key={lang.code} value={lang.code}>
@@ -201,100 +209,147 @@ export default function InterviewPage() {
         </div>
       </header>
 
-      {/* メインカード: 薄い境界線＋やわらかいシャドウで安っぽさを排し、余白を広めに取る。 */}
-      <main className="mx-auto mt-5 max-w-lg px-4 sm:mt-8">
-        <div className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.28)] sm:p-9">
-          {/* タイトル: ブランドバッジ＋見出し＋補足。情報の優先順位を明確化。 */}
-          <div className="flex flex-col items-center text-center">
-            <span className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 shadow-lg shadow-blue-600/20">
-              <Video className="h-7 w-7 text-white" />
-            </span>
-            <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-500">AI Interview</span>
-            <h1 className="mt-1.5 text-2xl font-bold tracking-tight text-slate-900">
-              ご参加ありがとうございます！
-            </h1>
-            <p className="mt-2.5 text-sm leading-relaxed text-slate-500">
-              AI面接官が質問します。<br />リラックスしてお話しください。
-            </p>
+      {/* メインカード: 広めの1枚カード。白背景・角丸大・シャドウ控えめ・境界薄く。 */}
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
+        <div className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-white p-6 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.25)] sm:p-10 lg:p-12">
+          <div className="grid gap-10 lg:grid-cols-[1.55fr_1fr] lg:items-center lg:gap-14">
+            {/* 左カラム: タイトル / 説明 / 情報ボックス / 面接の流れ / 同意 / CTA */}
+            <div>
+              {/* 見出し: 大きく太い主見出し＋ブランド色の副見出し＋薄めの説明。 */}
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">AI面接へようこそ</h1>
+              <p className="mt-1.5 text-xl font-bold text-blue-600 sm:text-2xl">ご参加ありがとうございます</p>
+              <p className="mt-4 text-sm leading-relaxed text-slate-500 sm:text-[15px]">
+                AI面接官が質問します。<br className="hidden sm:block" />リラックスしてお話しください。
+              </p>
+
+              {/* 情報ボックス（3つ）: アイコン付き・薄枠・角丸の小カード。 */}
+              <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {INFO_BOXES.map((box) => {
+                  const Icon = box.icon
+                  return (
+                    <div key={box.label} className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-3 sm:flex-col sm:items-start sm:gap-2">
+                      <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                        <Icon className="h-[18px] w-[18px]" />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-[11px] text-slate-400">{box.label}</div>
+                        <div className="text-sm font-semibold text-slate-800">{box.value}</div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* 面接の流れ: 横並びの 01〜05 ステッパー（点線コネクタ）。デスクトップは1行。 */}
+              <section className="mt-8 border-t border-slate-100 pt-7">
+                <h2 className="mb-5 text-base font-bold text-slate-900">面接の流れ</h2>
+                <ol className="grid grid-cols-5 gap-1 sm:gap-2">
+                  {FLOW_STEPS.map((step, i) => (
+                    <li key={step.no} className="relative flex flex-col items-center text-center">
+                      {/* 点線コネクタ（前のステップとの間・モバイルでは非表示） */}
+                      {i > 0 && (
+                        <span
+                          aria-hidden="true"
+                          className="absolute left-[-50%] right-1/2 top-5 hidden border-t border-dashed border-slate-300 sm:block"
+                        />
+                      )}
+                      <span className="relative z-10 flex h-10 w-10 items-center justify-center rounded-full border-2 border-blue-500 bg-white text-sm font-bold text-blue-600">
+                        {step.no}
+                      </span>
+                      <div className="mt-2 leading-tight">
+                        {step.lines.map((line) => (
+                          <div key={line} className="text-[10px] text-slate-600 sm:text-xs">{line}</div>
+                        ))}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+
+              {/* 同意チェック: 機能は不変。見た目のみ整える。 */}
+              <label className="mt-8 flex cursor-pointer items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  checked={consent}
+                  onChange={(e) => setConsent(e.target.checked)}
+                  className="mt-0.5 h-5 w-5 flex-shrink-0 accent-blue-600"
+                />
+                <span className="pt-0.5 text-sm leading-relaxed text-slate-600">
+                  利用規約および
+                  <Link
+                    href={`/interview/${slug}/terms`}
+                    className="ml-1 font-medium text-blue-600 underline underline-offset-2 hover:text-blue-700"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    プライバシーポリシー
+                  </Link>
+                  に同意します
+                </span>
+              </label>
+
+              {/* CTA: 幅広・ブランドブルー・アイコン付き。活性/非活性条件は不変（disabled={!consent}）。 */}
+              <button
+                onClick={handleNext}
+                disabled={!consent}
+                className="group mt-4 flex min-h-[56px] w-full items-center justify-center gap-2.5 rounded-2xl bg-blue-600 py-4 text-base font-bold text-white shadow-lg shadow-blue-600/25 transition-all duration-200 hover:bg-blue-700 hover:shadow-xl hover:shadow-blue-600/30 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40 active:scale-[0.99] disabled:pointer-events-none disabled:bg-blue-300 disabled:opacity-70 disabled:shadow-none"
+              >
+                <PlayCircle className="h-5 w-5" />
+                AI面接をはじめる
+              </button>
+
+              {/* 安心感の補助文。 */}
+              <p className="mt-3.5 flex items-center justify-center gap-1.5 text-xs text-slate-400">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                入力いただいた情報は暗号化して安全に管理します
+              </p>
+            </div>
+
+            {/* 右カラム: 現行の面接官画像（円形）＋ 軽い補足吹き出し。 */}
+            <div className="flex flex-col items-center">
+              <div className="relative">
+                {/* 控えめな背景装飾（ドット・低透明度）。 */}
+                <svg
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -right-8 -top-6 h-40 w-40 text-blue-200/50"
+                  viewBox="0 0 100 100"
+                  fill="currentColor"
+                >
+                  {Array.from({ length: 6 }).map((_, r) =>
+                    Array.from({ length: 6 }).map((_, c) => (
+                      <circle key={`${r}-${c}`} cx={8 + c * 16} cy={8 + r * 16} r="1.6" />
+                    )),
+                  )}
+                </svg>
+                {/* やわらかなハロー */}
+                <div className="absolute -inset-4 rounded-full bg-gradient-to-b from-blue-100/60 to-transparent blur-2xl" />
+                <div className="relative h-52 w-52 overflow-hidden rounded-full bg-slate-100 ring-8 ring-white shadow-xl sm:h-60 sm:w-60">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={AI_INTERVIEWER.images.neutral}
+                    alt={AI_INTERVIEWER.imageAlt}
+                    className="h-full w-full object-cover object-[center_18%]"
+                  />
+                </div>
+              </div>
+
+              {/* 補足吹き出し（面接官のあいさつ）。 */}
+              <div className="relative mt-6 w-full max-w-xs rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <Quote className="absolute left-3 top-3 h-5 w-5 text-blue-200" />
+                <p className="pl-7 text-sm leading-relaxed text-slate-600">
+                  こんにちは！本日はよろしくお願いします。リラックスして、一緒にお話ししましょう。
+                </p>
+              </div>
+            </div>
           </div>
 
-          {/* 面接の流れ: 数字バッジ＋縦導線のタイムライン。進行イメージが直感的に伝わるよう整理。 */}
-          <section className="mt-8">
-            <h2 className="mb-4 text-sm font-bold text-slate-800">面接の流れ</h2>
-            <ol className="space-y-1">
-              {INTERVIEW_STEPS.map((step, i) => {
-                const Icon = step.icon
-                const isLast = i === INTERVIEW_STEPS.length - 1
-                return (
-                  <li key={step.label} className="relative flex gap-4 pb-4 last:pb-0">
-                    {/* 縦導線（最後のステップには引かない） */}
-                    {!isLast && (
-                      <span
-                        aria-hidden="true"
-                        className="absolute left-[19px] top-11 h-[calc(100%-1.75rem)] w-px bg-gradient-to-b from-blue-200 to-slate-200"
-                      />
-                    )}
-                    <span className="relative z-10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-sm shadow-blue-600/20">
-                      <Icon className="h-5 w-5" />
-                    </span>
-                    <div className="flex flex-col pt-0.5">
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-500">{step.label}</span>
-                      <span className="text-sm font-medium text-slate-700">{step.title}</span>
-                    </div>
-                  </li>
-                )
-              })}
-            </ol>
-          </section>
-
-          {/* 同意チェック: 枠付きボックスで視認性を上げ、チェック時はブランド色でハイライト。 */}
-          <label
-            className={`mt-7 flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition ${
-              consent ? 'border-blue-300 bg-blue-50/60' : 'border-slate-200 bg-slate-50/60 hover:border-slate-300'
-            }`}
-          >
-            <input
-              type="checkbox"
-              checked={consent}
-              onChange={(e) => setConsent(e.target.checked)}
-              className="mt-0.5 h-5 w-5 flex-shrink-0 accent-blue-600"
-            />
-            <span className="pt-0.5 text-sm leading-relaxed text-slate-600">
-              利用規約および
-              <Link
-                href={`/interview/${slug}/terms`}
-                className="ml-1 font-medium text-blue-600 underline underline-offset-2 hover:text-blue-700"
-                onClick={(e) => e.stopPropagation()}
-              >
-                プライバシーポリシー
-              </Link>
-              に同意します
-            </span>
-          </label>
-
-          {/* CTA: 角丸2xl・ブランドグラデ・矢印・ホバーで浮き上がる。無効状態を明確に。 */}
-          <button
-            onClick={handleNext}
-            disabled={!consent}
-            className="group mt-5 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 py-4 text-base font-semibold text-white shadow-lg shadow-blue-600/25 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-blue-600/30 active:translate-y-0 active:scale-[0.99] disabled:pointer-events-none disabled:translate-y-0 disabled:opacity-40 disabled:shadow-none"
-          >
-            面接を始める
-            <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-0.5" />
-          </button>
-
-          {/* 安心感の補助文（安全に管理される旨）。 */}
-          <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-slate-400">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            入力内容は暗号化して安全に管理されます
-          </p>
-
-          {/* サポートリンク */}
-          <div className="mt-5 border-t border-slate-100 pt-4 text-center">
+          {/* サポートリンク（カード下部・中央）。 */}
+          <div className="mt-8 border-t border-slate-100 pt-5 text-center">
             {!showEmail ? (
               <button
                 onClick={() => setShowEmail(true)}
-                className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700"
               >
+                <HelpCircle className="h-4 w-4" />
                 お困りの方はこちら
               </button>
             ) : (
