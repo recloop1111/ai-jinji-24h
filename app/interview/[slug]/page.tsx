@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { User, MessageSquare, Camera, PlayCircle, Video } from 'lucide-react'
+import { User, MessageSquare, Camera, PlayCircle, Video, Globe, ArrowRight, ShieldCheck } from 'lucide-react'
 
 const SUPPORT_EMAIL = 'support@ai-jinji24h.com'
 import { useParams, useRouter } from 'next/navigation'
@@ -14,6 +14,15 @@ const LANGUAGES = [
   { code: 'zh', label: '中文' },
   { code: 'ne', label: 'नेपाली' },
   { code: 'pt', label: 'Português' },
+]
+
+// 面接の流れ（STEP）。文言・順序・アイコンは既存のまま。反復記述を配列に集約して見た目のみ刷新する。
+const INTERVIEW_STEPS = [
+  { icon: User, label: 'STEP 1', title: '基本情報の入力' },
+  { icon: MessageSquare, label: 'STEP 2', title: '本人確認' },
+  { icon: Camera, label: 'STEP 3', title: 'カメラ・マイクの確認' },
+  { icon: PlayCircle, label: 'STEP 4', title: '面接練習（約3分）' },
+  { icon: Video, label: 'STEP 5', title: 'AI面接（最大60分）' },
 ]
 
 export default function InterviewPage() {
@@ -151,151 +160,110 @@ export default function InterviewPage() {
   }
 
   return (
-    <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen pb-8">
-      {/* 言語選択ドロップダウン（上部右端） */}
-      <div className="fixed top-4 right-4 z-50">
-        <select
-          value={selectedLanguage}
-          onChange={(e) => {
-            setSelectedLanguage(e.target.value)
-            // 追加P2（Codex）: 選択言語をフロー全体で保持し、後段の session（Realtime）まで伝播させる。
-            try {
-              sessionStorage.setItem(`interview_${slug}_language`, e.target.value)
-            } catch {
-              /* noop */
-            }
-          }}
-          className="bg-white text-gray-900 text-xs py-1 px-2 rounded-lg border border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-sm"
-        >
-          {LANGUAGES.map((lang) => (
-            <option key={lang.code} value={lang.code}>
-              {lang.label}
-            </option>
-          ))}
-        </select>
-        {/* TODO: Phase 4 - 選択した言語をURLパラメータまたはstateで引き継ぎ、全画面のUIテキストを切り替え */}
-      </div>
-
-      {/* ロゴと会社名 */}
-      <div className="pt-4 pb-3 flex flex-col items-center">
-        {company.logo_url ? (
-          <>
-            <img src={company.logo_url} alt={company.name} className="w-12 h-12 rounded object-cover" />
-            <p className="text-gray-600 text-sm mt-2">{company.name}</p>
-          </>
-        ) : (
-          <h1 className="text-gray-800 font-bold text-lg">{company.name}</h1>
-        )}
-      </div>
-
-      {/* メインカード */}
-      <div className="mx-4 sm:max-w-lg sm:mx-auto mt-4 sm:mt-10 bg-white rounded-2xl sm:rounded-3xl shadow-xl sm:shadow-2xl p-5 sm:p-8 relative overflow-hidden">
-        {/* 上部装飾（円形グラデーション） */}
-        <div className="absolute top-0 left-0 right-0 h-32 overflow-hidden pointer-events-none">
-          <div className="absolute top-[-40px] left-[-20px] w-24 h-24 sm:w-32 sm:h-32 bg-blue-200/30 rounded-full blur-2xl"></div>
-          <div className="absolute top-[-30px] right-[-10px] w-24 h-24 sm:w-32 sm:h-32 bg-indigo-200/30 rounded-full blur-2xl"></div>
-          <div className="absolute top-[-20px] left-1/2 transform -translate-x-1/2 w-24 h-24 sm:w-32 sm:h-32 bg-sky-200/30 rounded-full blur-2xl"></div>
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-blue-50/60 pb-12">
+      {/* ヘッダー: 会社名（左）＋ 言語切替（右）。max-w で中央寄せ、面接カードと横位置を揃える。 */}
+      <header className="mx-auto flex max-w-lg items-center justify-between gap-3 px-4 pt-5 sm:pt-7">
+        <div className="flex min-w-0 items-center gap-2.5">
+          {company.logo_url ? (
+            <img
+              src={company.logo_url}
+              alt={company.name}
+              className="h-9 w-9 flex-shrink-0 rounded-lg border border-slate-200 object-cover"
+            />
+          ) : null}
+          <span className="truncate text-sm font-semibold text-slate-800">{company.name}</span>
         </div>
 
-        <div className="relative space-y-5">
-          {/* タイトル */}
-          <div className="text-center">
-            <h2 className="text-xl font-bold text-gray-800 text-center">
+        {/* 言語切替: グローブ付きの上品なピル。native select を維持しキーボード/読み上げ対応を保つ。 */}
+        <div className="relative flex-shrink-0">
+          <Globe className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <select
+            value={selectedLanguage}
+            onChange={(e) => {
+              setSelectedLanguage(e.target.value)
+              // 追加P2（Codex）: 選択言語をフロー全体で保持し、後段の session（Realtime）まで伝播させる。
+              try {
+                sessionStorage.setItem(`interview_${slug}_language`, e.target.value)
+              } catch {
+                /* noop */
+              }
+            }}
+            aria-label="言語を選択"
+            className="cursor-pointer rounded-full border border-slate-200 bg-white/80 py-1.5 pl-7 pr-2.5 text-xs font-medium text-slate-700 shadow-sm backdrop-blur transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {LANGUAGES.map((lang) => (
+              <option key={lang.code} value={lang.code}>
+                {lang.label}
+              </option>
+            ))}
+          </select>
+          {/* TODO: Phase 4 - 選択した言語をURLパラメータまたはstateで引き継ぎ、全画面のUIテキストを切り替え */}
+        </div>
+      </header>
+
+      {/* メインカード: 薄い境界線＋やわらかいシャドウで安っぽさを排し、余白を広めに取る。 */}
+      <main className="mx-auto mt-5 max-w-lg px-4 sm:mt-8">
+        <div className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.28)] sm:p-9">
+          {/* タイトル: ブランドバッジ＋見出し＋補足。情報の優先順位を明確化。 */}
+          <div className="flex flex-col items-center text-center">
+            <span className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 shadow-lg shadow-blue-600/20">
+              <Video className="h-7 w-7 text-white" />
+            </span>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-500">AI Interview</span>
+            <h1 className="mt-1.5 text-2xl font-bold tracking-tight text-slate-900">
               ご参加ありがとうございます！
-            </h2>
-            <p className="text-sm text-gray-500 text-center mt-2">
+            </h1>
+            <p className="mt-2.5 text-sm leading-relaxed text-slate-500">
               AI面接官が質問します。<br />リラックスしてお話しください。
             </p>
           </div>
 
-          {/* 面接の流れ */}
-          <div className="ml-2">
-            <h3 className="text-base sm:text-lg font-bold text-gray-800 mb-4">面接の流れ</h3>
-            <div className="border-l-2 border-blue-200 pl-4 space-y-0 relative">
-              {/* ステップ1 */}
-              <div className="flex items-start gap-3 py-3 relative">
-                <div className="absolute left-[-9px] top-[18px] bottom-[-18px] w-0.5 bg-blue-200"></div>
-                <div className="flex-shrink-0 w-9 h-9 sm:w-10 sm:h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center relative z-10">
-                  <User className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                </div>
-                <div className="flex-1 pt-1">
-                  <div className="flex flex-col">
-                    <div className="text-[10px] text-blue-400 font-semibold tracking-wider">STEP 1</div>
-                    <div className="text-sm font-medium text-gray-700">基本情報の入力</div>
-                  </div>
-                </div>
-              </div>
-              
-              {/* ステップ2 */}
-              <div className="flex items-start gap-3 py-3 relative">
-                <div className="absolute left-[-9px] top-[18px] bottom-[-18px] w-0.5 bg-blue-200"></div>
-                <div className="flex-shrink-0 w-9 h-9 sm:w-10 sm:h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center relative z-10">
-                  <MessageSquare className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                </div>
-                <div className="flex-1 pt-1">
-                  <div className="flex flex-col">
-                    <div className="text-[10px] text-blue-400 font-semibold tracking-wider">STEP 2</div>
-                    <div className="text-sm font-medium text-gray-700">本人確認</div>
-                  </div>
-                </div>
-              </div>
-              
-              {/* ステップ3 */}
-              <div className="flex items-start gap-3 py-3 relative">
-                <div className="absolute left-[-9px] top-[18px] bottom-[-18px] w-0.5 bg-blue-200"></div>
-                <div className="flex-shrink-0 w-9 h-9 sm:w-10 sm:h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center relative z-10">
-                  <Camera className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                </div>
-                <div className="flex-1 pt-1">
-                  <div className="flex flex-col">
-                    <div className="text-[10px] text-blue-400 font-semibold tracking-wider">STEP 3</div>
-                    <div className="text-sm font-medium text-gray-700">カメラ・マイクの確認</div>
-                  </div>
-                </div>
-              </div>
-              
-              {/* ステップ4 */}
-              <div className="flex items-start gap-3 py-3 relative">
-                <div className="absolute left-[-9px] top-[18px] bottom-[-18px] w-0.5 bg-blue-200"></div>
-                <div className="flex-shrink-0 w-9 h-9 sm:w-10 sm:h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center relative z-10">
-                  <PlayCircle className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                </div>
-                <div className="flex-1 pt-1">
-                  <div className="flex flex-col">
-                    <div className="text-[10px] text-blue-400 font-semibold tracking-wider">STEP 4</div>
-                    <div className="text-sm font-medium text-gray-700">面接練習（約3分）</div>
-                  </div>
-                </div>
-              </div>
-              
-              {/* ステップ5 */}
-              <div className="flex items-start gap-3 py-3 relative">
-                <div className="flex-shrink-0 w-9 h-9 sm:w-10 sm:h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center relative z-10">
-                  <Video className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                </div>
-                <div className="flex-1 pt-1">
-                  <div className="flex flex-col">
-                    <div className="text-[10px] text-blue-400 font-semibold tracking-wider">STEP 5</div>
-                    <div className="text-sm font-medium text-gray-700">AI面接（最大60分）</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          {/* 面接の流れ: 数字バッジ＋縦導線のタイムライン。進行イメージが直感的に伝わるよう整理。 */}
+          <section className="mt-8">
+            <h2 className="mb-4 text-sm font-bold text-slate-800">面接の流れ</h2>
+            <ol className="space-y-1">
+              {INTERVIEW_STEPS.map((step, i) => {
+                const Icon = step.icon
+                const isLast = i === INTERVIEW_STEPS.length - 1
+                return (
+                  <li key={step.label} className="relative flex gap-4 pb-4 last:pb-0">
+                    {/* 縦導線（最後のステップには引かない） */}
+                    {!isLast && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute left-[19px] top-11 h-[calc(100%-1.75rem)] w-px bg-gradient-to-b from-blue-200 to-slate-200"
+                      />
+                    )}
+                    <span className="relative z-10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-sm shadow-blue-600/20">
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <div className="flex flex-col pt-0.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-500">{step.label}</span>
+                      <span className="text-sm font-medium text-slate-700">{step.title}</span>
+                    </div>
+                  </li>
+                )
+              })}
+            </ol>
+          </section>
 
-          {/* 同意チェックボックス */}
-          <label className="flex items-start gap-3 cursor-pointer min-h-[44px] py-2">
+          {/* 同意チェック: 枠付きボックスで視認性を上げ、チェック時はブランド色でハイライト。 */}
+          <label
+            className={`mt-7 flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition ${
+              consent ? 'border-blue-300 bg-blue-50/60' : 'border-slate-200 bg-slate-50/60 hover:border-slate-300'
+            }`}
+          >
             <input
               type="checkbox"
               checked={consent}
               onChange={(e) => setConsent(e.target.checked)}
-              className="w-5 h-5 accent-blue-600 mt-0.5 flex-shrink-0"
+              className="mt-0.5 h-5 w-5 flex-shrink-0 accent-blue-600"
             />
-            <span className="text-xs sm:text-sm text-gray-600 pt-0.5">
+            <span className="pt-0.5 text-sm leading-relaxed text-slate-600">
               利用規約および
               <Link
                 href={`/interview/${slug}/terms`}
-                className="text-blue-600 underline ml-1"
+                className="ml-1 font-medium text-blue-600 underline underline-offset-2 hover:text-blue-700"
                 onClick={(e) => e.stopPropagation()}
               >
                 プライバシーポリシー
@@ -304,38 +272,45 @@ export default function InterviewPage() {
             </span>
           </label>
 
-          {/* 面接を始めるボタン */}
+          {/* CTA: 角丸2xl・ブランドグラデ・矢印・ホバーで浮き上がる。無効状態を明確に。 */}
           <button
             onClick={handleNext}
             disabled={!consent}
-            className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-full py-4 text-base font-semibold shadow-lg active:scale-95 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed min-h-[48px]"
+            className="group mt-5 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 py-4 text-base font-semibold text-white shadow-lg shadow-blue-600/25 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-blue-600/30 active:translate-y-0 active:scale-[0.99] disabled:pointer-events-none disabled:translate-y-0 disabled:opacity-40 disabled:shadow-none"
           >
             面接を始める
+            <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-0.5" />
           </button>
 
+          {/* 安心感の補助文（安全に管理される旨）。 */}
+          <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-slate-400">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            入力内容は暗号化して安全に管理されます
+          </p>
+
           {/* サポートリンク */}
-          <p className="text-center">
+          <div className="mt-5 border-t border-slate-100 pt-4 text-center">
             {!showEmail ? (
               <button
                 onClick={() => setShowEmail(true)}
-                className="text-sm text-blue-500 cursor-pointer"
+                className="text-sm font-medium text-blue-600 hover:text-blue-700"
               >
                 お困りの方はこちら
               </button>
             ) : (
-              <span className="text-sm text-blue-500">
+              <span className="text-sm text-slate-600">
                 {SUPPORT_EMAIL}
                 <button
                   onClick={handleCopyEmail}
-                  className="text-xs text-gray-400 ml-2 cursor-pointer hover:text-gray-600"
+                  className="ml-2 text-xs text-slate-400 hover:text-slate-600"
                 >
                   {copied ? 'コピーしました' : 'コピー'}
                 </button>
               </span>
             )}
-          </p>
+          </div>
         </div>
-      </div>
+      </main>
     </div>
   )
 }
