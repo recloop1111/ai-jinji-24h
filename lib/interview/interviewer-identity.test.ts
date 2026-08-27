@@ -65,12 +65,18 @@ describe('口 overlay（採用方式＝neutral 固定 base ＋ 口領域のみ o
     expect(AI_INTERVIEWER.mouthOverlays.medium).toBe('/images/interviewer/ai-interviewer-mouth-medium-overlay.webp')
     expect(AI_INTERVIEWER.mouthOverlays.large).toBe('/images/interviewer/ai-interviewer-mouth-large-overlay.webp')
   })
-  it('preload リストは base 5 枚 ＋ 口 overlay 3 枚 = 8（overlay 切替の初回 download 待ちを防ぐ）', () => {
-    expect(AI_INTERVIEWER_PRELOAD_LIST).toHaveLength(8)
-    for (const src of AI_INTERVIEWER_IMAGE_LIST) expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(src)
+  it('preload は通常 Production 経路（overlay ON / full-frame OFF）で実描画する 5 枚のみ（旧 full-frame mouth を含めない）', () => {
+    // neutral + blink + 口 overlay 3 枚 = 5。旧 full-frame mouth を通常経路で無駄 download しない。
+    expect(AI_INTERVIEWER_PRELOAD_LIST).toHaveLength(5)
+    expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.images.neutral)
+    expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.images.blink)
     expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.mouthOverlays.small)
     expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.mouthOverlays.medium)
     expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.mouthOverlays.large)
+    // 旧 full-frame mouth（実験用 asset）は通常経路では preload しない。
+    expect(AI_INTERVIEWER_PRELOAD_LIST).not.toContain(AI_INTERVIEWER.images.mouthSmall)
+    expect(AI_INTERVIEWER_PRELOAD_LIST).not.toContain(AI_INTERVIEWER.images.mouthMedium)
+    expect(AI_INTERVIEWER_PRELOAD_LIST).not.toContain(AI_INTERVIEWER.images.mouthLarge)
   })
 })
 

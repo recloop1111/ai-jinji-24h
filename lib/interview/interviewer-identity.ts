@@ -14,7 +14,11 @@
 // 権威にする（本ファイルは「AI 面接官という 1 資産」の identity を束ねる。挙動の詳細はそちらを唯一の権威にする）。
 
 import { REALTIME_VOICE } from '@/lib/config/openai'
-import type { MouthState } from '@/lib/interview/avatar/avatar-config'
+import {
+  AVATAR_FULLFRAME_LIPSYNC_ENABLED,
+  AVATAR_OVERLAY_LIPSYNC_ENABLED,
+  type MouthState,
+} from '@/lib/interview/avatar/avatar-config'
 
 // 面接官の視覚状態（3 状態）。runtime の presence/state からここへ写像する（interviewer-visual.ts）。
 export type InterviewerVisualState = 'neutral' | 'speaking' | 'listening'
@@ -58,13 +62,20 @@ export const AI_INTERVIEWER_IMAGE_LIST: readonly string[] = [
   AI_INTERVIEWER.images.blink,
 ]
 
-// preload 用（採用方式＝overlay lipsync）: base 5 枚 ＋ 口 overlay 3 枚。speaking 開始直後の口 overlay 切替で
-//   初回 download の遅れを出さないよう、session/practice 開始時にまとめてキャッシュへ入れる。
+// preload 用（実際に描画される asset だけ・有効フラグに追従）。旧 full-frame mouth を通常 Production 経路で無駄に
+//   download しないよう、AI_INTERVIEWER_IMAGE_LIST（全 base 5 枚）ではなく「今の描画経路で必要な最小集合」を組む。
+//   - base 常時: neutral（既定/listening/非 speaking）＋ blink（瞬き）。
+//   - overlay 方式 ON（採用・既定）: 口 overlay 3 枚を追加（speaking 開始直後の切替で初回 download 待ちを出さない）。
+//   - full-frame 実験 ON 時のみ: full-frame mouth 3 枚を追加（false の通常 Production 経路では preload しない＝実験用に温存）。
 export const AI_INTERVIEWER_PRELOAD_LIST: readonly string[] = [
-  ...AI_INTERVIEWER_IMAGE_LIST,
-  AI_INTERVIEWER.mouthOverlays.small,
-  AI_INTERVIEWER.mouthOverlays.medium,
-  AI_INTERVIEWER.mouthOverlays.large,
+  AI_INTERVIEWER.images.neutral,
+  AI_INTERVIEWER.images.blink,
+  ...(AVATAR_OVERLAY_LIPSYNC_ENABLED
+    ? [AI_INTERVIEWER.mouthOverlays.small, AI_INTERVIEWER.mouthOverlays.medium, AI_INTERVIEWER.mouthOverlays.large]
+    : []),
+  ...(AVATAR_FULLFRAME_LIPSYNC_ENABLED
+    ? [AI_INTERVIEWER.images.mouthSmall, AI_INTERVIEWER.images.mouthMedium, AI_INTERVIEWER.images.mouthLarge]
+    : []),
 ]
 
 // 描画フレーム解決（唯一の写像・画面で直書きしない）。優先順位: blink > speaking の mouth > neutral。
