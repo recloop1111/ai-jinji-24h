@@ -30,6 +30,15 @@ export const AI_INTERVIEWER = {
     mouthLarge: '/images/interviewer/ai-interviewer-mouth-large.webp', // 発話・大
     blink: '/images/interviewer/ai-interviewer-blink.webp', // 瞬き（目閉じ・口閉じ）
   },
+  // 口だけの透過 overlay（採用方式＝neutral 固定 base に口領域のみ重ねる。顔全体モーフを出さない）。
+  //   base=neutral（目/髪/顔/肩/背景は不動）＋ speaking 中のみ mouthState に応じた overlay を絶対座標で重ねる。
+  //   透過 WebP・full-canvas 1024x1536（object-fit/position が base と一致＝位置合わせ不要）・各~16KB。
+  //   offline で neutral へ登録（生成 AI 不使用）＋楕円 feather マスク（唇/開口のみ・矩形の継ぎ目なし）で作成。
+  mouthOverlays: {
+    small: '/images/interviewer/ai-interviewer-mouth-small-overlay.webp',
+    medium: '/images/interviewer/ai-interviewer-mouth-medium-overlay.webp',
+    large: '/images/interviewer/ai-interviewer-mouth-large-overlay.webp',
+  },
   imageAlt: 'AI面接官',
   // 共通 voice 方針の SoT（実 voice 名の最終確定は将来 actual でも可。現状は Realtime 既定 voice を単一の真実にする）。
   voicePolicy: REALTIME_VOICE,
@@ -47,6 +56,15 @@ export const AI_INTERVIEWER_IMAGE_LIST: readonly string[] = [
   AI_INTERVIEWER.images.mouthMedium,
   AI_INTERVIEWER.images.mouthLarge,
   AI_INTERVIEWER.images.blink,
+]
+
+// preload 用（採用方式＝overlay lipsync）: base 5 枚 ＋ 口 overlay 3 枚。speaking 開始直後の口 overlay 切替で
+//   初回 download の遅れを出さないよう、session/practice 開始時にまとめてキャッシュへ入れる。
+export const AI_INTERVIEWER_PRELOAD_LIST: readonly string[] = [
+  ...AI_INTERVIEWER_IMAGE_LIST,
+  AI_INTERVIEWER.mouthOverlays.small,
+  AI_INTERVIEWER.mouthOverlays.medium,
+  AI_INTERVIEWER.mouthOverlays.large,
 ]
 
 // 描画フレーム解決（唯一の写像・画面で直書きしない）。優先順位: blink > speaking の mouth > neutral。
@@ -72,6 +90,26 @@ export function interviewerFrameSrc(input: {
     }
   }
   return AI_INTERVIEWER.images.neutral
+}
+
+// 口 overlay 解決（採用方式・唯一の写像）。speaking かつ mouthState=small/medium/large のときだけ overlay path、
+//   それ以外（非 speaking / closed / 未解析）は null（＝overlay を出さない＝base の neutral 口閉じのまま）。
+//   render 側は base（interviewerFrameSrc）を常に描き、これが非 null のときだけ透過 overlay を上に重ねる。
+export function interviewerMouthOverlaySrc(input: {
+  visualState: InterviewerVisualState
+  mouthState?: MouthState
+}): string | null {
+  if (input.visualState !== 'speaking') return null
+  switch (input.mouthState) {
+    case 'small':
+      return AI_INTERVIEWER.mouthOverlays.small
+    case 'medium':
+      return AI_INTERVIEWER.mouthOverlays.medium
+    case 'large':
+      return AI_INTERVIEWER.mouthOverlays.large
+    default:
+      return null // closed / 未解析 → overlay なし（base neutral の口閉じ）
+  }
 }
 
 export type AiInterviewerIdentity = typeof AI_INTERVIEWER

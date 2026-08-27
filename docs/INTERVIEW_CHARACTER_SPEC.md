@@ -81,19 +81,29 @@
 - 長い相槌をしない
 
 ## Task 13 — アニメーション境界（Lightweight Realtime Avatar・実装済み）
-- **正式アセット = 5 枚**（同一人物・同一 pose・1024×1536・WebP 各~55KB・`public/images/interviewer/`）:
-  `ai-interviewer-neutral`（口閉じ/目開き・既定）/ `-mouth-small` / `-mouth-medium` / `-mouth-large`（発話）/ `-blink`（目閉じ）。
+- **base アセット = 5 枚**（同一人物・同一 pose・1024×1536・WebP 各~55KB・`public/images/interviewer/`）:
+  `ai-interviewer-neutral`（口閉じ/目開き・既定）/ `-mouth-small` / `-mouth-medium` / `-mouth-large`（発話・full-frame 用）/ `-blink`（目閉じ）。
+- **口 overlay アセット = 3 枚**（透過 WebP・full-canvas 1024×1536・各~16KB・`public/images/interviewer/`）:
+  `ai-interviewer-mouth-{small,medium,large}-overlay.webp`。offline で neutral へ登録（生成 AI 不使用・sharp の並進登録）＋
+  楕円 feather マスク（唇/開口のみ・矩形の継ぎ目なし。口中心＝顔クロップの diff 重心 x0.50 y0.38）で作成。
 - **有効（追加アセット不要・原価 0）**:
   - 呼吸 breathing（全状態・ごく僅か）／listening 頷き nod（随時・機械的でない）／瞬き blink（randomized・短い・稀にダブル）。
   - reduced-motion で breathing/nod/blink を無効化。
-- **full-frame 口パクは既定 OFF（`AVATAR_FULLFRAME_LIPSYNC_ENABLED=false`）— synthetic visual QA の判定 C を反映**:
-  採用 5 枚は independently-generated で、フレーム間で**頭部/髪/視線/表情が口より大きくドリフト**する（可視顔域で
-  非口(額/目/髪)≈口帯の約 3 倍変化）。full-frame swap すると「口」より「顔全体がモーフ」して見えるため、speaking も
-  neutral 静止にする（顔が安定）。**audio-analyzer / mouthState / interviewerFrameSrc のロジックは温存**（フラグ ON で復帰可・実験用）。
-  自然な口パクには「同一頭部・口のみ差分の**登録済み(registered)アセット**」または「**口領域だけの overlay + alignment**」が必要（別対応）。
-  - ロジック SoT = `lib/interview/avatar/`（audio-analyzer / avatar-motion / avatar-config）＋描画写像 = `interviewerFrameSrc`。
-- **描画優先順位**: blink > speaking の mouth(小/中/大) > neutral。setState は「離散 mouthState 変化時のみ」＝毎 frame 再 render しない
-  （~20fps 間引き・rAF・GPU 合成 transform）。
+- **口パク = overlay 方式を採用（`AVATAR_OVERLAY_LIPSYNC_ENABLED=true`・既定 ON）**:
+  full-frame swap（顔全体差替）ではなく「**neutral 固定 base ＋ 口領域だけの透過 overlay**」を重ねる。base は常に neutral
+  （目/髪/顔/肩/背景は不動＝顔全体モーフが起きない）。speaking かつ mouthState=small/medium/large のときだけ、対応 overlay を
+  base と同 object-cover/object-position で絶対座標に重ねる（画素一致＝位置合わせ不要）。breathing/nod は base+overlay を含む
+  **wrapper に適用**＝口が顔に対してズレない。synthetic visual QA（顔クロップ比較）で「目/髪/輪郭は neutral と同一・口だけ自然に
+  変化・矩形の継ぎ目なし」を確認（判定 A 相当）。
+- **full-frame 口パクは不採用・既定 OFF（`AVATAR_FULLFRAME_LIPSYNC_ENABLED=false`）— synthetic visual QA の判定 C を反映**:
+  base 5 枚は independently-generated で、フレーム間で**頭部/髪/視線/表情が口より大きくドリフト**する（可視顔域で
+  非口(額/目/髪)≈口帯の約 3 倍変化）。full-frame swap すると「口」より「顔全体がモーフ」して見えるため不採用。
+  **audio-analyzer / mouthState / interviewerFrameSrc のロジックは温存**（フラグ ON で full-frame 実験へ復帰可）。
+  - ロジック SoT = `lib/interview/avatar/`（audio-analyzer / avatar-motion / avatar-config）＋描画写像 = `interviewerFrameSrc`
+    （base）／ `interviewerMouthOverlaySrc`（口 overlay）。
+- **描画**: base = blink > neutral（非 speaking は必ず neutral）。口 overlay = speaking かつ small/中/大 のときだけ重ねる
+  （closed/未解析/非 speaking は null＝base の口閉じ）。speaking 中は blink 抑制（口開き×目閉じ overlay を持たないため）。
+  setState は「離散 mouthState 変化時のみ」＝毎 frame 再 render しない（~20fps 間引き・rAF・GPU 合成 transform）。
 - **禁止（本 scope 外）**: 音素完全一致 viseme / 動画 avatar / Live2D / Wav2Lip server / 外部 Talking Avatar API /
   リアルタイム表情生成 / 手振り生成。すべてブラウザ内処理のみ・**1 面接あたり追加外部 API 原価 0**。
 - **fallback（HARD）**: AudioContext/Analyser 不可・Safari 制約・権限問題・mock（remote stream 無し）でも、静止 neutral へ安全退避。

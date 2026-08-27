@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { AI_INTERVIEWER, AI_INTERVIEWER_DEFAULT_IMAGE, AI_INTERVIEWER_IMAGE_LIST, interviewerFrameSrc } from './interviewer-identity'
+import {
+  AI_INTERVIEWER,
+  AI_INTERVIEWER_DEFAULT_IMAGE,
+  AI_INTERVIEWER_IMAGE_LIST,
+  AI_INTERVIEWER_PRELOAD_LIST,
+  interviewerFrameSrc,
+  interviewerMouthOverlaySrc,
+} from './interviewer-identity'
 import { REALTIME_VOICE } from '@/lib/config/openai'
 
 // AIMEN24 標準AI面接官（全企業共通）の SoT を固定。
@@ -49,5 +56,36 @@ describe('interviewerFrameSrc（描画フレーム解決・優先順位 blink > 
   it('listening / neutral は neutral（口を開けたまま残さない）', () => {
     expect(interviewerFrameSrc({ visualState: 'listening', mouthState: 'large' })).toBe(AI_INTERVIEWER.images.neutral)
     expect(interviewerFrameSrc({ visualState: 'neutral', mouthState: 'medium' })).toBe(AI_INTERVIEWER.images.neutral)
+  })
+})
+
+describe('口 overlay（採用方式＝neutral 固定 base ＋ 口領域のみ overlay）', () => {
+  it('3 段階の透過 overlay path を 1 箇所で提供する', () => {
+    expect(AI_INTERVIEWER.mouthOverlays.small).toBe('/images/interviewer/ai-interviewer-mouth-small-overlay.webp')
+    expect(AI_INTERVIEWER.mouthOverlays.medium).toBe('/images/interviewer/ai-interviewer-mouth-medium-overlay.webp')
+    expect(AI_INTERVIEWER.mouthOverlays.large).toBe('/images/interviewer/ai-interviewer-mouth-large-overlay.webp')
+  })
+  it('preload リストは base 5 枚 ＋ 口 overlay 3 枚 = 8（overlay 切替の初回 download 待ちを防ぐ）', () => {
+    expect(AI_INTERVIEWER_PRELOAD_LIST).toHaveLength(8)
+    for (const src of AI_INTERVIEWER_IMAGE_LIST) expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(src)
+    expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.mouthOverlays.small)
+    expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.mouthOverlays.medium)
+    expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.mouthOverlays.large)
+  })
+})
+
+describe('interviewerMouthOverlaySrc（speaking のみ・small/medium/large だけ overlay・他は null）', () => {
+  it('speaking + small/medium/large → 対応 overlay', () => {
+    expect(interviewerMouthOverlaySrc({ visualState: 'speaking', mouthState: 'small' })).toBe(AI_INTERVIEWER.mouthOverlays.small)
+    expect(interviewerMouthOverlaySrc({ visualState: 'speaking', mouthState: 'medium' })).toBe(AI_INTERVIEWER.mouthOverlays.medium)
+    expect(interviewerMouthOverlaySrc({ visualState: 'speaking', mouthState: 'large' })).toBe(AI_INTERVIEWER.mouthOverlays.large)
+  })
+  it('speaking + closed / 未解析 → null（base neutral の口閉じのまま）', () => {
+    expect(interviewerMouthOverlaySrc({ visualState: 'speaking', mouthState: 'closed' })).toBeNull()
+    expect(interviewerMouthOverlaySrc({ visualState: 'speaking' })).toBeNull()
+  })
+  it('非 speaking（listening/neutral）は mouthState に関わらず null（fail-safe＝発話外で口を出さない）', () => {
+    expect(interviewerMouthOverlaySrc({ visualState: 'listening', mouthState: 'large' })).toBeNull()
+    expect(interviewerMouthOverlaySrc({ visualState: 'neutral', mouthState: 'medium' })).toBeNull()
   })
 })

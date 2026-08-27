@@ -9,10 +9,22 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { INTERVIEW_PHASE_LABELS, type InterviewPhase } from '@/lib/interview/presence'
-import { AI_INTERVIEWER, AI_INTERVIEWER_IMAGE_LIST, interviewerFrameSrc } from '@/lib/interview/interviewer-identity'
+import {
+  AI_INTERVIEWER,
+  AI_INTERVIEWER_PRELOAD_LIST,
+  interviewerFrameSrc,
+  interviewerMouthOverlaySrc,
+} from '@/lib/interview/interviewer-identity'
 import { interviewerVisualForPhase } from '@/lib/interview/interviewer-visual'
 import { nextNodDelayMs, shouldNodNow, nodAllowed, nextBlinkDelayMs, isDoubleBlink, blinkAllowed } from '@/lib/interview/avatar/avatar-motion'
-import { AVATAR_NOD, AVATAR_BLINK, AVATAR_AUDIO, AVATAR_FULLFRAME_LIPSYNC_ENABLED, type MouthState } from '@/lib/interview/avatar/avatar-config'
+import {
+  AVATAR_NOD,
+  AVATAR_BLINK,
+  AVATAR_AUDIO,
+  AVATAR_FULLFRAME_LIPSYNC_ENABLED,
+  AVATAR_OVERLAY_LIPSYNC_ENABLED,
+  type MouthState,
+} from '@/lib/interview/avatar/avatar-config'
 import { createRemoteAudioAnalyzer, smoothLevel, mouthStateForLevel, resolveMouthLevel } from '@/lib/interview/avatar/audio-analyzer'
 import { avatarVariantForPhase, type AvatarTone } from '@/lib/interview/avatarVisual'
 
@@ -48,9 +60,9 @@ export default function InterviewerAvatar({
   // presence phase → 視覚状態（判定は SoT の純関数へ集約）。
   const visualState = interviewerVisualForPhase(phase)
 
-  // 全アセット（5 枚）を事前ロードしてブラウザキャッシュへ入れる（口パク切替時に初回 download で遅れないように）。
+  // 全アセット（base 5 枚 ＋ 口 overlay 3 枚）を事前ロードしてキャッシュへ入れる（口切替時に初回 download で遅れないように）。
   useEffect(() => {
-    for (const src of AI_INTERVIEWER_IMAGE_LIST) {
+    for (const src of AI_INTERVIEWER_PRELOAD_LIST) {
       const img = new Image()
       img.src = src
     }
@@ -73,8 +85,9 @@ export default function InterviewerAvatar({
   const [mouthState, setMouthState] = useState<MouthState>('closed')
   const levelRef = useRef(0)
   useEffect(() => {
-    // full-frame lipsync が OFF（既定）なら解析しない＝speaking も neutral 静止（顔モーフを出さない・CPU/電池も節約）。
-    if (!AVATAR_FULLFRAME_LIPSYNC_ENABLED) return
+    // どちらの lipsync 方式も無効なら解析しない＝speaking も neutral 静止（顔モーフを出さない・CPU/電池も節約）。
+    // 採用方式 = overlay（既定 ON）。overlay/full-frame いずれか有効なら speaking 中に音声解析→mouthState を更新。
+    if (!AVATAR_OVERLAY_LIPSYNC_ENABLED && !AVATAR_FULLFRAME_LIPSYNC_ENABLED) return
     // speaking かつ stream があるときだけ解析。それ以外は render 側ガードで closed（fail-safe）。
     if (visualState !== 'speaking' || !remoteStream) return
     const analyzer = createRemoteAudioAnalyzer(remoteStream)
@@ -109,9 +122,11 @@ export default function InterviewerAvatar({
   const blinkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     if (!blinkAllowed(visualState, reducedMotion)) return
-    // full-frame lipsync 有効時は speaking 中の blink を抑制（blink 画像は口閉じ＝発話中に口が一瞬閉じるのを防ぐ）。
-    // lipsync OFF（既定）は speaking も neutral 静止なので、speaking 中の blink（目のみ）は自然＝許可。
-    if (AVATAR_FULLFRAME_LIPSYNC_ENABLED && visualState === 'speaking') return
+    // speaking 中の blink は抑制する（採用 overlay 方式・full-frame いずれでも）。
+    //   理由: blink フレームは別個生成で頭部/目が僅かにドリフトし、base を neutral 固定に保てなくなる（口 overlay がズレる）。
+    //   また「口を開いた blink アセット」は無い（口 overlay を重ねても目閉じ base と口開きが不自然）。speaking は瞬きなし。
+    //   両方式 OFF（＝speaking も neutral 静止）のときだけ、speaking 中の blink（目のみ）を許可する。
+    if ((AVATAR_OVERLAY_LIPSYNC_ENABLED || AVATAR_FULLFRAME_LIPSYNC_ENABLED) && visualState === 'speaking') return
     let cancelled = false
     const rng = () => Math.random()
     const doBlink = (remaining: number) => {
@@ -170,6 +185,15 @@ export default function InterviewerAvatar({
     }
   }, [visualState, reducedMotion])
 
+  // base フレーム（採用方式では常に neutral/blink＝口は full-frame 差替しない）。full-frame ON 時のみ base 側で mouth を反映。
+  const baseSrc = interviewerFrameSrc({
+    visualState,
+    mouthState: AVATAR_FULLFRAME_LIPSYNC_ENABLED && visualState === 'speaking' ? mouthState : 'closed',
+    blinking,
+  })
+  // 口 overlay（採用方式・既定 ON）。speaking かつ mouthState=small/medium/large のときだけ非 null（それ以外は base の口閉じ）。
+  const overlaySrc = AVATAR_OVERLAY_LIPSYNC_ENABLED ? interviewerMouthOverlaySrc({ visualState, mouthState }) : null
+
   return (
     <div className="flex flex-col items-center">
       {/* アバター本体＋リング（コンテナは idle 時のみ breathing） */}
@@ -182,24 +206,41 @@ export default function InterviewerAvatar({
           } iv-ring-${v.motion}`}
         />
         {/* 全企業共通の AIMEN24 標準AI面接官（画像は interviewer-identity.ts の SoT。差し替えは 1 箇所）。
-            frame = blink > speaking の mouth(小/中/大) > neutral。非 speaking は必ず neutral（口を開けたまま残さない）。
-            object-cover + 固定 w/h でレイアウトシフトなし。縦長 pose(1024x1536)の顔切れ防止に object-position を上寄せ。
-            key を付けず src だけ差替＝preload 済みで即時（白フラッシュ/ガタつきなし）。画像エラー時は neutral へ。 */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={interviewerFrameSrc({
-            visualState,
-            // full-frame lipsync OFF（既定）は speaking も口を開けない（neutral 静止＝顔モーフ回避）。ON 時のみ mouthState を反映。
-            mouthState: AVATAR_FULLFRAME_LIPSYNC_ENABLED && visualState === 'speaking' ? mouthState : 'closed',
-            blinking,
-          })}
-          alt={AI_INTERVIEWER.imageAlt}
-          style={{ objectPosition: 'center 18%' }}
-          onError={(e) => {
-            if (e.currentTarget.src !== AI_INTERVIEWER.images.neutral) e.currentTarget.src = AI_INTERVIEWER.images.neutral
-          }}
-          className={`iv-avatar${nodding && nodAllowed(visualState, reducedMotion) ? ' iv-avatar-nod' : ''} relative w-[200px] h-[200px] sm:w-[240px] sm:h-[240px] md:w-[300px] md:h-[300px] rounded-full object-cover border-4 border-white/20 shadow-2xl`}
-        />
+            採用方式 = 「neutral 固定 base ＋ 口領域だけの透過 overlay」。base（blink > neutral）を常に描き、speaking 中は
+            mouthState に応じた口 overlay を絶対座標で上に重ねる（目/髪/顔/肩/背景は base のまま不動＝顔全体モーフが起きない）。
+            breathing/nod は wrapper に適用＝base と overlay が一体で動き、口が顔に対してズレない。overlay は 1024x1536 透過で
+            base と同 object-cover/object-position＝画素一致で重なる（位置合わせ不要）。preload 済みで src 差替は即時。 */}
+        <div
+          className={`iv-avatar${
+            nodding && nodAllowed(visualState, reducedMotion) ? ' iv-avatar-nod' : ''
+          } relative w-[200px] h-[200px] sm:w-[240px] sm:h-[240px] md:w-[300px] md:h-[300px] rounded-full overflow-hidden border-4 border-white/20 shadow-2xl`}
+        >
+          {/* base: 非 speaking は必ず neutral（口を開けたまま残さない）。エラー時は neutral へ退避。 */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={baseSrc}
+            alt={AI_INTERVIEWER.imageAlt}
+            style={{ objectPosition: 'center 18%' }}
+            onError={(e) => {
+              if (e.currentTarget.src !== AI_INTERVIEWER.images.neutral) e.currentTarget.src = AI_INTERVIEWER.images.neutral
+            }}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+          {/* 口 overlay（装飾・aria-hidden）。非 null のときだけ描く。読込失敗時は自身を隠す＝base neutral のまま（面接は壊さない）。 */}
+          {overlaySrc && (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={overlaySrc}
+              alt=""
+              aria-hidden="true"
+              style={{ objectPosition: 'center 18%' }}
+              onError={(e) => {
+                e.currentTarget.style.display = 'none'
+              }}
+              className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+            />
+          )}
+        </div>
       </div>
 
       {/* インジケータ（装飾・aria-hidden）。形で状態を区別（waveform/listening/dots）。 */}

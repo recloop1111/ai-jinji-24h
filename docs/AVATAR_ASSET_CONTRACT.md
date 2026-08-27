@@ -1,10 +1,15 @@
 # Lightweight Realtime Avatar — 追加アセット仕様（人間側で用意）
 
-> **STATUS（更新）: 方式A の 5 枚アセットを受領・統合済み。** `public/images/interviewer/lipsync-source/` に配置された
-> 元 PNG（同一 pose・1024×1536）を WebP q82（各~55KB・構図/顔/背景不変）へ最適化し、`ai-interviewer-neutral.webp` /
-> `-mouth-small.webp` / `-mouth-medium.webp` / `-mouth-large.webp` / `-blink.webp` として配置。SoT `AI_INTERVIEWER.images` と
-> `interviewerFrameSrc` で一元管理。音声連動口パク・瞬きは実装・配線済み（`components/interview/InterviewerAvatar.tsx`）。
-> lipsync-source は配信不要のため `.gitignore` 済み（webp のみコミット）。以下は当初の仕様（記録）。
+> **STATUS（更新）: 方式A の 5 枚を受領・統合 → 口パクは「方式B（overlay）」を採用。**
+> 方式A の 5 枚（`ai-interviewer-neutral` / `-mouth-{small,medium,large}` / `-blink`・1024×1536・各~55KB）を base として配置。
+> ただし full-frame swap は synthetic visual QA で**判定 C（顔全体モーフ＝フレーム間の頭部/髪/視線ドリフトが口より大きい）**の
+> ため不採用（`AVATAR_FULLFRAME_LIPSYNC_ENABLED=false`）。代わりに、方式A の mouth フレームから **offline（sharp・生成 AI 不使用）**
+> で neutral へ並進登録＋楕円 feather マスク（唇/開口のみ）を切り出し、**口だけの透過 overlay 3 枚**
+> `ai-interviewer-mouth-{small,medium,large}-overlay.webp`（full-canvas 1024×1536 透過・各~16KB）を生成。
+> 描画は「**neutral 固定 base ＋ 口 overlay を重ねる**」方式（`AVATAR_OVERLAY_LIPSYNC_ENABLED=true`）。SoT = `AI_INTERVIEWER.images`
+> ＋ `AI_INTERVIEWER.mouthOverlays`、描画写像 = `interviewerFrameSrc`（base）＋ `interviewerMouthOverlaySrc`（overlay）。
+> 音声連動口パク（overlay 切替）・瞬き・呼吸・頷きは実装・配線済み（`components/interview/InterviewerAvatar.tsx`）。
+> lipsync-source は配信不要のため `.gitignore` 済み（base webp ＋ overlay webp のみコミット）。以下は当初の仕様（記録）。
 
 
 本 PR（`feature/lightweight-realtime-avatar`）は **追加アセット不要の部分**（Audio Analyzer / Motion Controller /

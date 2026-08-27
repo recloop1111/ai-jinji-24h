@@ -10,6 +10,15 @@
 //   ※ audio-analyzer / mouthState ロジックは温存し、本フラグを true にすれば full-frame 動作へ戻せる（実験用）。
 export const AVATAR_FULLFRAME_LIPSYNC_ENABLED = false
 
+// ── overlay lipsync のゲート（採用方式・既定 ON・追加原価 0）──────────────────────────────────────
+//   full-frame swap（顔全体差替）ではなく「neutral 固定 base ＋ 口領域だけの透過 overlay」を重ねる方式。
+//   base は常に neutral（目/髪/顔/肩/背景は不動＝顔全体モーフが起きない）。speaking かつ mouthState=small/medium/large
+//   のときだけ、offline で neutral へ登録済みの口 overlay（楕円 feather・唇/開口のみ）を絶対座標で上に重ねる。
+//   synthetic visual QA（顔クロップ比較）で「目/髪/輪郭は neutral と同一・口だけ自然に変化・矩形の継ぎ目なし」を確認済み。
+//   audio-analyzer / mouthState / smoothing / fail-safe は full-frame と共通ロジックを再利用（overlay 描画に写像するだけ）。
+//   OFF にすると speaking も neutral 静止（顔安定）へ退避＝アバター障害時の HARD fallback と同じ絵。
+export const AVATAR_OVERLAY_LIPSYNC_ENABLED = true
+
 // ── 音声→口の開き（mouth level）─────────────────────────────────────────────────────────────
 export const AVATAR_AUDIO = {
   // AnalyserNode 設定（軽量）。fftSize は小さめ（負荷/遅延を抑える）。
