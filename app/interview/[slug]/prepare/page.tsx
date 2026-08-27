@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { Volume2, User, AlertCircle, Check, RefreshCw, Globe, Mic } from 'lucide-react'
+import { Volume2, User, AlertCircle, Check, RefreshCw, Globe, Mic, Sun } from 'lucide-react'
 import { StepIndicator } from '@/components/interview/FormComponents'
 import {
   classifyMediaError,
@@ -10,13 +10,21 @@ import {
   isGetUserMediaSupported,
   stopStream,
 } from '@/lib/interview/media'
-import { canProceedToInterview } from '@/lib/interview/prepare-gate'
 import {
   shouldPassMicTest,
   isVoiceActive,
   isGreetingMatch,
   MIC_NOISE_FLOOR_SAMPLE_MS,
 } from '@/lib/interview/mic-test'
+import {
+  initFaceStability,
+  updateFaceStability,
+  classifyBrightness,
+  faceSizePositionGuidance,
+  environmentCanProceed,
+  type FaceStabilityState,
+} from '@/lib/interview/environment-check'
+import { createFacePresenceDetector, type FacePresenceDetector } from '@/lib/interview/face-detector'
 
 // SpeechRecognition の最小型（ブラウザ差を吸収）。
 type SpeechRecognitionLike = {
@@ -72,6 +80,12 @@ export default function PreparePage() {
   const [volume, setVolume] = useState(0)
   const [micError, setMicError] = useState<string | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  // 顔検出/明るさ（完全ブラウザ内・presence のみ・保存/送信なし）。cameraStatus とは別軸。
+  const [faceStatus, setFaceStatus] = useState<'checking' | 'ok' | 'none' | 'error'>('checking')
+  const [faceVerified, setFaceVerified] = useState(false)
+  const [brightnessStatus, setBrightnessStatus] = useState<'checking' | 'ok' | 'dark'>('checking')
+  const [faceGuidance, setFaceGuidance] = useState<string | null>(null)
+  const [faceRetryNonce, setFaceRetryNonce] = useState(0)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -92,6 +106,10 @@ export default function PreparePage() {
   const phraseMatchedRef = useRef(false) // 「こんにちは/こんにちわ」を認識したか
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const speechSupportedRef = useRef(false)
+  // 顔検出/明るさ用（すべて一時 client state。unmount で破棄。保存/送信しない）。
+  const faceStabilityRef = useRef<FaceStabilityState>(initFaceStability())
+  const faceDetectorRef = useRef<FacePresenceDetector | null>(null)
+  const faceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -436,9 +454,90 @@ export default function PreparePage() {
     return () => window.removeEventListener('pointerdown', onPointerDown)
   }, [cameraStatus])
 
-  // マイク必須・カメラ必須: 3条件（mic ok / camera ok / micTestPassed）を満たすときだけ進める。
+  // 顔検出（presence のみ）＋明るさチェック（完全ブラウザ内・~2fps・保存/送信なし）。cameraStatus==='ok' の間だけ稼働。
+  useEffect(() => {
+    if (cameraStatus !== 'ok') return
+    let disposed = false
+    // 明るさ用の小さな offscreen canvas（縮小画像のみ解析・フル解像度は使わない）。
+    const canvas = document.createElement('canvas')
+    canvas.width = 64
+    canvas.height = 36
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+
+    setFaceStatus('checking')
+    setFaceVerified(false)
+    faceStabilityRef.current = initFaceStability()
+    ;(async () => {
+      let detector: FacePresenceDetector
+      try {
+        detector = await createFacePresenceDetector()
+      } catch {
+        // モデル/WASM ロード失敗 → fail-open しない（faceVerified は false のまま）。honest error＋retry を表示。
+        if (!disposed) setFaceStatus('error')
+        return
+      }
+      if (disposed) {
+        detector.close()
+        return
+      }
+      faceDetectorRef.current = detector
+
+      faceIntervalRef.current = setInterval(() => {
+        if (disposed) return
+        const v = videoRef.current
+        const det = faceDetectorRef.current
+        if (!v || !det || v.readyState < 2) return
+        const now = Date.now()
+        // 顔存在（present）と bounding box 比率のみ取得（画像/embedding は扱わない）。
+        let present = false
+        let box: { widthRatio: number; centerXRatio: number; centerYRatio: number } | undefined
+        try {
+          const r = det.detect(v, now)
+          present = r.present
+          box = r.box
+        } catch {
+          present = false
+        }
+        faceStabilityRef.current = updateFaceStability(faceStabilityRef.current, { faceDetected: present, nowMs: now })
+        const verified = faceStabilityRef.current.verified
+        setFaceVerified(verified)
+        setFaceStatus(verified ? 'ok' : present ? 'checking' : 'none')
+        setFaceGuidance(present && box ? faceSizePositionGuidance(box) : null)
+        // 明るさ: 縮小画像の平均輝度（Y=0.2126R+0.7152G+0.0722B）。警告のみ・blocking しない。
+        if (ctx) {
+          try {
+            ctx.drawImage(v, 0, 0, canvas.width, canvas.height)
+            const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+            let sum = 0
+            const n = canvas.width * canvas.height
+            for (let i = 0; i < data.length; i += 4) sum += 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]
+            setBrightnessStatus(classifyBrightness(sum / n))
+          } catch {
+            /* noop */
+          }
+        }
+      }, 450)
+    })()
+
+    return () => {
+      disposed = true
+      if (faceIntervalRef.current) {
+        clearInterval(faceIntervalRef.current)
+        faceIntervalRef.current = null
+      }
+      if (faceDetectorRef.current) {
+        faceDetectorRef.current.close()
+        faceDetectorRef.current = null
+      }
+      faceStabilityRef.current = initFaceStability()
+      setFaceVerified(false)
+    }
+    // faceRetryNonce の変化で再ロード（detector load 失敗時の retry）。
+  }, [cameraStatus, faceRetryNonce])
+
+  // マイク必須・カメラ必須・発話確認必須・顔検出必須（明るさは警告のみ＝進行条件に含めない）。
   function handleNext() {
-    if (canProceedToInterview({ micStatus, cameraStatus, micTestPassed })) {
+    if (environmentCanProceed({ micStatus, cameraStatus, micTestPassed, faceVerified })) {
       router.push(`/interview/${slug}/practice`)
     }
   }
@@ -492,9 +591,9 @@ export default function PreparePage() {
     )
   }
 
-  // カメラ・マイクともに必須。3条件（mic ok / camera ok / micTestPassed）を満たすときだけ進行可。
-  const canProceed = canProceedToInterview({ micStatus, cameraStatus, micTestPassed })
-  const bothVerified = micStatus === 'ok' && cameraStatus === 'ok' && micTestPassed
+  // 正式仕様: カメラ必須・マイク必須・発話確認必須・顔検出必須（明るさは警告のみで含めない）。
+  const canProceed = environmentCanProceed({ micStatus, cameraStatus, micTestPassed, faceVerified })
+  const bothVerified = micStatus === 'ok' && cameraStatus === 'ok' && micTestPassed && faceVerified
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -585,43 +684,92 @@ export default function PreparePage() {
             </div>
           )}
 
-          {/* ステータス pill（色だけに依存せず ✓/✗＋文言）。マイク: 待ち=blue / 合格=green。カメラ: 正常=green / エラー=red。 */}
-          <div className="mt-5 flex items-center justify-center gap-3">
+          {/* ステータス pill（色だけに依存せず ✓/✗/○＋文言）。マイク/カメラ/顔/明るさ を別軸で表示（折返し可）。 */}
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
             {micStatus === 'loading' ? (
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-500">マイク確認中...</span>
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm text-slate-500">マイク確認中...</span>
             ) : micTestPassed ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-4 py-2 text-sm font-medium text-green-700">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3.5 py-2 text-sm font-medium text-green-700">
                 <Check className="h-4 w-4" aria-hidden="true" />
                 マイク正常
               </span>
             ) : micStatus === 'ok' ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3.5 py-2 text-sm font-medium text-blue-700">
                 <Mic className="h-4 w-4" aria-hidden="true" />
                 マイクテスト待ち
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3.5 py-2 text-sm font-medium text-red-700">
                 <span aria-hidden="true">✗</span>
                 マイクエラー
               </span>
             )}
 
-            <span className="h-6 w-px bg-slate-200" aria-hidden="true" />
-
             {cameraStatus === 'loading' ? (
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-500">カメラ確認中...</span>
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm text-slate-500">カメラ確認中...</span>
             ) : cameraStatus === 'ok' ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-4 py-2 text-sm font-medium text-green-700">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3.5 py-2 text-sm font-medium text-green-700">
                 <Check className="h-4 w-4" aria-hidden="true" />
                 カメラ正常
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3.5 py-2 text-sm font-medium text-red-700">
                 <span aria-hidden="true">✗</span>
                 カメラエラー
               </span>
             )}
+
+            {/* 顔検出（cameraStatus とは別軸）。 */}
+            {faceStatus === 'ok' ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3.5 py-2 text-sm font-medium text-green-700">
+                <Check className="h-4 w-4" aria-hidden="true" />
+                顔を確認しました
+              </span>
+            ) : faceStatus === 'error' ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3.5 py-2 text-sm font-medium text-amber-700">
+                <AlertCircle className="h-4 w-4" aria-hidden="true" />
+                顔確認を開始できませんでした
+                <button type="button" onClick={() => setFaceRetryNonce((n) => n + 1)} className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs hover:bg-amber-200">
+                  <RefreshCw className="h-3 w-3" aria-hidden="true" />
+                  再試行
+                </button>
+              </span>
+            ) : faceStatus === 'none' ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3.5 py-2 text-sm font-medium text-amber-700">
+                <AlertCircle className="h-4 w-4" aria-hidden="true" />
+                顔が確認できません
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm text-slate-500">
+                <span aria-hidden="true">○</span>
+                顔を確認中...
+              </span>
+            )}
+
+            {/* 明るさ（警告のみ・進行条件に含めない）。 */}
+            {brightnessStatus === 'dark' ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3.5 py-2 text-sm font-medium text-amber-700">
+                <Sun className="h-4 w-4" aria-hidden="true" />
+                少し暗いようです
+              </span>
+            ) : brightnessStatus === 'ok' ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3.5 py-2 text-sm font-medium text-green-700">
+                <Check className="h-4 w-4" aria-hidden="true" />
+                明るさ正常
+              </span>
+            ) : (
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm text-slate-500">明るさ確認中...</span>
+            )}
           </div>
+
+          {/* 顔サイズ/位置・明るさのガイダンス（warning のみ・blocking しない）。 */}
+          {(faceGuidance || (faceStatus === 'none' && cameraStatus === 'ok') || brightnessStatus === 'dark') && (
+            <div className="mt-3 space-y-1 text-center text-xs text-amber-600">
+              {faceStatus === 'none' && cameraStatus === 'ok' && <p>顔全体が映るようにしてください</p>}
+              {faceGuidance && <p>{faceGuidance}</p>}
+              {brightnessStatus === 'dark' && <p>明るい場所へ移動してください</p>}
+            </div>
+          )}
 
           {/* 面接中の注意事項（カメラは必須＝「使う場合は」を撤去）。 */}
           <div className="mt-8">

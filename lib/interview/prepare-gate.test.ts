@@ -42,8 +42,9 @@ describe('prepare/page.tsx: 旧「カメラ任意」を排除し必須 UI にす
   it('7. 「顔全体が映るようにしてください」を表示', () => {
     expect(PAGE).toContain('顔全体が映るようにしてください')
   })
-  it('進行ゲートは canProceedToInterview（camera 必須）を使用', () => {
-    expect(PAGE).toContain('canProceedToInterview')
-    expect(PAGE).toContain("cameraStatus")
+  it('進行ゲートは environmentCanProceed（camera/mic/micTest/face 必須）を使用', () => {
+    // face 検出追加に伴い canProceedToInterview → environmentCanProceed へ拡張（camera 必須は維持）。
+    expect(PAGE).toContain('environmentCanProceed')
+    expect(PAGE).toContain('cameraStatus')
   })
 })
