@@ -55,13 +55,37 @@ export const MOUTH_LEVEL_THRESHOLDS = {
 } as const
 export type MouthState = 'closed' | 'small' | 'medium' | 'large'
 
-// ── Synthetic Avatar Driver（demo 企業限定・音声なしの疑似口パク・UI/Avatar QA 用）────────────────────────
-//   Production の demo 応募者フロー（remoteStream=null＝実 audio 無し）でも AI 発話相当時に口 overlay を疑似的に
-//   動かして Human が目視 QA するための遅延幅。高速フリッカーにせず「人が喋る程度」の自然な幅にする。
-//   ロジックは lib/interview/avatar/synthetic-lipsync.ts（seed 可能な純関数＝test で決定的）。
+// ── Synthetic Avatar Driver v2（demo 企業限定・音声なし・UI/Avatar QA 用）───────────────────────────────
+//   【v2 の要点】v1 は mouthState を 110–240ms で直接ランダム選択＝「パパパ」高速で機械的だった。
+//   v2 は mouthState を直接選ばず、日本語発話に近い **synthetic speech energy envelope（phrase/pause）** を生成し、
+//   本番 actual と同じ pipeline（energy → smoothLevel(attack/release) → mouthStateForLevel）へ通す。
+//   → demo と actual で mouth mapping/smoothing を共有し、demo を actual 挙動へ近づける。
+//   ロジック = lib/interview/avatar/synthetic-lipsync.ts（seed 可能な純関数＝test で決定的）。
 export const AVATAR_SYNTHETIC = {
-  minDelayMs: 110, // 口の変化の最小間隔
-  maxDelayMs: 240, // 最大（ランダム幅で機械的にしない）
+  // envelope のサンプリング間隔（本番の AVATAR_AUDIO.sampleIntervalMs と揃える。~20fps）。
+  sampleIntervalMs: 50,
+  // phrase（短い発話の波）: 1–4 秒程度・ランダム幅。
+  phraseMinMs: 1000,
+  phraseMaxMs: 4000,
+  // short pause（語間・句の切れ目）: energy=0＝口 closed。
+  shortPauseMinMs: 80,
+  shortPauseMaxMs: 300,
+  // sentence pause（文の区切り）: より長い closed。
+  sentencePauseMinMs: 350,
+  sentencePauseMaxMs: 900,
+  // 文末（sentence pause）へ至る確率（それ以外は short pause）。
+  sentenceEndProbability: 0.35,
+  // syllable（音節）の口の開閉リズム（phrase 内の小さな上下）。人が喋る程度。
+  syllablePeriodMinMs: 150,
+  syllablePeriodMaxMs: 260,
+  // phrase の energy ピーク: 基本は small/medium 中心（0.3–0.5）。強い発音のときだけ large 域（>0.7）。
+  phrasePeakMin: 0.32,
+  phrasePeakMax: 0.5,
+  strongPhraseProbability: 0.18, // 稀に強い phrase（large を出す）
+  strongPhrasePeakMin: 0.72,
+  strongPhrasePeakMax: 0.92,
+  // 可視 mouthState の最小保持（境界チャタリング防止・envelope が緩やかなので保険）。
+  visibleMinHoldMs: 160,
 } as const
 
 // ── 瞬き（blink）────────────────────────────────────────────────────────────────────────────
@@ -85,4 +109,15 @@ export const AVATAR_BREATHING = {
   periodMs: 4600, // ゆっくり
   scaleAmplitude: 0.012, // ごく僅か（酔わない・顔が大きく動かない）
   translateYpx: 1.2, // ごく僅かな上下
+} as const
+
+// ── ごく僅かな頭の微動（speaking の phrase 境界で稀に・落ち着いた面接官）──────────────────────────────
+//   毎 phrase ではなく稀に・一定周期にしない。breathing と重なってフワフワしない範囲（very subtle）。
+export const AVATAR_HEAD = {
+  minIntervalMs: 3500, // 次の頭微動までの最小
+  maxIntervalMs: 9000, // 最大（ランダム幅）
+  probability: 0.5, // 間隔到達時に実際に動かす確率（毎回やらない）
+  durationMs: 800, // 1 回の長さ（500–1000ms 程度）
+  translateYpx: 1.2, // ごく僅か（0.5–1.5px 相当）
+  rotateDeg: 0.4, // ごく僅か（0.2–0.6deg 相当）
 } as const

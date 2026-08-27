@@ -54,6 +54,11 @@ export const AI_INTERVIEWER = {
     medium: '/images/interviewer/ai-interviewer-lowerface-medium-overlay.webp',
     large: '/images/interviewer/ai-interviewer-lowerface-large-overlay.webp',
   },
+  // 目だけ閉じた透過 overlay（独立 Eye Layer）。neutral base の上に重ねる＝口 overlay と独立に瞬きできる。
+  //   これで speaking 中に mouth=open ＋ eyes=closed を同時成立（「口だけ動いて目が固定」の不自然さを解消）。
+  //   neutral vs blink の diff で目領域を実測（x≈0.486/y≈0.258）し、blink の目領域を neutral へ登録＋楕円 feather で切出し。
+  //   透過 WebP・full-canvas 1024x1536・~18KB・offline 生成（生成 AI 不使用）。
+  eyesClosedOverlay: '/images/interviewer/ai-interviewer-eyes-closed-overlay.webp',
   imageAlt: 'AI面接官',
   // 共通 voice 方針の SoT（実 voice 名の最終確定は将来 actual でも可。現状は Realtime 既定 voice を単一の真実にする）。
   voicePolicy: REALTIME_VOICE,
@@ -80,20 +85,24 @@ function overlaySetForMode(mode: AvatarLipsyncMode): { small: string; medium: st
 
 // preload 用（実際に描画される asset だけ・有効フラグ/モードに追従）。旧 full-frame mouth を通常 Production 経路で無駄に
 //   download しないよう、AI_INTERVIEWER_IMAGE_LIST（全 base 5 枚）ではなく「今の描画経路で必要な最小集合」を組む。
-//   - base 常時: neutral（既定/listening/非 speaking）＋ blink（瞬き）。
-//   - overlay 方式 ON（採用・既定）: 有効 mode の overlay 3 枚を追加（speaking 開始直後の切替で初回 download 待ちを出さない）。
-//   - full-frame 実験 ON 時のみ: full-frame mouth 3 枚を追加（false の通常 Production 経路では preload しない＝実験用に温存）。
+//   - base 常時: neutral（既定/listening/非 speaking）。
+//   - overlay 方式 ON（採用・既定）: 独立 eye overlay（瞬き）＋ 有効 mode の口 overlay 3 枚を追加（初回 download 待ちを出さない）。
+//   - full-frame 実験 ON 時のみ: full-frame blink ＋ mouth 3 枚を追加（false の通常 Production 経路では preload しない＝実験用に温存）。
 export const AI_INTERVIEWER_PRELOAD_LIST: readonly string[] = [
   AI_INTERVIEWER.images.neutral,
-  AI_INTERVIEWER.images.blink,
   ...(AVATAR_OVERLAY_LIPSYNC_ENABLED
     ? (() => {
         const s = overlaySetForMode(AVATAR_LIPSYNC_MODE)
-        return [s.small, s.medium, s.large]
+        return [AI_INTERVIEWER.eyesClosedOverlay, s.small, s.medium, s.large]
       })()
     : []),
   ...(AVATAR_FULLFRAME_LIPSYNC_ENABLED
-    ? [AI_INTERVIEWER.images.mouthSmall, AI_INTERVIEWER.images.mouthMedium, AI_INTERVIEWER.images.mouthLarge]
+    ? [
+        AI_INTERVIEWER.images.blink,
+        AI_INTERVIEWER.images.mouthSmall,
+        AI_INTERVIEWER.images.mouthMedium,
+        AI_INTERVIEWER.images.mouthLarge,
+      ]
     : []),
 ]
 

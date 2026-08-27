@@ -109,9 +109,17 @@
   - ロジック SoT = `lib/interview/avatar/`（audio-analyzer / avatar-motion / avatar-config）＋描画写像 = `interviewerFrameSrc`
     （base）／ `interviewerOverlaySrc`（mode 追従 overlay）。QA 比較用に `interviewerMouthOverlaySrc` / `interviewerLowerFaceOverlaySrc`
     （mode 明示 helper）も提供。生成スクリプト = `scripts/avatar/generate-{mouth,lowerface}-overlays.mjs`（再実行で同一出力）。
-- **描画**: base = blink > neutral（非 speaking は必ず neutral）。overlay = speaking かつ small/中/大 のときだけ重ねる
-  （closed/未解析/非 speaking は null＝base の口閉じ）。speaking 中は blink 抑制（口開き×目閉じ overlay を持たないため）。
-  setState は「離散 mouthState 変化時のみ」＝毎 frame 再 render しない（~20fps 間引き・rAF・GPU 合成 transform）。
+- **描画（v2）**: wrapper（breathing/nod/head 微動）＞ base neutral ＞ 口 overlay（speaking の small/中/大）＞ **独立 Eye Layer
+  overlay（eyesClosedOverlay・瞬き）**。base は常に neutral（v2 では base を blink 差替しない）。口と目は独立 overlay＝
+  **speaking 中でも mouth=open ＋ eyes=closed を同時成立**（「口だけ動いて目が固定」を構造的に解消）。
+  setState は「離散変化時のみ」（~20fps 間引き・GPU 合成 transform）。
+- **独立 Eye Layer**: `ai-interviewer-eyes-closed-overlay.webp`（透過・neutral vs blink の目領域を offline 登録＋楕円 feather・
+  生成 AI 不使用・`scripts/avatar/generate-eyes-overlay.mjs`）。blink scheduler は全状態で許可（speaking blink 復活）。
+- **Synthetic Avatar Driver v2（demo 限定・音声なし QA）**: v1 は mouthState を 110–240ms で直接ランダム＝「パパパ」高速・機械的。
+  v2 は **synthetic speech energy envelope（phrase/pause モデル）→ 本番 actual と同じ smoothLevel→mouthStateForLevel** へ通す
+  （`synthetic-lipsync.ts`）。small/medium 中心・large 稀・pause で closed・可視最小保持で保持時間を長く。head 微動は speaking の
+  phrase 境界で稀に（一定周期にしない）。**demo=synthetic envelope / actual=real audio envelope で mouth mapping/smoothing を共有**
+  ＝demo を「実 Realtime 接続後に近い見た目」へ寄せる。ただし **actual 完全再現ではない**（threshold/smoothing/hold は R1 で実音声を聞いて再調整しうる）。
 - **禁止（本 scope 外）**: 音素完全一致 viseme / 動画 avatar / Live2D / Wav2Lip server / 外部 Talking Avatar API /
   リアルタイム表情生成 / 手振り生成。すべてブラウザ内処理のみ・**1 面接あたり追加外部 API 原価 0**。
 - **fallback（HARD）**: AudioContext/Analyser 不可・Safari 制約・権限問題・remote stream 無し・overlay load 失敗・barge-in・
