@@ -11,6 +11,24 @@ import {
   stopStream,
 } from '@/lib/interview/media'
 import { canProceedToInterview } from '@/lib/interview/prepare-gate'
+import {
+  shouldPassMicTest,
+  isVoiceActive,
+  isGreetingMatch,
+  MIC_NOISE_FLOOR_SAMPLE_MS,
+} from '@/lib/interview/mic-test'
+
+// SpeechRecognition の最小型（ブラウザ差を吸収）。
+type SpeechRecognitionLike = {
+  lang: string
+  continuous: boolean
+  interimResults: boolean
+  onresult: (e: { resultIndex: number; results: { 0: { transcript: string } }[] & { length: number } }) => void
+  onerror: (e: { error: string }) => void
+  onend: () => void
+  start: () => void
+  stop: () => void
+}
 
 // 応募フロー共通のステップ（既存フロー優先: 同意→情報入力→SMS認証→環境確認→面接）。環境確認=現在=4。
 const STEP_LABELS = ['同意', '情報入力', 'SMS認証', '環境確認', '面接']
@@ -60,10 +78,20 @@ export default function PreparePage() {
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const animationFrameRef = useRef<number | null>(null)
-  const thresholdStartTimeRef = useRef<number | null>(null)
   const micTestPassedRef = useRef(false)
   const acquiringRef = useRef(false) // 連打/race 防止
   const cancelledRef = useRef(false) // unmount 後の state 更新防止
+  // マイクテスト（誤判定防止）用: noise floor 計測・voice activity 継続・挨拶認識。
+  const micTestStartRef = useRef<number | null>(null)
+  const noiseFloorRef = useRef<number>(0)
+  const noiseSumRef = useRef<number>(0)
+  const noiseCountRef = useRef<number>(0)
+  const voiceDetectedRef = useRef(false) // 一度でも発話らしい入力を検出したか
+  const voiceActiveStartRef = useRef<number | null>(null) // 連続 voice-active の開始
+  const sustainedVoiceMsRef = useRef<number>(0) // 連続 voice-active の最大継続時間
+  const phraseMatchedRef = useRef(false) // 「こんにちは/こんにちわ」を認識したか
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const speechSupportedRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -95,11 +123,19 @@ export default function PreparePage() {
     }
   }, [slug])
 
-  // マイクテスト（音量解析）の後始末。再試行/アンマウントで確実に解放する。
+  // マイクテスト（音量解析＋音声認識）の後始末。再試行/アンマウントで確実に解放し、判定 refs をリセット。
   const cleanupMicTest = useCallback(() => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
       animationFrameRef.current = null
+    }
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop()
+      } catch {
+        /* noop */
+      }
+      recognitionRef.current = null
     }
     if (audioContextRef.current) {
       try {
@@ -110,13 +146,78 @@ export default function PreparePage() {
       audioContextRef.current = null
     }
     analyserRef.current = null
-    thresholdStartTimeRef.current = null
+    micTestStartRef.current = null
+    noiseFloorRef.current = 0
+    noiseSumRef.current = 0
+    noiseCountRef.current = 0
+    voiceDetectedRef.current = false
+    voiceActiveStartRef.current = null
+    sustainedVoiceMsRef.current = 0
+    phraseMatchedRef.current = false
+    speechSupportedRef.current = false
   }, [])
 
-  // マイクの音量を解析し、一定音量が0.5秒続いたら合格。analyser 失敗でも mic 取得自体は成功扱い。
+  // マイクテスト（誤判定防止）。実際に発話したことを確認してから合格にする（環境音/無音では合格しない）。
+  //   - 開始直後に noise floor を計測 → それを明確に超える入力を voice activity とみなす（固定 threshold のみに依存しない）。
+  //   - SpeechRecognition(ja-JP) 対応: 「こんにちは/こんにちわ」認識(phraseMatched) ＋ voice で合格。
+  //   - 非対応 fallback: noise floor を超える sustained voice activity（既定 800ms）で合格。
+  //   - analyser/AudioContext 失敗を「自動合格」にしない（fail-open 廃止）。
   const startMicTest = useCallback(
     (stream: MediaStream) => {
       cleanupMicTest()
+      micTestStartRef.current = Date.now()
+
+      // SpeechRecognition（あれば）をマイクテスト中だけ起動。認識で発話＋挨拶を確認する。
+      const w = window as unknown as {
+        SpeechRecognition?: new () => SpeechRecognitionLike
+        webkitSpeechRecognition?: new () => SpeechRecognitionLike
+      }
+      const SpeechRecognition = w.SpeechRecognition || w.webkitSpeechRecognition
+      speechSupportedRef.current = !!SpeechRecognition
+      if (SpeechRecognition) {
+        try {
+          const recognition = new SpeechRecognition()
+          recognition.lang = 'ja-JP'
+          recognition.continuous = true
+          recognition.interimResults = true
+          recognition.onresult = (event) => {
+            // 認識結果が来た＝発話が存在する（voice）。挨拶一致なら phraseMatched。
+            voiceDetectedRef.current = true
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              const transcript = event.results[i]?.[0]?.transcript ?? ''
+              if (isGreetingMatch(transcript)) phraseMatchedRef.current = true
+            }
+            // 挨拶が認識された＝実際に発話済み。analyser が使えなくても合格にできる（fail-open ではない）。
+            if (phraseMatchedRef.current && !micTestPassedRef.current && !cancelledRef.current) {
+              const hasLiveAudio = stream.getAudioTracks().some((t) => t.readyState === 'live')
+              if (
+                shouldPassMicTest({
+                  hasLiveAudio,
+                  speechSupported: true,
+                  phraseMatched: true,
+                  voiceDetected: true,
+                  sustainedVoiceMs: 0,
+                })
+              ) {
+                micTestPassedRef.current = true
+                setMicTestPassed(true)
+              }
+            }
+          }
+          recognition.onerror = () => {
+            /* 認識エラーは fallback（analyser の voice activity）に委ねる。ここで合格にはしない。 */
+          }
+          recognition.onend = () => {
+            /* 途中終了しても analyser tick 側の判定を継続。 */
+          }
+          recognition.start()
+          recognitionRef.current = recognition
+        } catch {
+          speechSupportedRef.current = false
+        }
+      }
+
+      // Web Audio analyser（voice activity / noise floor / 音量バー）。失敗しても「合格」にしない。
       try {
         const audioContext = new AudioContext()
         const analyser = audioContext.createAnalyser()
@@ -125,33 +226,53 @@ export default function PreparePage() {
         audioContextRef.current = audioContext
         analyserRef.current = analyser
         const dataArray = new Uint8Array(analyser.frequencyBinCount)
+        let lastTs = Date.now()
         const tick = () => {
           if (!analyserRef.current || micTestPassedRef.current || cancelledRef.current) return
           analyserRef.current.getByteFrequencyData(dataArray)
-          const avg = dataArray.reduce((s, v) => s + v, 0) / dataArray.length
-          const vol = Math.round(avg)
-          setVolume(vol)
-          if (vol > 40) {
-            const now = Date.now()
-            if (thresholdStartTimeRef.current === null) thresholdStartTimeRef.current = now
-            else if (now - thresholdStartTimeRef.current >= 500) {
+          const level = Math.round(dataArray.reduce((s, v) => s + v, 0) / dataArray.length)
+          setVolume(level)
+          const now = Date.now()
+          const elapsed = now - (micTestStartRef.current ?? now)
+
+          // 開始直後 MIC_NOISE_FLOOR_SAMPLE_MS は noise floor を計測（この間は合格判定しない）。
+          if (elapsed < MIC_NOISE_FLOOR_SAMPLE_MS) {
+            noiseSumRef.current += level
+            noiseCountRef.current += 1
+            noiseFloorRef.current = noiseCountRef.current > 0 ? noiseSumRef.current / noiseCountRef.current : 0
+          } else {
+            const active = isVoiceActive(level, noiseFloorRef.current)
+            if (active) {
+              voiceDetectedRef.current = true
+              if (voiceActiveStartRef.current === null) voiceActiveStartRef.current = now
+              const dur = now - voiceActiveStartRef.current
+              if (dur > sustainedVoiceMsRef.current) sustainedVoiceMsRef.current = dur
+            } else {
+              voiceActiveStartRef.current = null
+            }
+            const hasLiveAudio = stream.getAudioTracks().some((t) => t.readyState === 'live')
+            if (
+              shouldPassMicTest({
+                hasLiveAudio,
+                speechSupported: speechSupportedRef.current,
+                phraseMatched: phraseMatchedRef.current,
+                voiceDetected: voiceDetectedRef.current,
+                sustainedVoiceMs: sustainedVoiceMsRef.current,
+              })
+            ) {
               micTestPassedRef.current = true
               setMicTestPassed(true)
+              return
             }
-          } else {
-            thresholdStartTimeRef.current = null
           }
+          void lastTs
+          lastTs = now
           animationFrameRef.current = requestAnimationFrame(tick)
         }
         tick()
       } catch {
-        // Codex P2: AudioContext/analyser 非対応・制限環境では音量テストを実行できない。
-        // ただし getUserMedia は成功済み＝マイクは利用可能。テスト不能を理由に「準備完了」ボタンを
-        // 永久に無効化して詰まらせない。合格扱いにして先へ進めるようにする（マイクは必須要件を満たしている）。
-        if (!cancelledRef.current) {
-          micTestPassedRef.current = true
-          setMicTestPassed(true)
-        }
+        // fail-open 廃止: analyser 不能でも自動合格にしない。SpeechRecognition が挨拶を認識できれば
+        // その onresult 経由で voiceDetected/phraseMatched が立つが、ここで setMicTestPassed(true) はしない。
       }
     },
     [cleanupMicTest],
@@ -285,6 +406,35 @@ export default function PreparePage() {
       streamRef.current = null
     }
   }, [acquire, cleanupMicTest])
+
+  // カメラ映像の安定表示（seam）: cameraStatus==='ok' で live video track があり、<video> の srcObject が未接続なら再attach。
+  //   loading 中に取得が解決して <video> 未マウントだった / 再描画で binding が外れた場合でも復旧する。deps 無し（毎レンダー・軽量ガード）。
+  useEffect(() => {
+    const v = videoRef.current
+    const s = streamRef.current
+    if (
+      cameraStatus === 'ok' &&
+      v &&
+      s &&
+      s.getVideoTracks().some((t) => t.readyState === 'live') &&
+      v.srcObject !== streamRef.current
+    ) {
+      v.srcObject = s
+      v.play().catch(() => {
+        /* autoplay policy 等で失敗 → 下の pointerdown seam でユーザー操作後に再試行 */
+      })
+    }
+  })
+
+  // play() が autoplay policy 等で失敗した場合の再試行（ユーザー操作起点・UIは変えない）。
+  useEffect(() => {
+    const onPointerDown = () => {
+      const v = videoRef.current
+      if (cameraStatus === 'ok' && v && v.srcObject && v.paused) v.play().catch(() => {})
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    return () => window.removeEventListener('pointerdown', onPointerDown)
+  }, [cameraStatus])
 
   // マイク必須・カメラ必須: 3条件（mic ok / camera ok / micTestPassed）を満たすときだけ進める。
   function handleNext() {
