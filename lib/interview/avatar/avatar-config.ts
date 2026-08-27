@@ -105,19 +105,21 @@ export const AVATAR_NOD = {
 } as const
 
 // ── 呼吸/微動（breathing・全状態・CSS transform のみ）──────────────────────────────────────────
+//   ※ v3: 外枠の円は動かさず、内側 CharacterStage(.iv-stage) だけに適用する。写実人物で「拡大縮小」に見えない最小値へ。
+//   実 CSS の値は InterviewerAvatar の <style>（@keyframes iv-stage-breathe）に集約（scale ≤0.4%・上下 ≤0.8px・回転なし）。
+//   本定数は設計意図の記録（現状 JS からは参照しない）。
 export const AVATAR_BREATHING = {
-  periodMs: 4600, // ゆっくり
-  scaleAmplitude: 0.012, // ごく僅か（酔わない・顔が大きく動かない）
-  translateYpx: 1.2, // ごく僅かな上下
+  periodMs: 4800, // ゆっくり
+  scaleAmplitude: 0.004, // ごく僅か（写実人物で拡大縮小に見えない最小値）
+  translateYpx: 0.8, // ごく僅かな上下
 } as const
 
 // ── ごく僅かな頭の微動（speaking の phrase 境界で稀に・落ち着いた面接官）──────────────────────────────
 //   毎 phrase ではなく稀に・一定周期にしない。breathing と重なってフワフワしない範囲（very subtle）。
+//   ※ v3: 回転はしない（写真全体を傾けない）。実 transform は CSS(@keyframes iv-stage-head)＝translateY≤1.2px＋微 scale・回転なし。
 export const AVATAR_HEAD = {
   minIntervalMs: 3500, // 次の頭微動までの最小
   maxIntervalMs: 9000, // 最大（ランダム幅）
   probability: 0.5, // 間隔到達時に実際に動かす確率（毎回やらない）
-  durationMs: 800, // 1 回の長さ（500–1000ms 程度）
-  translateYpx: 1.2, // ごく僅か（0.5–1.5px 相当）
-  rotateDeg: 0.4, // ごく僅か（0.2–0.6deg 相当）
+  durationMs: 800, // 1 回の長さ（500–1000ms 程度・CSS animation と一致）
 } as const

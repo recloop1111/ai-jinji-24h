@@ -15,9 +15,25 @@ import {
   blinkAllowed,
   nodAllowed,
 } from './avatar-motion'
-import { AVATAR_AUDIO, AVATAR_BLINK, AVATAR_NOD, MOUTH_LEVEL_THRESHOLDS } from './avatar-config'
+import { AVATAR_AUDIO, AVATAR_BLINK, AVATAR_NOD, AVATAR_BREATHING, AVATAR_HEAD, MOUTH_LEVEL_THRESHOLDS } from './avatar-config'
 
 // PR: Lightweight Realtime Avatar の純ロジック（audio 解析 math / motion スケジュール）。実 audio/DOM なし。
+
+// v3 Natural Motion の設計不変条件（外枠は動かさず人物 stage だけ・回転しない・呼吸は極小）を回帰ガード。
+describe('v3 motion design: 人物 stage のみ・回転なし・呼吸極小', () => {
+  it('breathing の scale amplitude は極小（写実人物で拡大縮小に見えない ≤0.6%）', () => {
+    expect(AVATAR_BREATHING.scaleAmplitude).toBeLessThanOrEqual(0.006)
+    expect(AVATAR_BREATHING.translateYpx).toBeLessThanOrEqual(1)
+  })
+  it('頭の微動は回転成分を持たない（写真全体を傾けない＝rotateDeg を廃止）', () => {
+    expect((AVATAR_HEAD as Record<string, unknown>).rotateDeg).toBeUndefined()
+  })
+  it('頭の微動は稀（毎回でない・一定周期でない）', () => {
+    expect(AVATAR_HEAD.probability).toBeLessThanOrEqual(0.6)
+    expect(AVATAR_HEAD.minIntervalMs).toBeGreaterThanOrEqual(3000)
+    expect(AVATAR_HEAD.maxIntervalMs).toBeGreaterThan(AVATAR_HEAD.minIntervalMs)
+  })
+})
 
 describe('audio → mouth level', () => {
   it('computeRms: 無音(128中心 Uint8)は ~0、振幅ありは >0', () => {
