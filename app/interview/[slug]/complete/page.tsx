@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { Globe, Check, CheckCircle2, ClipboardList, Clock, MessageSquareText, Star } from 'lucide-react'
 import { APP_NAME } from '@/constants'
 import {
@@ -12,7 +12,13 @@ import {
   questionCountDisplay,
   type InterviewSummary,
 } from '@/lib/interview/completeSummary'
-import { resolveCompanyName, canSubmitRating } from '@/lib/interview/complete-view'
+import {
+  resolveCompanyName,
+  canSubmitRating,
+  classifyBackendStatus,
+  resolveCompleteState,
+  type BackendStatusClass,
+} from '@/lib/interview/complete-view'
 
 // 応募開始/基本情報/本人確認/環境確認 画面と統一の言語リスト（表示＋sessionStorage 保存のみ）。
 const LANGUAGES = [
@@ -26,11 +32,17 @@ const LANGUAGES = [
 
 export default function CompletePage() {
   const params = useParams()
+  const router = useRouter()
   const slug = params.slug as string
 
   // ヘッダー: 会社名（左）＋言語切替（右）。AIMEN24 はヘッダーに出さない（他の応募者画面と統一）。
   const [companyName, setCompanyName] = useState<string>(resolveCompanyName(null))
   const [selectedLanguage, setSelectedLanguage] = useState('ja')
+
+  // 表示状態: loading（判定中）/ completed（正常完了）/ interrupted（中断→/ended へ退避）。
+  const [viewState, setViewState] = useState<'loading' | 'completed' | 'interrupted'>('loading')
+  const [minutes, setMinutes] = useState<number | null>(null)
+  const [questions, setQuestions] = useState<number | null>(null)
 
   const [rating, setRating] = useState(0)
   const [hoverRating, setHoverRating] = useState(0)
@@ -66,23 +78,76 @@ export default function CompletePage() {
     }
   }, [slug])
 
-  // 実データ summary を読み出す。別面接/stale を誤表示しないよう現在の interview_id 一致時のみ使用
-  // （不一致/欠落/malformed は null＝ダミーを出さない）。マウント後に読む（SSR 安全）。
-  const [summary, setSummary] = useState<InterviewSummary | null>(null)
+  // 正常完了の判定＋サマリー確定。
+  //   1) sessionStorage の summary（interview_id 一致時のみ）を第一候補にする。
+  //   2) backend（interviews.status / duration / total_questions）で「本当に completed か」を検証＆復元。
+  //   3) backend が completed → 完了表示。completed 以外（cancelled/in_progress 等）→ 中断（/ended へ）。
+  //   4) backend 未確認（ネットワーク不能）でも local summary があれば完了扱い、無ければ中断。
+  //   5) 正常完了でも表示できるサマリーが皆無なら空の完了画面を出さず中断へ倒す。
+  //   固定ダミー値では絶対に補わない。
   useEffect(() => {
-    try {
-      const parsed = parseInterviewSummary(sessionStorage.getItem(summaryStorageKey(slug)))
-      const currentInterviewId = sessionStorage.getItem(`interview_${slug}_interview_id`)
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSummary(summaryMatchesInterview(parsed, currentInterviewId) ? parsed : null)
-    } catch {
-      setSummary(null)
-    }
-  }, [slug])
+    let cancelled = false
+    ;(async () => {
+      let local: InterviewSummary | null = null
+      let interviewId: string | null = null
+      let token: string | null = null
+      let applicantId: string | null = null
+      try {
+        interviewId = sessionStorage.getItem(`interview_${slug}_interview_id`)
+        token = sessionStorage.getItem(`interview_${slug}_token`)
+        applicantId = sessionStorage.getItem(`interview_${slug}_applicant_id`)
+        const parsed = parseInterviewSummary(sessionStorage.getItem(summaryStorageKey(slug)))
+        local = summaryMatchesInterview(parsed, interviewId) ? parsed : null
+      } catch {
+        local = null
+      }
+      const localMinutes = local ? durationToMinutes(local.durationSeconds) : null
+      const localQuestions = local ? questionCountDisplay(local.questionCount) : null
 
-  // 実データのみ。取得不能は null（「—」ではなく該当カラムを非表示）。固定ダミー値は出さない。
-  const minutes = summary ? durationToMinutes(summary.durationSeconds) : null
-  const questions = summary ? questionCountDisplay(summary.questionCount) : null
+      // backend で completed を検証＋（sessionStorage 消失時の）サマリー復元。読み取り専用 API。
+      let backendStatus: BackendStatusClass = 'unknown'
+      let backendMinutes: number | null = null
+      let backendQuestions: number | null = null
+      if (interviewId && token && applicantId) {
+        try {
+          const res = await fetch(`/api/interview/${slug}/summary`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, applicant_id: applicantId, interview_id: interviewId }),
+          })
+          const json = await res.json().catch(() => null)
+          backendStatus = classifyBackendStatus({ ok: res.ok, status: json?.status })
+          if (res.ok && json) {
+            backendMinutes = typeof json.durationSeconds === 'number' ? durationToMinutes(json.durationSeconds) : null
+            backendQuestions = typeof json.questionCount === 'number' ? questionCountDisplay(json.questionCount) : null
+          }
+        } catch {
+          backendStatus = 'unknown'
+        }
+      }
+      if (cancelled) return
+
+      const displayMinutes = localMinutes ?? backendMinutes
+      const displayQuestions = localQuestions ?? backendQuestions
+      const state = resolveCompleteState({
+        backendStatus,
+        hasLocalSummary: local !== null,
+        hasDisplayableSummary: displayMinutes !== null || displayQuestions !== null,
+      })
+      if (state === 'interrupted') {
+        // 正常完了 UI を出さず、既存の中断画面へ退避（新規状態を作らない）。
+        setViewState('interrupted')
+        router.replace(`/interview/${slug}/ended`)
+        return
+      }
+      setMinutes(displayMinutes)
+      setQuestions(displayQuestions)
+      setViewState('completed')
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [slug, router])
 
   const canSubmit = canSubmitRating({ rating, submitting, submitted })
 
@@ -107,34 +172,53 @@ export default function CompletePage() {
     }
   }
 
+  // ヘッダー（会社名 左 ＋ 言語切替 右）。他の応募者画面と統一。AIMEN24 は出さない。
+  const header = (
+    <header className="flex items-center justify-between gap-3 border-b border-slate-200/70 bg-white/70 px-5 py-4 backdrop-blur sm:px-8">
+      <span className="truncate text-base font-bold text-slate-900">{companyName}</span>
+      <div className="relative flex-shrink-0">
+        <Globe className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <select
+          value={selectedLanguage}
+          onChange={(e) => {
+            setSelectedLanguage(e.target.value)
+            try {
+              sessionStorage.setItem(`interview_${slug}_language`, e.target.value)
+            } catch {
+              /* noop */
+            }
+          }}
+          aria-label="言語を選択"
+          className="cursor-pointer rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          {LANGUAGES.map((lang) => (
+            <option key={lang.code} value={lang.code}>
+              {lang.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    </header>
+  )
+
+  // 判定中 / 中断（/ended へ遷移中）は正常完了 UI を描画しない（空の完了画面を出さない）。
+  if (viewState !== 'completed') {
+    return (
+      <div className="min-h-screen bg-slate-100">
+        {header}
+        <main className="mx-auto flex max-w-xl items-center justify-center px-4 py-20">
+          <svg className="h-8 w-8 animate-spin text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-slate-100">
-      {/* ヘッダー（会社名 左 ＋ 言語切替 右）。他の応募者画面と統一。AIMEN24 は出さない。 */}
-      <header className="flex items-center justify-between gap-3 border-b border-slate-200/70 bg-white/70 px-5 py-4 backdrop-blur sm:px-8">
-        <span className="truncate text-base font-bold text-slate-900">{companyName}</span>
-        <div className="relative flex-shrink-0">
-          <Globe className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <select
-            value={selectedLanguage}
-            onChange={(e) => {
-              setSelectedLanguage(e.target.value)
-              try {
-                sessionStorage.setItem(`interview_${slug}_language`, e.target.value)
-              } catch {
-                /* noop */
-              }
-            }}
-            aria-label="言語を選択"
-            className="cursor-pointer rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {LANGUAGES.map((lang) => (
-              <option key={lang.code} value={lang.code}>
-                {lang.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </header>
+      {header}
 
       <main className="mx-auto max-w-xl px-4 py-8 sm:py-10">
         {/* 完了メッセージ（小さく上品な完了マーク・演出なし）。 */}
@@ -143,7 +227,6 @@ export default function CompletePage() {
             <Check className="h-7 w-7 text-blue-600" strokeWidth={2.5} aria-hidden="true" />
           </div>
           <h1 className="mt-5 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">面接が完了しました</h1>
-          {/* honest 文言: /end の保存成功は保証されないため「送信されました」とは断定しない。 */}
           <p className="mt-3 text-sm leading-relaxed text-slate-500">
             お疲れ様でした。
             <br />
@@ -151,7 +234,7 @@ export default function CompletePage() {
           </p>
         </div>
 
-        {/* 面接サマリーカード（実データのみ・固定値なし）。 */}
+        {/* 面接サマリーカード（正常完了時は必須・実データのみ・固定値なし）。 */}
         <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_10px_40px_-24px_rgba(15,23,42,0.25)]">
           <div className="flex items-center gap-2">
             <ClipboardList className="h-5 w-5 text-blue-600" aria-hidden="true" />
@@ -192,7 +275,7 @@ export default function CompletePage() {
             </div>
           )}
 
-          {/* 完了ステータス（honest: 送信保証はないため「面接完了」）。 */}
+          {/* 完了ステータス（正常完了を backend で確認済み）。 */}
           <div className="mt-5 flex items-center gap-2 rounded-xl border border-green-100 bg-green-50 px-4 py-3 text-green-700" role="status">
             <CheckCircle2 className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
             <span className="text-sm font-medium">面接完了</span>

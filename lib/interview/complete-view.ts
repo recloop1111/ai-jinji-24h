@@ -15,3 +15,34 @@ export function resolveCompanyName(name: string | null | undefined): string {
 export function canSubmitRating(input: { rating: number; submitting: boolean; submitted: boolean }): boolean {
   return input.rating >= 1 && input.rating <= 5 && !input.submitting && !input.submitted
 }
+
+// ── 正常完了 / 中断の分岐（backend の interviews.status を最優先） ──────────────
+//   normal complete UI は「正式に completion が成立した」ときだけ表示する。
+//   「面接画面を離れた」だけでは表示しない。sessionStorage を唯一の真実にしない（refresh/直アクセスで消える）。
+export type CompleteState = 'loading' | 'completed' | 'interrupted'
+export type BackendStatusClass = 'completed' | 'other' | 'unknown'
+
+// backend summary API 応答を分類。ok かつ status==='completed' のときだけ completed。
+//   ok だが completed 以外（cancelled/in_progress/error/waiting）→ other。未取得/失敗 → unknown。
+export function classifyBackendStatus(input: { ok: boolean; status: string | null | undefined }): BackendStatusClass {
+  if (!input.ok) return 'unknown'
+  return input.status === 'completed' ? 'completed' : 'other'
+}
+
+// 表示すべき状態を決定。
+//   - backend が completed → 完了（backend が唯一の権威）。
+//   - backend が other（明示的に未完了）→ 中断（正常完了 UI を出さない）。
+//   - backend unknown（ネットワーク不能/未確認）→ ローカル summary があれば完了扱い、無ければ中断。
+//   さらに完了でも表示できるサマリー（面接時間・質問数のいずれか）が全く無い場合は中断へ倒す
+//   （空の正常完了画面を出さない）。
+export function resolveCompleteState(input: {
+  backendStatus: BackendStatusClass
+  hasLocalSummary: boolean
+  hasDisplayableSummary: boolean
+}): CompleteState {
+  const completed =
+    input.backendStatus === 'completed' || (input.backendStatus === 'unknown' && input.hasLocalSummary)
+  if (!completed) return 'interrupted'
+  // 正常完了でも表示できるサマリーが皆無なら、空の完了画面を出さず中断（safe）へ。
+  return input.hasDisplayableSummary ? 'completed' : 'interrupted'
+}
