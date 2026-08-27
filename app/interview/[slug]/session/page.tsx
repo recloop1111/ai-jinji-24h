@@ -16,6 +16,7 @@ import {
   type MockPresenceDriver,
 } from '@/lib/interview/presence'
 import { computeQuestionProgress, turnHintForPhase } from '@/lib/interview/questionProgress'
+import { shouldShowAnswerCompleteFallback } from '@/lib/interview/session-answer-signal'
 import { buildInterviewSummary, serializeSummary, summaryStorageKey } from '@/lib/interview/completeSummary'
 import {
   isGetUserMediaSupported,
@@ -28,7 +29,7 @@ import {
   cameraFlagsForStream,
   type SessionMode,
 } from '@/lib/interview/media'
-import { Mic, MicOff, Video, VideoOff, Volume2 } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, Volume2, Check } from 'lucide-react'
 import InterviewerAvatar from '@/components/interview/InterviewerAvatar'
 // 公開フローの DB アクセスは token付き service-role API 経由（browser直アクセス廃止）
 // AI音声面接（Realtime）は allowlist 企業＆フラグON時のみ。それ以外は realtime-call が 503/403 → モックへ。
@@ -87,6 +88,10 @@ export default function SessionPage() {
   const [hasVideoTrack, setHasVideoTrack] = useState(false) // カメラトラックを取得できたか（任意）
   const [micMuted, setMicMuted] = useState(false) // マイクミュート（track.enabled で制御・取り直さない）
   const [cameraOn, setCameraOn] = useState(true) // カメラON/OFF（track.enabled で制御・取り直さない）
+  // 正式仕様: カメラ必須。カメラ track 切断（デバイス取り外し等）で「黙って継続」しない＝ blocking/reconnect を出す。
+  const [cameraLost, setCameraLost] = useState(false)
+  // 回答終了 signal（seam・Realtime actual 未接続）。fallback「回答を終える」は default 非表示・押下は signal のみ。
+  const [answerCompleteSignaled, setAnswerCompleteSignaled] = useState(false)
   const [micLost, setMicLost] = useState(false) // マイク切断（デバイス取り外し/占有）→ 再接続案内
   const [audioBlocked, setAudioBlocked] = useState(false) // iOS/Safari 等で AI音声の自動再生がブロックされた
   const audioUnlockedRef = useRef(false) // ユーザー操作で音声再生をアンロック済みか（seam）
@@ -233,16 +238,18 @@ export default function SessionPage() {
       video.addEventListener(
         'ended',
         () => {
+          // 正式仕様: カメラ必須。切断を「黙って継続」にしない＝ blocking/reconnect（cameraLost）を出す。
           setHasVideoTrack(false)
           setCameraOn(false)
+          setCameraLost(true)
         },
         { once: true },
       )
   }, [handleMicLost])
 
   // カメラ/マイク取得（start 成功＝interviewId 確定後のみ。403/失敗時は起動しない）。
-  // Phase I-5: 二段階取得＝まず {video,audio}、失敗ならマイクのみ {audio}（カメラ任意）。
-  //            マイクも取得不可のときだけ mediaFailed（Realtime 不可 → モックへ）。
+  // 正式仕様: カメラ・マイクともに必須。{video,audio} を要求し、失敗時は audio-only で「カメラ無し継続」しない。
+  //            取得失敗（カメラ or マイク不可）は mediaFailed（Realtime 不可 → モックへ／ブロッキング）。
   useEffect(() => {
     if (!interviewId) return
     // ブロッキングエラーが既に出ているならカメラを起動しない
@@ -255,30 +262,32 @@ export default function SessionPage() {
       }
       let stream: MediaStream | null = null
       try {
+        // カメラ・マイク両方を要求（カメラ必須）。どちらか取得不可なら reject。
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       } catch {
-        // Codex P2: 破棄後（離脱）/blockingError（開始・質問失敗）後は、フォールバック取得も失敗確定もしない
-        //（離脱後やブロッキング画面でマイク許可プロンプトを出さない・cleanup 意図を尊重）。
+        // Codex P2: 破棄後（離脱）/blockingError（開始・質問失敗）後は失敗確定もしない（cleanup 意図を尊重）。
         if (disposed || blockingErrorRef.current) return
-        // カメラを諦めマイクのみで再取得（カメラは任意）
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        } catch {
-          // マイクも取得失敗 → Realtime（音声）不可。モックへ落とす合図（破棄後は更新しない）。
-          if (disposed || blockingErrorRef.current) return
-          setMediaFailed(true)
-          return
-        }
+        // カメラ無しで audio-only 継続はしない（正式仕様）。取得失敗として扱う。
+        setMediaFailed(true)
+        return
       }
       // 取得が blockingError/破棄後に解決した場合（権限プロンプト遅延等）は即停止して保持しない
       if (disposed || blockingErrorRef.current) {
         stopStream(stream)
         return
       }
-      streamRef.current = stream
       const hasVideo = stream.getVideoTracks().length > 0
-      setHasVideoTrack(hasVideo)
-      setCameraOn(hasVideo)
+      // カメラ track が無い（想定外）なら「カメラ無し継続」にせず取得失敗として扱う。
+      if (!hasVideo) {
+        stopStream(stream)
+        if (disposed || blockingErrorRef.current) return
+        setMediaFailed(true)
+        return
+      }
+      streamRef.current = stream
+      setHasVideoTrack(true)
+      setCameraOn(true)
+      setCameraLost(false)
       setMicMuted(false)
       attachTrackListeners(stream)
       setHasStream(true)
@@ -361,10 +370,12 @@ export default function SessionPage() {
       const stream = commitOrStopStream(acquired, canContinue())
       if (!stream) return
       streamRef.current = stream
-      // 成功時のみ、実際に video track がある場合だけカメラ表示/操作を復帰させる（audio only は OFF のまま）。
+      // 成功時のみ、実際に video track がある場合だけカメラ表示/操作を復帰させる。
       const flags = cameraFlagsForStream(stream)
       setHasVideoTrack(flags.hasVideoTrack)
       setCameraOn(flags.cameraOn)
+      // カメラ必須: 再取得でカメラが戻れば blocking 解除、戻らなければ blocking 継続（黙ってカメラ無し継続にしない）。
+      setCameraLost(!flags.hasVideoTrack)
       setMicMuted(false)
       attachTrackListeners(stream)
       setHasStream(true)
@@ -1018,6 +1029,28 @@ export default function SessionPage() {
     total: totalQuestions,
   })
   const turnHint = turnHintForPhase(interviewPhase)
+  // 音声状態テキスト（interviewPhase SoT から。avatar の waveform 下に表示）。
+  const phaseStatusText =
+    interviewPhase === 'speaking'
+      ? '話しています…'
+      : interviewPhase === 'listening'
+        ? '聞いています…'
+        : interviewPhase === 'thinking'
+          ? '回答を確認しています…'
+          : interviewPhase === 'connecting'
+            ? '接続しています…'
+            : interviewPhase === 'ending'
+              ? '終了しています…'
+              : ''
+  // 回答を終える fallback（default 非表示）。押下は user_answer_complete signal のみ（直接 nextQuestion しない）。
+  //   R1: 回答終了未確定の待機時間を計測して waitElapsedMs に渡す（現状は 0＝既定 threshold 未満で常に非表示）。
+  const showAnswerCompleteFallback = shouldShowAnswerCompleteFallback({
+    aiSpeaking: interviewPhase === 'speaking',
+    answerCompleteDetected: answerCompleteSignaled,
+    waitElapsedMs: 0,
+  })
+  // カメラ必須: 切断（cameraLost）or ユーザーがOFFにした状態は「黙って継続」させず blocking 表示。
+  const cameraBlocking = cameraLost || (hasVideoTrack && !cameraOn)
 
   return (
     <>
@@ -1055,6 +1088,43 @@ export default function SessionPage() {
       <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 relative flex flex-col items-center justify-start sm:justify-center px-4 pt-24 pb-24 sm:pt-8 sm:pb-10">
         {/* AI音声（Realtime）の再生先。realtime モード時のみ remote stream が入る（mock 時は無音・非表示）。 */}
         <audio ref={remoteAudioRef} autoPlay className="hidden" />
+
+        {/* 正式仕様: カメラ必須。切断/OFF のまま「黙って継続」させない blocking。カメラが戻るまで面接前面を覆う。
+            realtime 中の track 差し替え（replaceTrack/renegotiation）は #21 の制約があるため、ここでは
+            ローカル再取得（reacquireMedia）と track.enabled 復帰（toggleCamera）の安全操作のみを促す。 */}
+        {cameraBlocking && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/85 p-6 backdrop-blur-sm" role="alertdialog" aria-modal="true">
+            <div className="max-w-sm rounded-2xl border border-white/10 bg-slate-900 p-6 text-center text-white shadow-2xl">
+              <VideoOff className="mx-auto mb-3 h-10 w-10 text-red-400" aria-hidden="true" />
+              {cameraLost ? (
+                <>
+                  <p className="text-base font-bold">カメラとの接続が切れました</p>
+                  <p className="mt-2 text-sm text-white/70">面接を続けるにはカメラを再接続してください。</p>
+                  <button
+                    type="button"
+                    onClick={reacquireMedia}
+                    className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500"
+                  >
+                    カメラを再接続する
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-base font-bold">カメラがオフになっています</p>
+                  <p className="mt-2 text-sm text-white/70">面接にはカメラが必要です。カメラをONにしてください。</p>
+                  <button
+                    type="button"
+                    onClick={toggleCamera}
+                    className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500"
+                  >
+                    <Video className="h-4 w-4" aria-hidden="true" />
+                    カメラをONにする
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
         {/* 言語選択ドロップダウン（右上） */}
         <div className="fixed top-4 right-4 z-30">
           <select
@@ -1082,7 +1152,7 @@ export default function SessionPage() {
         {/* Phase I-3: 進捗＋経過時間バーは「固定配置」をやめ、中央カラムの通常フロー（アバターの上）に置く。
             → 左右の固定コントロール（カメラ/言語）とも、縦中央寄せのアバターとも重ならない（下記カラム内）。 */}
 
-        {/* 応募者カメラ小窓（左上固定）。Phase I-5: カメラは任意。トラック無し/OFF は「カメラOFF」表示。 */}
+        {/* 応募者カメラ小窓（左上固定）。カメラ必須。OFF/切断時は上の blocking で継続を止める。 */}
         <div className="fixed top-3 left-3 z-10 w-24 h-18 sm:w-32 sm:h-24 md:w-36 md:h-28 rounded-xl overflow-hidden shadow-lg border-2 border-white/30 bg-slate-800">
           {/* カメラON/OFF は track.enabled で切り替え、<video> はマウントし続ける（srcObject を失わず即復帰）。 */}
           {hasVideoTrack && (
@@ -1235,6 +1305,13 @@ export default function SessionPage() {
           {/* Phase I-3: listening 時のみ「あなたの番」ガイド（うるさくならないよう控えめ）。
               speaking/thinking/ending 等では出さない（turnHint=null）。状態は既にアバターのラベルで
               SR に伝わるため、ここは aria-hidden（重複読み上げを避ける）。 */}
+          {/* 音声状態テキスト（interviewPhase SoT）。avatar 下・waveform の状態語。 */}
+          {phaseStatusText && (
+            <p className="mt-2 text-sm text-white/70" aria-hidden="true">
+              {phaseStatusText}
+            </p>
+          )}
+
           <div className="mt-2 h-5 flex items-center justify-center">
             {turnHint && (
               <p className="text-xs sm:text-sm text-green-300/90" aria-hidden="true">
@@ -1242,6 +1319,19 @@ export default function SessionPage() {
               </p>
             )}
           </div>
+
+          {/* 回答を終える fallback（default 非表示）。押下は user_answer_complete signal のみ＝直接 nextQuestion しない。
+              回答終了が長時間確定しないときだけ控えめに表示（現状は常に非表示。R1 で待機計測を配線）。 */}
+          {showAnswerCompleteFallback && (
+            <button
+              type="button"
+              onClick={() => setAnswerCompleteSignaled(true)}
+              className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-white/20 px-5 py-2 text-sm text-white/70 transition hover:bg-white/10"
+            >
+              <Check className="h-4 w-4" aria-hidden="true" />
+              回答を終える
+            </button>
+          )}
         </div>
 
         {/* 面接終了ボタン（デスクトップ） */}

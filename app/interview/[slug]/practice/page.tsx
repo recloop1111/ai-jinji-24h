@@ -2,10 +2,19 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { Globe, Play, Info, ChevronRight } from 'lucide-react'
 import { AI_INTERVIEWER } from '@/lib/interview/interviewer-identity'
-import {
-  PrimaryButton,
-} from '@/components/interview/FormComponents'
+import InterviewerAvatar from '@/components/interview/InterviewerAvatar'
+import { shouldEndPracticeAnswer, ANSWER_SILENCE_MS } from '@/lib/interview/practice-answer-end'
+
+const LANGUAGES = [
+  { code: 'ja', label: '日本語' },
+  { code: 'en', label: 'English' },
+  { code: 'vi', label: 'Tiếng Việt' },
+  { code: 'zh', label: '中文' },
+  { code: 'ne', label: 'नेपाली' },
+  { code: 'pt', label: 'Português' },
+]
 
 const PRACTICE_QUESTIONS = [
   '最近ハマっていることは何ですか？',
@@ -13,51 +22,85 @@ const PRACTICE_QUESTIONS = [
   '好きな季節とその理由を教えてください。',
 ]
 
+// SpeechRecognition の最小型（any を避けつつブラウザ差を吸収）。
+type SpeechRecognitionLike = {
+  lang: string
+  continuous: boolean
+  interimResults: boolean
+  onresult: (e: { resultIndex: number; results: { isFinal: boolean }[] }) => void
+  onerror: (e: { error: string }) => void
+  onend: () => void
+  start: () => void
+  stop: () => void
+}
+
 export default function PracticePage() {
   const params = useParams()
   const router = useRouter()
   const slug = params.slug as string
 
+  const [companyName, setCompanyName] = useState('テスト株式会社')
+  const [selectedLanguage, setSelectedLanguage] = useState('ja')
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
-  const [blinking, setBlinking] = useState(false)
   const [hasStream, setHasStream] = useState(false)
-  const [showCompletionDialog, setShowCompletionDialog] = useState(false)
-  const [showWaitingScreen, setShowWaitingScreen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
-  const [phase, setPhase] = useState<'showing' | 'recording' | 'next'>('showing')
+  const [phase, setPhase] = useState<'showing' | 'recording'>('showing')
   const [recordingSeconds, setRecordingSeconds] = useState(30)
   const [showCompletion, setShowCompletion] = useState(false)
   const [isListening, setIsListening] = useState(false)
   const [showStartOverlay, setShowStartOverlay] = useState(true)
+
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
-  const timeoutRefs = useRef<NodeJS.Timeout[]>([])
-  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const recognitionRef = useRef<any>(null)
-  const lastResultTimeRef = useRef<number | null>(null)
-  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const showingTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const lastResultTimeRef = useRef<number | null>(null) // 最後に発話を検出した時刻（未発話は null）
+  const hasSpokenRef = useRef(false) // 一度でも発話を検出したか（未発話で終了させないためのゲート）
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // カメラ取得
+  // 企業名（表示のみ・public-config を他画面と同じく再利用）。
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/interview/${slug}/public-config`)
+        const json = await res.json().catch(() => null)
+        if (!cancelled && res.ok && json?.company?.name) setCompanyName(json.company.name)
+      } catch {
+        /* noop */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
+
+  // 言語の表示同期（他画面と同じ sessionStorage キー）。
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(`interview_${slug}_language`)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (saved) setSelectedLanguage(saved)
+    } catch {
+      /* noop */
+    }
+  }, [slug])
+
+  // カメラ取得（練習用の小窓プレビュー）。
   useEffect(() => {
     async function setupCamera() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
-        })
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
         streamRef.current = stream
         setHasStream(true)
       } catch {
+        /* noop */
       }
     }
-
     setupCamera()
-
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop())
-      }
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop())
     }
   }, [])
 
@@ -68,38 +111,111 @@ export default function PracticePage() {
     }
   }, [hasStream])
 
-  // まばたきアニメーション
   useEffect(() => {
-    function scheduleBlink() {
-      const delay = 3000 + Math.random() * 2000 // 3000-5000ms
-      const timer = setTimeout(() => {
-        setBlinking(true)
-        setTimeout(() => {
-          setBlinking(false)
-          scheduleBlink()
-        }, 150)
-      }, delay)
-      timeoutRefs.current.push(timer)
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000)
+      return () => clearTimeout(timer)
     }
+  }, [toast])
 
-    scheduleBlink()
-
-    return () => {
-      timeoutRefs.current.forEach((timer) => clearTimeout(timer))
-      timeoutRefs.current = []
-    }
-  }, [])
-
-  // 質問の自動切り替え（ダミー：今は1問目を固定表示）
-  // TODO: Phase 4 - 実際の音声認識で回答が完了したら次の質問へ
-
-  const handleStartInterview = () => {
-    setShowCompletionDialog(false)
-    setShowWaitingScreen(true)
-    // 2秒後に本番セッションへ遷移
+  const goNextOrComplete = () => {
+    setIsListening(false)
     setTimeout(() => {
-      router.push(`/interview/${slug}/session`)
-    }, 2000)
+      if (currentQuestionIndex < PRACTICE_QUESTIONS.length - 1) {
+        setCurrentQuestionIndex((i) => i + 1)
+      } else {
+        setShowCompletion(true)
+      }
+    }, 1000)
+  }
+
+  // 録音開始。正式仕様: 発話開始後、最後の発話から約5秒無音で回答終了（未発話では終了しない）。
+  const startListening = () => {
+    setPhase('recording')
+    setIsListening(true)
+    setRecordingSeconds(30)
+    // 未発話状態から開始（質問提示直後から5秒を数えない）。
+    lastResultTimeRef.current = null
+    hasSpokenRef.current = false
+
+    const w = window as unknown as {
+      SpeechRecognition?: new () => SpeechRecognitionLike
+      webkitSpeechRecognition?: new () => SpeechRecognitionLike
+    }
+    const SpeechRecognition = w.SpeechRecognition || w.webkitSpeechRecognition
+
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition()
+      recognition.lang = 'ja-JP'
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognitionRef.current = recognition
+
+      recognition.onresult = (event) => {
+        // 発話を検出＝ゲートを開き、最後の発話時刻を更新。
+        hasSpokenRef.current = true
+        lastResultTimeRef.current = Date.now()
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            recognition.stop()
+            goNextOrComplete()
+            return
+          }
+        }
+      }
+      recognition.onerror = () => startFallbackTimer()
+      recognition.onend = () => {
+        if (
+          shouldEndPracticeAnswer({
+            hasSpoken: hasSpokenRef.current,
+            lastSpeechAtMs: lastResultTimeRef.current,
+            nowMs: Date.now(),
+          })
+        ) {
+          goNextOrComplete()
+        }
+      }
+
+      // 発話開始後、最後の発話から ANSWER_SILENCE_MS(=5秒) 無音で終了。未発話中は終了しない。
+      const checkSilence = () => {
+        if (
+          shouldEndPracticeAnswer({
+            hasSpoken: hasSpokenRef.current,
+            lastSpeechAtMs: lastResultTimeRef.current,
+            nowMs: Date.now(),
+          })
+        ) {
+          recognition.stop()
+          goNextOrComplete()
+        } else {
+          silenceTimerRef.current = setTimeout(checkSilence, 500)
+        }
+      }
+      silenceTimerRef.current = setTimeout(checkSilence, 500)
+      recognition.start()
+    } else {
+      // SpeechRecognition 非対応ブラウザ向けフォールバック（既存設計を維持: 30秒カウントダウン）。
+      startFallbackTimer()
+    }
+  }
+
+  function startFallbackTimer() {
+    recordingTimerRef.current = setInterval(() => {
+      setRecordingSeconds((prev) => {
+        if (prev <= 1) {
+          if (recordingTimerRef.current) clearInterval(recordingTimerRef.current)
+          goNextOrComplete()
+          return 30
+        }
+        return prev - 1
+      })
+    }, 1000)
+  }
+
+  // 「練習を開始する」（既存ロジック維持: overlay を閉じて質問フロー開始）。
+  const handleStartPractice = () => {
+    setShowStartOverlay(false)
+    setPhase('showing')
   }
 
   const handleSkip = () => {
@@ -108,400 +224,178 @@ export default function PracticePage() {
     }
   }
 
-  // 録音開始処理
-  const startListening = () => {
-    setPhase('recording')
-    setIsListening(true)
-    setRecordingSeconds(30)
-    lastResultTimeRef.current = Date.now()
-
-    // SpeechRecognition API の確認
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-
-    if (SpeechRecognition) {
-      // 音声認識を使用
-      const recognition = new SpeechRecognition()
-      recognition.lang = 'ja-JP'
-      recognition.continuous = true
-      recognition.interimResults = true
-      recognitionRef.current = recognition
-
-      recognition.onresult = (event: any) => {
-        lastResultTimeRef.current = Date.now()
-        
-        // 最終結果を確認
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          if (event.results[i].isFinal) {
-            // 発話終了を検出
-            recognition.stop()
-            setIsListening(false)
-            
-            // 1秒待ってから次の質問へ
-            setTimeout(() => {
-              if (currentQuestionIndex < PRACTICE_QUESTIONS.length - 1) {
-                setCurrentQuestionIndex(currentQuestionIndex + 1)
-              } else {
-                // 3問終了
-                setShowCompletion(true)
-              }
-            }, 1000)
-            return
-          }
-        }
-      }
-
-      recognition.onerror = (event: any) => {
-        // aborted エラーは無視（ユーザー操作による中断の可能性がある）
-        if (event.error === 'aborted') {
-          startFallbackTimer()
-          return
-        }
-        // エラー時はフォールバックに切り替え
-        startFallbackTimer()
-      }
-
-      recognition.onend = () => {
-        // 3秒間新たな音声入力がなかった場合
-        if (lastResultTimeRef.current && Date.now() - lastResultTimeRef.current >= 3000) {
-          setIsListening(false)
-          setTimeout(() => {
-            if (currentQuestionIndex < PRACTICE_QUESTIONS.length - 1) {
-              setCurrentQuestionIndex(currentQuestionIndex + 1)
-            } else {
-              setShowCompletion(true)
-            }
-          }, 1000)
-        }
-      }
-
-      // 3秒間の無音検出タイマー
-      const checkSilence = () => {
-        if (lastResultTimeRef.current && Date.now() - lastResultTimeRef.current >= 3000) {
-          recognition.stop()
-          setIsListening(false)
-          setTimeout(() => {
-            if (currentQuestionIndex < PRACTICE_QUESTIONS.length - 1) {
-              setCurrentQuestionIndex(currentQuestionIndex + 1)
-            } else {
-              setShowCompletion(true)
-            }
-          }, 1000)
-        } else {
-          silenceTimerRef.current = setTimeout(checkSilence, 500)
-        }
-      }
-      silenceTimerRef.current = setTimeout(checkSilence, 500)
-
-      recognition.start()
-    } else {
-      // SpeechRecognition非対応ブラウザ向けフォールバック
-      startFallbackTimer()
-    }
-  }
-
-  function startFallbackTimer() {
-    // 30秒カウントダウン
-    recordingTimerRef.current = setInterval(() => {
-      setRecordingSeconds((prev) => {
-        if (prev <= 1) {
-          setIsListening(false)
-          if (recordingTimerRef.current) {
-            clearInterval(recordingTimerRef.current)
-          }
-          // 次の質問へ
-          if (currentQuestionIndex < PRACTICE_QUESTIONS.length - 1) {
-            setCurrentQuestionIndex(currentQuestionIndex + 1)
-          } else {
-            // 3問終了
-            setShowCompletion(true)
-          }
-          return 30
-        }
-        return prev - 1
-      })
-    }, 1000)
-  }
-
-  // 「練習を開始する」ボタンのクリックハンドラ
-  const handleStartPractice = () => {
-    setShowStartOverlay(false)
-    setPhase('showing')
-  }
-
-  // 質問の自動フロー
+  // 質問の自動フロー（showing 3秒 → recording）。
   useEffect(() => {
-    // 開始オーバーレイが表示されている場合は何もしない
-    if (showStartOverlay) {
-      return
-    }
-
-    if (currentQuestionIndex >= PRACTICE_QUESTIONS.length) {
-      return
-    }
-
-    // 'showing' 状態から開始
+    if (showStartOverlay || showCompletion) return
+    if (currentQuestionIndex >= PRACTICE_QUESTIONS.length) return
     if (phase === 'showing') {
-      // 3秒後に自動で 'recording' に切り替え
       showingTimerRef.current = setTimeout(() => {
         setPhase('recording')
         startListening()
       }, 3000)
-
       return () => {
-        if (showingTimerRef.current) {
-          clearTimeout(showingTimerRef.current)
-        }
+        if (showingTimerRef.current) clearTimeout(showingTimerRef.current)
       }
     }
-
-    // 'recording' 状態のクリーンアップ
     return () => {
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current)
-      }
-      if (recognitionRef.current) {
-        recognitionRef.current.stop()
-      }
-      if (silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current)
-      }
-      if (showingTimerRef.current) {
-        clearTimeout(showingTimerRef.current)
-      }
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current)
+      if (recognitionRef.current) recognitionRef.current.stop()
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+      if (showingTimerRef.current) clearTimeout(showingTimerRef.current)
     }
-  }, [currentQuestionIndex, showStartOverlay, phase])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentQuestionIndex, showStartOverlay, phase, showCompletion])
 
-  // 次の質問に遷移したら再び 'showing' から開始
+  // 次の質問へ遷移したら再び showing から。
   useEffect(() => {
-    if (!showStartOverlay && currentQuestionIndex < PRACTICE_QUESTIONS.length) {
+    if (!showStartOverlay && !showCompletion && currentQuestionIndex < PRACTICE_QUESTIONS.length) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPhase('showing')
     }
-  }, [currentQuestionIndex, showStartOverlay])
+  }, [currentQuestionIndex, showStartOverlay, showCompletion])
 
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => setToast(null), 3000)
-      return () => clearTimeout(timer)
-    }
-  }, [toast])
-
-  // 練習完了の処理（3問終了後）
-  useEffect(() => {
-    // ダミー：実際には音声認識で回答が完了したら呼び出す
-    // if (currentQuestionIndex >= PRACTICE_QUESTIONS.length - 1 && answerCompleted) {
-    //   setShowCompletionDialog(true)
-    // }
-  }, [currentQuestionIndex])
-
-  if (showWaitingScreen) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 flex flex-col items-center justify-center px-4">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 sm:p-12 text-center">
-          <div className="mb-6">
-            <div className="w-16 h-16 mx-auto mb-4 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          </div>
-          <h2 className="text-xl font-bold text-gray-900 mb-4">
-            準備ができたらスタートボタンを押してください
-          </h2>
-          <p className="text-sm text-gray-600">
-            面接を開始します...
-          </p>
-        </div>
+  // ── 共通: dark interview shell（ヘッダー＋応募者カメラ小窓）──────────────────────────────
+  const header = (
+    <header className="flex items-center justify-between gap-3 px-5 py-4 sm:px-8">
+      <span className="truncate text-base font-bold text-white">{companyName}</span>
+      <div className="relative flex-shrink-0">
+        <Globe className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <select
+          value={selectedLanguage}
+          onChange={(e) => {
+            setSelectedLanguage(e.target.value)
+            try {
+              sessionStorage.setItem(`interview_${slug}_language`, e.target.value)
+            } catch {
+              /* noop */
+            }
+          }}
+          aria-label="言語を選択"
+          className="cursor-pointer rounded-xl border border-white/15 bg-white/5 py-2 pl-9 pr-3 text-sm font-medium text-white shadow-sm backdrop-blur transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          {LANGUAGES.map((lang) => (
+            <option key={lang.code} value={lang.code} className="text-slate-900">
+              {lang.label}
+            </option>
+          ))}
+        </select>
       </div>
-    )
-  }
+    </header>
+  )
+
+  const cameraPip = (
+    <div className="absolute left-4 top-16 z-10 h-20 w-28 overflow-hidden rounded-xl border border-white/20 bg-slate-800 shadow-lg sm:h-24 sm:w-36">
+      {hasStream ? (
+        <video ref={videoRef} autoPlay muted playsInline className="h-full w-full scale-x-[-1] object-cover" />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">カメラ</div>
+      )}
+    </div>
+  )
 
   return (
-    <>
-      <style jsx>{`
-        @keyframes breathing {
-          0% {
-            transform: translateY(0px);
-          }
-          50% {
-            transform: translateY(-2px);
-          }
-          100% {
-            transform: translateY(0px);
-          }
-        }
-      `}</style>
-      <div className="min-h-screen flex flex-col bg-gradient-to-b from-slate-900 to-slate-800 relative">
-        {/* トースト通知 */}
-        {toast && (
-          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 bg-gray-900 text-white px-6 py-3 rounded-lg shadow-lg animate-fade-in">
-            {toast}
+    <div className="relative flex min-h-screen flex-col bg-[#0a1020] text-white">
+      {toast && (
+        <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-6 py-3 text-white shadow-lg">
+          {toast}
+        </div>
+      )}
+      {header}
+      {cameraPip}
+
+      {showStartOverlay ? (
+        /* 練習開始画面（参考デザイン左）。 */
+        <main className="flex flex-1 flex-col items-center justify-center px-4 pb-10">
+          <div className="[--tw-shadow-color:rgba(37,99,235,0.35)] drop-shadow-[0_0_40px_var(--tw-shadow-color)]">
+            <InterviewerAvatar phase="idle" />
           </div>
-        )}
+          <h1 className="mt-6 text-2xl font-bold sm:text-3xl">AI面接官（練習モード）</h1>
+          <span className="mt-3 inline-flex items-center rounded-full bg-blue-500/20 px-4 py-1.5 text-sm font-medium text-blue-300">
+            練習モード・評価対象外
+          </span>
+          <p className="mt-4 text-sm text-white/70">AI面接官との練習を開始します</p>
 
-        {/* 練習時間（上部中央・本番の00:02/40:00と同じ位置） */}
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-30 text-sm text-gray-500">
-          練習時間：約3分
-        </div>
+          <button
+            onClick={handleStartPractice}
+            className="mt-7 flex w-full max-w-md items-center justify-center gap-2.5 rounded-2xl bg-blue-600 py-4 text-base font-bold text-white shadow-[0_0_30px_-6px_rgba(37,99,235,0.7)] transition hover:bg-blue-500 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40 active:scale-[0.99]"
+          >
+            <Play className="h-5 w-5 fill-current" />
+            練習を開始する
+          </button>
 
-        {/* 応募者カメラ小窓（左上固定・本番と同じ） */}
-        <div className="fixed top-3 left-3 z-10 w-24 h-18 sm:w-32 sm:h-24 md:w-36 md:h-28 rounded-xl overflow-hidden shadow-lg border-2 border-white/30 bg-slate-800">
-          {hasStream ? (
-            <video
-              ref={videoRef}
-              autoPlay
-              muted
-              playsInline
-              className="w-full h-full object-cover scale-x-[-1]"
-            />
-          ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
-              <svg
-                className="w-8 h-8 mb-1"
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-              <span className="text-xs">カメラOFF</span>
+          <div className="mt-5 w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="flex items-center gap-2 text-white">
+              <Info className="h-5 w-5 text-blue-400" />
+              <span className="font-bold">練習について</span>
             </div>
-          )}
-        </div>
-
-        {/* AIアバターエリア（画面中央・本番と同構造） */}
-        <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center">
-            <div className="rounded-full ring-4 ring-blue-500/20 shadow-2xl">
-              <img
-                src={AI_INTERVIEWER.images.neutral}
-                alt={AI_INTERVIEWER.imageAlt}
-                className="w-[220px] h-[220px] md:w-[300px] md:h-[300px] rounded-full object-cover border-4 border-white/20"
-              />
-            </div>
-
-            {/* AI面接官テキスト（共通 SoT） */}
-            <p className="text-sm sm:text-base text-white/90 mt-3">{AI_INTERVIEWER.displayName}（練習モード）</p>
-
-            {/* 練習モードバッジ（アバター名の直下） */}
-            <div className="mt-2">
-              <div className="inline-block text-[10px] px-3 py-1 rounded-full bg-yellow-500/80 text-white font-medium">
-                練習モード — 評価対象外
-              </div>
-            </div>
+            <p className="mt-2 text-sm leading-relaxed text-white/70">
+              本番と同じ形式で練習できます。<br />
+              リラックスして、いつも通りお話しください。
+            </p>
           </div>
-        </div>
 
-        {/* 質問・ボタン類（fixed bottom・アバターの中央配置に影響しない） */}
-        <div className="fixed bottom-0 left-0 right-0 z-10 flex flex-col items-center px-4 pb-8 pt-4 bg-gradient-to-t from-slate-900/95 to-transparent">
-          {showCompletion ? (
-            <div className="w-full max-w-md bg-white/10 backdrop-blur-sm rounded-2xl px-6 py-5 text-center">
-              <p className="text-xl font-bold text-white text-center">練習が完了しました！</p>
-              <p className="text-sm text-white/70 text-center mt-2">
-                お疲れ様でした。準備ができたら本番に進んでください。
-              </p>
-              <button
-                onClick={() => router.push(`/interview/${slug}/session`)}
-                className="mt-6 bg-white text-gray-900 rounded-full px-8 py-4 text-base font-bold shadow-xl hover:bg-gray-100 transition-all"
-              >
-                本番面接を開始する
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* 質問テロップ */}
-              <div className="w-full max-w-md bg-white/10 backdrop-blur-sm rounded-2xl px-6 py-5 text-center">
-                {showStartOverlay ? (
-                  <p className="text-lg sm:text-xl text-white font-medium">
-                    開始ボタンを押すと練習が始まります
-                  </p>
-                ) : (
-                  <>
-                    <p className="text-xs text-white/50 mb-2">
-                      質問 {currentQuestionIndex + 1}/{PRACTICE_QUESTIONS.length}
-                    </p>
-                    <p className="text-lg sm:text-xl text-white font-medium">
-                      {PRACTICE_QUESTIONS[currentQuestionIndex]}
-                    </p>
-                  </>
-                )}
-              </div>
+          <button
+            onClick={handleSkip}
+            className="mt-6 inline-flex items-center gap-1.5 rounded-full border border-white/15 px-6 py-2.5 text-sm text-white/70 transition hover:bg-white/10"
+          >
+            練習をスキップして本番へ
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </main>
+      ) : showCompletion ? (
+        /* 練習完了。 */
+        <main className="flex flex-1 flex-col items-center justify-center px-4 pb-10 text-center">
+          <InterviewerAvatar phase="idle" />
+          <h1 className="mt-6 text-2xl font-bold">練習が完了しました！</h1>
+          <p className="mt-2 text-sm text-white/70">お疲れ様でした。準備ができたら本番に進んでください。</p>
+          <button
+            onClick={() => router.push(`/interview/${slug}/session`)}
+            className="mt-7 w-full max-w-md rounded-2xl bg-blue-600 py-4 text-base font-bold text-white shadow-[0_0_30px_-6px_rgba(37,99,235,0.7)] transition hover:bg-blue-500 active:scale-[0.99]"
+          >
+            本番面接を開始する
+          </button>
+        </main>
+      ) : (
+        /* 練習中（本番とほぼ同じUI・ただし練習モード/評価対象外を明示）。 */
+        <main className="flex flex-1 flex-col items-center justify-center px-4 pb-40">
+          <InterviewerAvatar phase={phase === 'recording' ? 'listening' : 'speaking'} />
+          <span className="mt-4 inline-flex items-center rounded-full bg-blue-500/20 px-4 py-1.5 text-sm font-medium text-blue-300">
+            練習モード・評価対象外
+          </span>
 
-              {/* 録音中表示 */}
-              {phase === 'recording' && (
-                <div className="mt-4 text-center">
-                  {isListening ? (
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse inline-block" />
-                      <p className="text-sm text-white/70">あなたの番です。話してください...</p>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse inline-block" />
-                      <p className="text-sm text-white/70">録音中... 残り {recordingSeconds}秒</p>
-                    </div>
-                  )}
-                </div>
-              )}
+          <div className="mt-6 w-full max-w-xl rounded-2xl border border-white/10 bg-white/[0.06] px-6 py-5 text-center backdrop-blur">
+            <span className="inline-flex rounded-full bg-blue-600 px-3 py-1 text-xs font-bold text-white">
+              練習 {currentQuestionIndex + 1} / {PRACTICE_QUESTIONS.length}
+            </span>
+            <p className="mt-3 text-lg font-medium leading-relaxed text-white">
+              {PRACTICE_QUESTIONS[currentQuestionIndex]}
+            </p>
+          </div>
 
-              {/* AI面接官が質問している表示 */}
-              {phase === 'showing' && !showStartOverlay && (
-                <div className="mt-4 text-center">
-                  <p className="text-sm text-white/50 animate-pulse">AI面接官が質問しています...</p>
-                </div>
-              )}
+          <div className="mt-4 h-6 text-center text-sm text-white/70">
+            {phase === 'showing' ? (
+              <span className="animate-pulse">AI面接官が質問しています…</span>
+            ) : isListening ? (
+              <span>あなたの番です。マイクに向かってお話しください</span>
+            ) : (
+              <span>録音中… 残り {recordingSeconds}秒</span>
+            )}
+          </div>
 
-              {/* 練習をスキップボタン */}
-              <div className="mt-6 text-center">
-                <button
-                  onClick={handleSkip}
-                  className="text-sm text-white/40 border border-white/20 rounded-full px-6 py-2 hover:bg-white/10 transition-all"
-                >
-                  練習をスキップして本番へ
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* 開始オーバーレイ */}
-        {showStartOverlay && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="fixed bottom-8 left-1/2 -translate-x-1/2">
             <button
-              onClick={handleStartPractice}
-              className="bg-white text-gray-900 rounded-full px-8 py-4 text-lg font-bold shadow-xl hover:scale-105 transition-transform"
+              onClick={handleSkip}
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-6 py-2.5 text-sm text-white/60 transition hover:bg-white/10"
             >
-              練習を開始する
+              練習をスキップして本番へ
+              <ChevronRight className="h-4 w-4" />
             </button>
           </div>
-        )}
+        </main>
+      )}
 
-        {/* 完了ダイアログ */}
-        {showCompletionDialog && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 max-w-md w-full">
-              <h2 className="text-xl font-bold text-gray-900 mb-4 text-center">
-                練習完了！
-              </h2>
-              <p className="text-sm text-gray-600 mb-6 text-center">
-                本番を始めますか？
-              </p>
-              <div className="space-y-3">
-                <PrimaryButton onClick={handleStartInterview} className="w-full">
-                  本番を始める
-                </PrimaryButton>
-                <button
-                  onClick={() => setShowCompletionDialog(false)}
-                  className="w-full px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-                >
-                  もう一度練習する
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-      {/* TODO: Phase 4 - Whisperで音声認識、練習回答は記録・評価しない */}
-      {/* TODO: 段階4 - OpenAI TTS APIで質問を音声読み上げする。SpeechSynthesisは使用しない。 */}
-      {/* TODO: 段階4 - Supabase接続を本実装する */}
-    </>
+      {/* 無音しきい値（設計値の参照。UIには出さない）: ANSWER_SILENCE_MS = {ANSWER_SILENCE_MS} */}
+      <span className="hidden" aria-hidden="true" data-silence-ms={ANSWER_SILENCE_MS} data-interviewer={AI_INTERVIEWER.displayName} />
+    </div>
   )
 }
