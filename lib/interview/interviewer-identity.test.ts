@@ -73,18 +73,21 @@ describe('overlay アセット（mouth-only / lower-face の 2 方式を 1 箇�
     expect(AI_INTERVIEWER.lowerFaceOverlays.medium).toBe('/images/interviewer/ai-interviewer-lowerface-medium-overlay.webp')
     expect(AI_INTERVIEWER.lowerFaceOverlays.large).toBe('/images/interviewer/ai-interviewer-lowerface-large-overlay.webp')
   })
-  it('preload は通常 Production 経路（overlay ON / full-frame OFF）で実描画する 5 枚のみ（有効 mode の overlay・旧 full-frame は含めない）', () => {
+  it('独立 Eye Layer overlay path（v2・口と独立に瞬き）', () => {
+    expect(AI_INTERVIEWER.eyesClosedOverlay).toBe('/images/interviewer/ai-interviewer-eyes-closed-overlay.webp')
+  })
+  it('preload は通常 Production 経路（overlay ON / full-frame OFF）で実描画する 5 枚のみ（neutral + eye overlay + mode口 overlay 3）', () => {
     const active = AVATAR_LIPSYNC_MODE === 'lowerface' ? AI_INTERVIEWER.lowerFaceOverlays : AI_INTERVIEWER.mouthOverlays
-    // neutral + blink + 有効 mode の overlay 3 枚 = 5。旧 full-frame mouth を通常経路で無駄 download しない。
+    // neutral + eyesClosedOverlay(独立 Eye Layer) + 有効 mode の口 overlay 3 枚 = 5。旧 full-frame(blink/mouth) は無駄 download しない。
     expect(AI_INTERVIEWER_PRELOAD_LIST).toHaveLength(5)
     expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.images.neutral)
-    expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.images.blink)
+    expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.eyesClosedOverlay)
     expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(active.small)
     expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(active.medium)
     expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(active.large)
-    // 旧 full-frame mouth（実験用 asset）は通常経路では preload しない。
+    // 旧 full-frame（blink / mouth）は overlay 経路では preload しない（Eye Layer が瞬きを担う）。
+    expect(AI_INTERVIEWER_PRELOAD_LIST).not.toContain(AI_INTERVIEWER.images.blink)
     expect(AI_INTERVIEWER_PRELOAD_LIST).not.toContain(AI_INTERVIEWER.images.mouthSmall)
-    expect(AI_INTERVIEWER_PRELOAD_LIST).not.toContain(AI_INTERVIEWER.images.mouthMedium)
     expect(AI_INTERVIEWER_PRELOAD_LIST).not.toContain(AI_INTERVIEWER.images.mouthLarge)
   })
 })

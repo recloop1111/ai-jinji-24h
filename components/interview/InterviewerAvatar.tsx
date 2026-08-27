@@ -21,12 +21,14 @@ import {
   AVATAR_NOD,
   AVATAR_BLINK,
   AVATAR_AUDIO,
+  AVATAR_SYNTHETIC,
+  AVATAR_HEAD,
   AVATAR_FULLFRAME_LIPSYNC_ENABLED,
   AVATAR_OVERLAY_LIPSYNC_ENABLED,
   type MouthState,
 } from '@/lib/interview/avatar/avatar-config'
 import { createRemoteAudioAnalyzer, smoothLevel, mouthStateForLevel, resolveMouthLevel } from '@/lib/interview/avatar/audio-analyzer'
-import { nextSyntheticMouthState, nextSyntheticDelayMs, shouldRunSyntheticLipsync } from '@/lib/interview/avatar/synthetic-lipsync'
+import { createSyntheticSpeechEnvelope, holdMouthState, shouldRunSyntheticLipsync } from '@/lib/interview/avatar/synthetic-lipsync'
 import { avatarVariantForPhase, type AvatarTone } from '@/lib/interview/avatarVisual'
 
 const RING_TONE: Record<AvatarTone, string> = {
@@ -122,12 +124,12 @@ export default function InterviewerAvatar({
     }
   }, [visualState, remoteStream])
 
-  // ── Synthetic Avatar Driver（demo 企業限定・音声なしの疑似口パク・UI/Avatar QA 用）─────────────────────────
-  //   HARD guard: syntheticLipsync（=demo のみ true）かつ overlay 有効かつ speaking かつ remoteStream 無しのときだけ起動。
-  //   remoteStream があれば実 audio 解析が優先（本エフェクトは起動しない）＝normal/realtime では絶対に動かない。
-  //   setTimeout の単一チェーン（重複タイマー無し）。phase 変化/unmount で必ず cleanup し、口を closed に戻す。
+  // ── Synthetic Avatar Driver v2（demo 企業限定・音声なし・UI/Avatar QA 用）─────────────────────────────
+  //   v2: mouthState を直接ランダム選択しない。日本語発話に近い synthetic speech energy envelope を生成し、
+  //   本番 actual と同じ pipeline（energy → smoothLevel → mouthStateForLevel）へ通す＝demo を actual 挙動へ近づける。
+  //   HARD guard: overlay 有効 / demo(syntheticLipsync) / speaking / remoteStream 無し のみ起動（normal/realtime では OFF）。
+  //   ~20fps の単一 setInterval（重複タイマー無し）。phase 変化/unmount で必ず cleanup→closed。
   useEffect(() => {
-    // HARD guard（純関数）。overlay 有効 / demo / speaking / remoteStream 無し をすべて満たすときだけ起動。
     if (
       !shouldRunSyntheticLipsync({
         overlayEnabled: AVATAR_OVERLAY_LIPSYNC_ENABLED,
@@ -138,19 +140,29 @@ export default function InterviewerAvatar({
     )
       return
     let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
     const rng = () => Math.random()
-    let cur: MouthState = 'closed'
-    const tick = () => {
+    const envelope = createSyntheticSpeechEnvelope(rng)
+    const startTs = performance.now()
+    let smoothed = 0
+    let lastState: MouthState = 'closed'
+    let lastChangeMs = 0
+    const timer = setInterval(() => {
       if (cancelled) return
-      cur = nextSyntheticMouthState(cur, rng)
-      setMouthState(cur) // 離散変化時のみ再 render（effect body 同期 setState はしない＝tick 内）
-      timer = setTimeout(tick, nextSyntheticDelayMs(rng))
-    }
-    timer = setTimeout(tick, nextSyntheticDelayMs(rng))
+      const t = performance.now() - startTs
+      // 本番と同じ pipeline: synthetic energy → smoothLevel(attack/release) → mouthStateForLevel → 可視最小保持。
+      const raw = resolveMouthLevel({ aiSpeaking: true, rawLevel: envelope.energyAt(t) })
+      smoothed = smoothLevel(smoothed, raw)
+      const candidate = mouthStateForLevel(smoothed)
+      const next = holdMouthState(lastState, candidate, lastChangeMs, t)
+      if (next !== lastState) {
+        lastState = next
+        lastChangeMs = t
+        setMouthState(next) // 離散変化時のみ再 render（毎 tick setState しない）
+      }
+    }, AVATAR_SYNTHETIC.sampleIntervalMs)
     return () => {
       cancelled = true
-      if (timer) clearTimeout(timer)
+      clearInterval(timer)
       setMouthState('closed') // speaking 終了/unmount で口を閉じる（口だけ動き続けない）
     }
   }, [syntheticLipsync, visualState, remoteStream])
@@ -160,11 +172,10 @@ export default function InterviewerAvatar({
   const blinkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     if (!blinkAllowed(visualState, reducedMotion)) return
-    // speaking 中の blink は抑制する（採用 overlay 方式・full-frame いずれでも）。
-    //   理由: blink フレームは別個生成で頭部/目が僅かにドリフトし、base を neutral 固定に保てなくなる（口 overlay がズレる）。
-    //   また「口を開いた blink アセット」は無い（口 overlay を重ねても目閉じ base と口開きが不自然）。speaking は瞬きなし。
-    //   両方式 OFF（＝speaking も neutral 静止）のときだけ、speaking 中の blink（目のみ）を許可する。
-    if ((AVATAR_OVERLAY_LIPSYNC_ENABLED || AVATAR_FULLFRAME_LIPSYNC_ENABLED) && visualState === 'speaking') return
+    // v2: 独立 Eye Layer（eyesClosedOverlay）で瞬きするため、speaking 中も blink を許可する。
+    //   base neutral は固定のまま目 overlay だけ重ねる＝口 overlay と独立（口 large でも瞬き可）。
+    //   ただし full-frame 実験モード時は base フレーム差替（blink 画像＝口閉じ）になるため speaking 中は抑制する。
+    if (AVATAR_FULLFRAME_LIPSYNC_ENABLED && visualState === 'speaking') return
     let cancelled = false
     const rng = () => Math.random()
     const doBlink = (remaining: number) => {
@@ -223,37 +234,69 @@ export default function InterviewerAvatar({
     }
   }, [visualState, reducedMotion])
 
-  // base フレーム（採用方式では常に neutral/blink＝口は full-frame 差替しない）。full-frame ON 時のみ base 側で mouth を反映。
+  // ── ごく僅かな頭の微動（speaking の phrase 境界で稀に・落ち着いた面接官）。reduced-motion で無効。──────────
+  //   毎回/一定周期にしない（randomized interval + 確率）。base+口+目 overlay を含む wrapper 全体へ適用＝顔からズレない。
+  const [headMotion, setHeadMotion] = useState(false)
+  const headTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (reducedMotion || visualState !== 'speaking') return
+    let cancelled = false
+    const rng = () => Math.random()
+    const schedule = () => {
+      const delay = AVATAR_HEAD.minIntervalMs + rng() * (AVATAR_HEAD.maxIntervalMs - AVATAR_HEAD.minIntervalMs)
+      headTimerRef.current = setTimeout(() => {
+        if (cancelled) return
+        if (rng() < AVATAR_HEAD.probability) {
+          setHeadMotion(true)
+          headTimerRef.current = setTimeout(() => {
+            if (!cancelled) setHeadMotion(false)
+            schedule()
+          }, AVATAR_HEAD.durationMs)
+        } else {
+          schedule()
+        }
+      }, delay)
+    }
+    schedule()
+    return () => {
+      cancelled = true
+      if (headTimerRef.current) clearTimeout(headTimerRef.current)
+    }
+  }, [visualState, reducedMotion])
+
+  // base フレーム = 常に neutral（v2: 瞬きは独立 Eye Layer が担うため base を差し替えない）。full-frame 実験時のみ base で mouth 反映。
   const baseSrc = interviewerFrameSrc({
     visualState,
     mouthState: AVATAR_FULLFRAME_LIPSYNC_ENABLED && visualState === 'speaking' ? mouthState : 'closed',
-    blinking,
+    blinking: AVATAR_FULLFRAME_LIPSYNC_ENABLED ? blinking : false, // overlay 方式では base に blink を出さない（Eye Layer が担う）
   })
-  // overlay（採用方式・既定 ON・mode=AVATAR_LIPSYNC_MODE で lowerface/mouth を切替）。speaking かつ
-  //   mouthState=small/medium/large のときだけ非 null（それ以外は base の口閉じ）。
+  // 口 overlay（採用方式・既定 ON・mode で lowerface/mouth 切替）。speaking かつ small/medium/large のときだけ非 null。
   const overlaySrc = AVATAR_OVERLAY_LIPSYNC_ENABLED ? interviewerOverlaySrc({ visualState, mouthState }) : null
+  // 目 overlay（独立 Eye Layer）。overlay 方式かつ blinking のときだけ eyesClosedOverlay を重ねる（口と独立＝speaking でも瞬き可）。
+  const eyeOverlaySrc = AVATAR_OVERLAY_LIPSYNC_ENABLED && blinking ? AI_INTERVIEWER.eyesClosedOverlay : null
 
   return (
     <div className="flex flex-col items-center">
-      {/* アバター本体＋リング（コンテナは idle 時のみ breathing） */}
-      <div className={`relative iv-motion-${v.motion}`}>
-        {/* リング（装飾）。活動中(active)は強調、idle/connecting は控えめ、ending は静的。 */}
+      {/* アバター外枠（AvatarFrame）＝完全固定。geometry（translate/rotate/scale）は一切適用しない。
+          Natural Motion は内側 CharacterStage だけに適用し「円は動かず、中の人物だけが微動する」構造にする。 */}
+      <div className="relative">
+        {/* リング（装飾・glow のみ）。円の border とは別の halo。geometry ではなく opacity/glow で状態表示（色/glow は維持可）。 */}
         <span
           aria-hidden="true"
           className={`pointer-events-none absolute inset-[-12px] rounded-full border-[3px] ${RING_TONE[v.tone]} ${
             v.active ? 'iv-ring-active' : ''
           } iv-ring-${v.motion}`}
         />
-        {/* 全企業共通の AIMEN24 標準AI面接官（画像は interviewer-identity.ts の SoT。差し替えは 1 箇所）。
-            採用方式 = 「neutral 固定 base ＋ 口領域だけの透過 overlay」。base（blink > neutral）を常に描き、speaking 中は
-            mouthState に応じた口 overlay を絶対座標で上に重ねる（目/髪/顔/肩/背景は base のまま不動＝顔全体モーフが起きない）。
-            breathing/nod は wrapper に適用＝base と overlay が一体で動き、口が顔に対してズレない。overlay は 1024x1536 透過で
-            base と同 object-cover/object-position＝画素一致で重なる（位置合わせ不要）。preload 済みで src 差替は即時。 */}
-        <div
-          className={`iv-avatar${
-            nodding && nodAllowed(visualState, reducedMotion) ? ' iv-avatar-nod' : ''
-          } relative w-[200px] h-[200px] sm:w-[240px] sm:h-[240px] md:w-[300px] md:h-[300px] rounded-full overflow-hidden border-4 border-white/20 shadow-2xl`}
-        >
+        {/* AvatarViewport（固定）: 円形 clip ＋ border ＋ shadow のみ。transform/animation は付けない＝円は傾かない/動かない。 */}
+        <div className="relative w-[200px] h-[200px] sm:w-[240px] sm:h-[240px] md:w-[300px] md:h-[300px] rounded-full overflow-hidden border-4 border-white/20 shadow-2xl">
+          {/* CharacterStage（人物表示専用）: Natural Motion（breathing/head/nod）はここだけへ適用。
+              base ＋ 口 overlay ＋ 目 overlay を同一 stage に含め、口/目が人物からズレない。transform-origin は胸/肩付近
+              （呼吸が「拡大縮小」ではなく「胸の上下」に見えるよう下寄せ）。回転はしない（写真全体を傾けない）。 */}
+          <div
+            className={`iv-stage${
+              nodding && nodAllowed(visualState, reducedMotion) ? ' iv-stage-nod' : ''
+            }${headMotion ? ' iv-stage-head' : ''} absolute inset-0`}
+          >
           {/* base: 非 speaking は必ず neutral（口を開けたまま残さない）。エラー時は neutral へ退避。 */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -279,6 +322,22 @@ export default function InterviewerAvatar({
               className="pointer-events-none absolute inset-0 h-full w-full object-cover"
             />
           )}
+          {/* 目 overlay（独立 Eye Layer・装飾・aria-hidden）。blinking のときだけ重ねる＝口と独立に瞬き（speaking でも可）。
+              読込失敗時は自身を隠す＝目開きのまま（面接は壊さない）。口 overlay の上に描く（口→目の順で自然）。 */}
+          {eyeOverlaySrc && (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={eyeOverlaySrc}
+              alt=""
+              aria-hidden="true"
+              style={{ objectPosition: 'center 18%' }}
+              onError={(e) => {
+                e.currentTarget.style.display = 'none'
+              }}
+              className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+            />
+          )}
+          </div>
         </div>
       </div>
 
@@ -320,15 +379,17 @@ export default function InterviewerAvatar({
         .iv-ring-active { opacity: 0.9; }
 
         /* Lightweight avatar: ごく僅かな呼吸/微動（全状態・顔差分アセット不要）。GPU 合成される transform のみ。 */
-        .iv-avatar { will-change: transform; transform: translateZ(0); backface-visibility: hidden; }
+        /* CharacterStage（人物のみ動く）。transform-origin を胸/肩付近(下寄せ)＝呼吸が「胸の上下」に見え、顔が拡大縮小しない。 */
+        .iv-stage { will-change: transform; transform: translateZ(0); backface-visibility: hidden; transform-origin: 50% 90%; }
 
         /* アニメーションは reduced-motion を尊重（reduce 時は付与しない＝静止） */
         @media (prefers-reduced-motion: no-preference) {
-          .iv-motion-breathing { animation: iv-breathe 4.5s ease-in-out infinite; }
-          /* 呼吸: ごく僅かな scale + 上下（酔わない・顔が大きく動かない）。listening 頷き時は上書きされる。 */
-          .iv-avatar { animation: iv-avatar-breathe 4.6s ease-in-out infinite; }
-          /* 頷き: 一回だけ適用される小さくゆっくりの上下（whole-body）。JS が随時 class を付与（延々頷かない）。 */
-          .iv-avatar-nod { animation: iv-avatar-nod 700ms ease-in-out 1; }
+          /* 呼吸: 人物 stage だけをごく僅かに（scale ≤0.4%・上下 ≤0.8px）。外枠の円は動かさない。nod/head 時は上書き。 */
+          .iv-stage { animation: iv-stage-breathe 4.8s ease-in-out infinite; }
+          /* 頷き: 人物 stage を小さく下→戻る（回転しない＝写真を傾けない）。JS が随時 class を付与（延々頷かない）。 */
+          .iv-stage-nod { animation: iv-stage-nod 700ms ease-in-out 1; }
+          /* 頭の微動: speaking の phrase 境界で稀に・ごく僅か（translateY≤1.2px＋微 scale・回転なし）。人物 stage のみ。 */
+          .iv-stage-head { animation: iv-stage-head 800ms ease-in-out 1; }
 
           .iv-ring-connecting { animation: iv-soft 1.8s ease-in-out infinite; }
           .iv-ring-speaking { animation: iv-pulse 1.5s ease-out infinite; }
@@ -347,18 +408,22 @@ export default function InterviewerAvatar({
           .iv-dot-1 { animation-delay: 200ms; } .iv-dot-2 { animation-delay: 400ms; }
         }
 
-        @keyframes iv-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.02); } }
-        /* 呼吸: ごく僅か（scale ~1.2%・上下 ~1.2px）。面接画面なのでほぼ気付かない程度。 */
-        @keyframes iv-avatar-breathe {
+        /* 呼吸: ごく僅か（scale ≤0.4%・上下 ≤0.8px）。写実人物で拡大縮小に見えない最小値。scale は常に ≥1（clip の隙間を出さない）。 */
+        @keyframes iv-stage-breathe {
           0%, 100% { transform: translateY(0) scale(1); }
-          50% { transform: translateY(-1.2px) scale(1.012); }
+          50% { transform: translateY(-0.8px) scale(1.004); }
         }
-        /* 頷き: 小さくゆっくり下→戻る（whole-head/body）。大きく動かさない。 */
-        @keyframes iv-avatar-nod {
-          0% { transform: translateY(0) rotate(0deg); }
-          35% { transform: translateY(4px) rotate(1.4deg); }
-          70% { transform: translateY(1px) rotate(0.4deg); }
-          100% { transform: translateY(0) rotate(0deg); }
+        /* 頷き: 人物を小さく下→戻る（回転なし＝写真全体を傾けない）。1〜2px 程度。 */
+        @keyframes iv-stage-nod {
+          0% { transform: translateY(0); }
+          40% { transform: translateY(2px); }
+          70% { transform: translateY(0.6px); }
+          100% { transform: translateY(0); }
+        }
+        /* 頭の微動: ごく僅かに沈んで戻る（回転なし・微 scale）。落ち着いた面接官。 */
+        @keyframes iv-stage-head {
+          0%, 100% { transform: translateY(0) scale(1); }
+          45% { transform: translateY(-1px) scale(1.003); }
         }
         @keyframes iv-soft { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.9; } }
         @keyframes iv-pulse {
