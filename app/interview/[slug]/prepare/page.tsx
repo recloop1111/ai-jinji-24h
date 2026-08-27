@@ -1,15 +1,28 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { APP_NAME } from '@/constants'
 import { useParams, useRouter } from 'next/navigation'
-import { Volume2, User, AlertCircle, Check, RefreshCw } from 'lucide-react'
+import { Volume2, User, AlertCircle, Check, RefreshCw, Globe, Mic } from 'lucide-react'
+import { StepIndicator } from '@/components/interview/FormComponents'
 import {
   classifyMediaError,
   mediaErrorMessage,
   isGetUserMediaSupported,
   stopStream,
 } from '@/lib/interview/media'
+import { canProceedToInterview } from '@/lib/interview/prepare-gate'
+
+// 応募フロー共通のステップ（既存フロー優先: 同意→情報入力→SMS認証→環境確認→面接）。環境確認=現在=4。
+const STEP_LABELS = ['同意', '情報入力', 'SMS認証', '環境確認', '面接']
+// 応募開始/基本情報/本人確認画面と同一の言語リスト。切替は sessionStorage 保存のみ（メディア/遷移ロジックに非干渉）。
+const LANGUAGES = [
+  { code: 'ja', label: '日本語' },
+  { code: 'en', label: 'English' },
+  { code: 'vi', label: 'Tiếng Việt' },
+  { code: 'zh', label: '中文' },
+  { code: 'ne', label: 'नेपाली' },
+  { code: 'pt', label: 'Português' },
+]
 
 // 取得できない場合のダミーデータ
 const dummyCompany = {
@@ -31,8 +44,10 @@ export default function PreparePage() {
     is_suspended: boolean
   } | null>(null)
   const [loading, setLoading] = useState(true)
+  // 応募開始/基本情報/本人確認画面と統一のヘッダー言語切替（表示＋sessionStorage 保存のみ）。
+  const [selectedLanguage, setSelectedLanguage] = useState('ja')
 
-  // Phase I-5: マイク=必須 / カメラ=任意。mic/camera を独立に状態管理する。
+  // 正式仕様: マイク=必須 / カメラ=必須。mic/camera を独立に状態管理する。
   const [micStatus, setMicStatus] = useState<'loading' | 'ok' | 'error'>('loading')
   const [cameraStatus, setCameraStatus] = useState<'loading' | 'ok' | 'error'>('loading')
   const [micTestPassed, setMicTestPassed] = useState(false)
@@ -66,6 +81,17 @@ export default function PreparePage() {
     })()
     return () => {
       cancelled = true
+    }
+  }, [slug])
+
+  // 同一タブで以前選んだ言語があれば表示を合わせる（他画面と同じ sessionStorage キー）。表示同期のための意図的な setState。
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(`interview_${slug}_language`)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (saved) setSelectedLanguage(saved)
+    } catch {
+      /* noop */
     }
   }, [slug])
 
@@ -131,7 +157,9 @@ export default function PreparePage() {
     [cleanupMicTest],
   )
 
-  // カメラ/マイク取得（再試行にも使う）。二段階: まず {video,audio}、失敗なら {audio} のみ（カメラ任意）。
+  // カメラ・マイク取得（再試行にも使う）。カメラ・マイク**ともに必須**。
+  //   まず {video,audio} を要求。失敗時のみ {audio} でマイクだけ確立し「マイクテスト実行 / camera-only 再取得」を可能にするが、
+  //   カメラ未取得（cameraStatus!=='ok'）の間は canProceedToInterview が false ＝ 面接練習へは進めない（カメラ無しで進行しない）。
   const acquire = useCallback(async () => {
     if (acquiringRef.current) return
     acquiringRef.current = true
@@ -168,7 +196,8 @@ export default function PreparePage() {
         acquiringRef.current = false
         return
       }
-      // カメラを諦めてマイクのみで再取得（カメラは任意）
+      // カメラ取得に失敗。マイクだけ確立して「マイクテスト実行 / camera-only 再取得」を可能にする
+      //（カメラは必須。cameraStatus='error' のままにして canProceed で進行不可＝カメラ無しでは進めない）。
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         setCameraError(mediaErrorMessage(classifyMediaError(e1), 'camera'))
@@ -201,7 +230,7 @@ export default function PreparePage() {
         videoRef.current.play().catch(() => {})
       }
     } else {
-      setCameraStatus('error') // カメラ無し（任意なので続行可）
+      setCameraStatus('error') // カメラ未取得（必須。canProceed で進行不可・再取得を促す）
     }
     startMicTest(stream)
     acquiringRef.current = false
@@ -257,55 +286,88 @@ export default function PreparePage() {
     }
   }, [acquire, cleanupMicTest])
 
-  // マイク必須・カメラ任意: マイクテスト合格で進める。
+  // マイク必須・カメラ必須: 3条件（mic ok / camera ok / micTestPassed）を満たすときだけ進める。
   function handleNext() {
-    if (micTestPassed) {
+    if (canProceedToInterview({ micStatus, cameraStatus, micTestPassed })) {
       router.push(`/interview/${slug}/practice`)
     }
   }
 
+  const displayCompany = company || dummyCompany
+
+  // 応募開始/基本情報/本人確認画面と統一のヘッダー（会社名 左 ＋ 言語切替 右）。loading/本体で共用。
+  const header = (
+    <header className="flex items-center justify-between gap-3 border-b border-slate-200/70 bg-white/70 px-5 py-4 backdrop-blur sm:px-8">
+      <span className="truncate text-base font-bold text-slate-900">{displayCompany.name}</span>
+      <div className="relative flex-shrink-0">
+        <Globe className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <select
+          value={selectedLanguage}
+          onChange={(e) => {
+            setSelectedLanguage(e.target.value)
+            try {
+              sessionStorage.setItem(`interview_${slug}_language`, e.target.value)
+            } catch {
+              /* noop */
+            }
+          }}
+          aria-label="言語を選択"
+          className="cursor-pointer rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          {LANGUAGES.map((lang) => (
+            <option key={lang.code} value={lang.code}>
+              {lang.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    </header>
+  )
+
   if (loading) {
     return (
-      <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen flex items-center justify-center">
-        <svg className="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-        </svg>
+      <div className="min-h-screen bg-slate-100">
+        {header}
+        <main className="mx-auto max-w-3xl px-4 py-8 sm:py-12">
+          <div className="rounded-[24px] border border-slate-200/80 bg-white p-8 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.25)]">
+            <div className="flex items-center justify-center py-12">
+              <svg className="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+            </div>
+          </div>
+        </main>
       </div>
     )
   }
 
-  const displayCompany = company || dummyCompany
-  const cameraOff = cameraStatus === 'error' // 取得不可 or カメラ無し（任意）
-  const canProceed = micTestPassed
+  // カメラ・マイクともに必須。3条件（mic ok / camera ok / micTestPassed）を満たすときだけ進行可。
+  const canProceed = canProceedToInterview({ micStatus, cameraStatus, micTestPassed })
+  const bothVerified = micStatus === 'ok' && cameraStatus === 'ok' && micTestPassed
 
   return (
-    <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen pb-8">
-      {/* ロゴと会社名 */}
-      <div className="pt-4 pb-3">
-        <h1 className="text-blue-700 font-bold text-base text-center">{APP_NAME}</h1>
-        <p className="text-gray-600 text-xs text-center mb-3">{displayCompany.name}</p>
-      </div>
+    <div className="min-h-screen bg-slate-100">
+      {header}
 
-      {/* メインカード */}
-      <div className="mx-4 sm:max-w-lg sm:mx-auto mt-4 sm:mt-10 bg-white rounded-2xl sm:rounded-3xl shadow-xl sm:shadow-2xl p-5 sm:p-8 relative overflow-hidden">
-        <div className="absolute top-0 left-0 right-0 h-32 overflow-hidden pointer-events-none">
-          <div className="absolute top-[-40px] left-[-20px] w-24 h-24 sm:w-32 sm:h-32 bg-blue-200/30 rounded-full blur-2xl"></div>
-          <div className="absolute top-[-30px] right-[-10px] w-24 h-24 sm:w-32 sm:h-32 bg-indigo-200/30 rounded-full blur-2xl"></div>
-          <div className="absolute top-[-20px] left-1/2 transform -translate-x-1/2 w-24 h-24 sm:w-32 sm:h-32 bg-sky-200/30 rounded-full blur-2xl"></div>
+      <main className="mx-auto max-w-3xl px-4 py-8 sm:py-12">
+        {/* ステッパー（環境確認=現在=4）。既存フロー優先（同意→情報入力→SMS認証→環境確認→面接）。 */}
+        <div className="mb-8">
+          <StepIndicator currentStep={4} totalSteps={5} labels={STEP_LABELS} />
         </div>
 
-        <div className="relative space-y-5">
+        <div className="rounded-[24px] border border-slate-200/80 bg-white p-6 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.25)] sm:p-10">
+          {/* 見出し＋補足（マイクテスト前/後で文言を切替）。 */}
           <div className="text-center">
-            <h2 className="text-xl font-bold text-gray-800 text-center">カメラ・マイクの確認</h2>
-            <p className="text-sm text-gray-500 text-center mt-2">
-              面接では<span className="font-medium text-gray-700">マイク（必須）</span>を使用します。<br />
-              カメラは任意です（なくても面接を続けられます）。
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">カメラ・マイクの確認</h1>
+            <p className="mt-2.5 text-sm leading-relaxed text-slate-500">
+              面接ではカメラ・マイクを使用します。<br />
+              {bothVerified ? '正常に動作していることを確認しました。' : 'マイクに向かって「こんにちは」と話しかけてください。'}
             </p>
           </div>
 
-          {/* カメラプレビュー（任意） */}
-          <div className="aspect-video rounded-xl bg-black overflow-hidden relative">
+          {/* カメラプレビュー（16:9・mirror）。カメラは必須。取得不可なら honest 案内＋再取得。 */}
+          <div className="relative mt-6 aspect-video overflow-hidden rounded-2xl bg-slate-900">
             <video
               ref={videoRef}
               autoPlay={true}
@@ -314,17 +376,17 @@ export default function PreparePage() {
               style={{ transform: 'scaleX(-1)', width: '100%', height: '100%', objectFit: 'cover' }}
             />
             {cameraStatus === 'error' && (
-              <div className="absolute inset-0 flex items-center justify-center p-4 bg-black/90" role="status">
-                <div className="text-white text-center">
-                  <AlertCircle className="w-10 h-10 mx-auto mb-2 opacity-60" aria-hidden="true" />
-                  <p className="text-sm">{cameraError ?? 'カメラを利用できません。'}</p>
-                  <p className="text-xs text-white/60 mt-1">カメラなしでも面接を続けられます。</p>
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-900/90 p-4" role="status">
+                <div className="text-center text-white">
+                  <AlertCircle className="mx-auto mb-2 h-10 w-10 opacity-70" aria-hidden="true" />
+                  <p className="text-sm font-medium">面接にはカメラが必要です。</p>
+                  <p className="mt-1 text-xs text-white/70">{cameraError ?? 'ブラウザのカメラ使用を許可してください。'}</p>
                   <button
                     type="button"
                     onClick={retryCameraOnly}
-                    className="mt-3 inline-flex items-center gap-1.5 bg-white/15 hover:bg-white/25 rounded-full px-4 py-1.5 text-xs font-medium transition-colors"
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-4 py-1.5 text-xs font-medium transition-colors hover:bg-white/25"
                   >
-                    <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+                    <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                     カメラを再確認する
                   </button>
                 </div>
@@ -332,109 +394,117 @@ export default function PreparePage() {
             )}
           </div>
 
-          {/* マイクエラー（必須＝ブロッキング） */}
+          {/* マイクエラー（必須＝ブロッキング）。 */}
           {micStatus === 'error' && (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center" role="alert">
-              <AlertCircle className="w-6 h-6 mx-auto mb-1.5 text-red-500" aria-hidden="true" />
+            <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-center" role="alert">
+              <AlertCircle className="mx-auto mb-1.5 h-6 w-6 text-red-500" aria-hidden="true" />
               <p className="text-sm text-red-700">{micError ?? 'マイクを利用できません。'}</p>
-              <p className="text-xs text-red-500 mt-1">マイクは面接に必須です。許可・接続を確認してください。</p>
+              <p className="mt-1 text-xs text-red-500">マイクは面接に必須です。許可・接続を確認してください。</p>
               <button
                 type="button"
                 onClick={acquire}
-                className="mt-3 inline-flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white rounded-full px-4 py-2 text-sm font-medium transition-colors"
+                className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
               >
-                <RefreshCw className="w-4 h-4" aria-hidden="true" />
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
                 マイクを再確認する
               </button>
             </div>
           )}
 
-          {/* マイクテスト（マイクOK時のみ） */}
+          {/* マイクテスト: 未合格は「こんにちは」案内＋音量バー、合格は大きな緑チェック。 */}
           {micStatus === 'ok' && (
-            <div className="text-center">
+            <div className="mt-6 text-center">
               {!micTestPassed ? (
                 <>
-                  <p className="text-sm text-gray-600 text-center mt-1">『こんにちは』と話しかけてください</p>
-                  <div className="w-48 h-2 bg-gray-200 rounded-full overflow-hidden mx-auto mt-2" aria-hidden="true">
-                    <div className="bg-blue-600 h-full rounded-full transition-all duration-100" style={{ width: `${Math.min((volume / 255) * 100, 100)}%` }} />
+                  <p className="text-sm font-medium text-slate-700">「こんにちは」と話しかけてください</p>
+                  <div className="mx-auto mt-3 h-2 w-64 max-w-full overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
+                    <div
+                      className="h-full rounded-full bg-blue-600 transition-all duration-100"
+                      style={{ width: `${Math.min((volume / 255) * 100, 100)}%` }}
+                    />
                   </div>
                 </>
               ) : (
-                <div className="inline-flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-full px-4 py-2 text-green-700 text-sm font-medium mt-1">
-                  <Check className="w-4 h-4" aria-hidden="true" />
-                  <span>マイク確認済み</span>
+                <div className="flex items-center justify-center gap-2 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-green-700" role="status">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-green-600 text-white">
+                    <Check className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  <span className="text-base font-bold">マイク確認済み</span>
                 </div>
               )}
             </div>
           )}
 
-          {/* ステータス表示（色だけに依存せず ✓/✗ 記号＋文言） */}
-          <div className="flex justify-center gap-3">
+          {/* ステータス pill（色だけに依存せず ✓/✗＋文言）。マイク: 待ち=blue / 合格=green。カメラ: 正常=green / エラー=red。 */}
+          <div className="mt-5 flex items-center justify-center gap-3">
             {micStatus === 'loading' ? (
-              <div className="bg-gray-50 text-gray-500 border border-gray-200 rounded-full px-3 py-1 text-sm">マイク確認中...</div>
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-500">マイク確認中...</span>
             ) : micTestPassed ? (
-              <div className="bg-green-50 text-green-700 border border-green-200 rounded-full px-3 py-1 text-sm flex items-center gap-1">
-                <span aria-hidden="true">✓</span>
-                <span>マイク 正常</span>
-              </div>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-4 py-2 text-sm font-medium text-green-700">
+                <Check className="h-4 w-4" aria-hidden="true" />
+                マイク正常
+              </span>
             ) : micStatus === 'ok' ? (
-              <div className="bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-3 py-1 text-sm">マイク テスト待ち</div>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700">
+                <Mic className="h-4 w-4" aria-hidden="true" />
+                マイクテスト待ち
+              </span>
             ) : (
-              <div className="bg-red-50 text-red-700 border border-red-200 rounded-full px-3 py-1 text-sm flex items-center gap-1">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700">
                 <span aria-hidden="true">✗</span>
-                <span>マイク エラー</span>
-              </div>
+                マイクエラー
+              </span>
             )}
 
+            <span className="h-6 w-px bg-slate-200" aria-hidden="true" />
+
             {cameraStatus === 'loading' ? (
-              <div className="bg-gray-50 text-gray-500 border border-gray-200 rounded-full px-3 py-1 text-sm">カメラ確認中...</div>
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-500">カメラ確認中...</span>
             ) : cameraStatus === 'ok' ? (
-              <div className="bg-green-50 text-green-700 border border-green-200 rounded-full px-3 py-1 text-sm flex items-center gap-1">
-                <span aria-hidden="true">✓</span>
-                <span>カメラ 正常</span>
-              </div>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-4 py-2 text-sm font-medium text-green-700">
+                <Check className="h-4 w-4" aria-hidden="true" />
+                カメラ正常
+              </span>
             ) : (
-              <div className="bg-gray-50 text-gray-600 border border-gray-200 rounded-full px-3 py-1 text-sm flex items-center gap-1">
-                <span aria-hidden="true">–</span>
-                <span>カメラ なし（任意）</span>
-              </div>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700">
+                <span aria-hidden="true">✗</span>
+                カメラエラー
+              </span>
             )}
           </div>
 
-          {/* 注意事項 */}
-          <div className="space-y-2">
-            <h3 className="text-sm font-semibold text-gray-700">面接中の注意事項</h3>
-            <div className="space-y-2">
-              <div className="flex items-start gap-2">
-                <Volume2 className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" aria-hidden="true" />
-                <p className="text-xs text-gray-500">静かな場所で、はっきりお話しください</p>
+          {/* 面接中の注意事項（カメラは必須＝「使う場合は」を撤去）。 */}
+          <div className="mt-8">
+            <h2 className="mb-3 text-base font-bold text-slate-900">面接中の注意事項</h2>
+            <div className="space-y-2.5">
+              <div className="flex items-start gap-2.5">
+                <Volume2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden="true" />
+                <p className="text-sm text-slate-500">静かな場所で、はっきりお話しください</p>
               </div>
-              <div className="flex items-start gap-2">
-                <User className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" aria-hidden="true" />
-                <p className="text-xs text-gray-500">カメラを使う場合は顔全体が映るようにしてください</p>
+              <div className="flex items-start gap-2.5">
+                <User className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden="true" />
+                <p className="text-sm text-slate-500">顔全体が映るようにしてください</p>
               </div>
             </div>
           </div>
 
-          {/* 面接練習へ進むボタン（マイク必須。カメラ無しでも進める） */}
+          {/* 面接練習へ進む（カメラ・マイクともに正常＋マイクテスト合格のときだけ active）。 */}
           <button
             onClick={handleNext}
             disabled={!canProceed}
             aria-disabled={!canProceed}
-            className={`w-full bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-full py-4 text-base font-semibold shadow-lg active:scale-95 transition-all duration-200 min-h-[48px] ${
-              canProceed ? '' : 'opacity-50 cursor-not-allowed'
-            }`}
+            className="mt-7 flex min-h-[56px] w-full items-center justify-center rounded-2xl bg-blue-600 py-4 text-base font-bold text-white shadow-lg shadow-blue-600/25 transition-all duration-200 hover:bg-blue-700 hover:shadow-xl hover:shadow-blue-600/30 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40 active:scale-[0.99] disabled:pointer-events-none disabled:bg-blue-300 disabled:opacity-70 disabled:shadow-none"
           >
-            {cameraOff ? 'カメラなしで面接練習へ進む' : '面接練習へ進む'}
+            面接練習へ進む
           </button>
 
-          <p className="text-center">
-            <button onClick={() => router.back()} className="text-sm text-gray-400 hover:text-gray-500 underline">
+          <div className="mt-4 text-center">
+            <button onClick={() => router.back()} className="text-sm text-slate-400 underline underline-offset-2 hover:text-slate-500">
               面接をキャンセルする
             </button>
-          </p>
+          </div>
         </div>
-      </div>
+      </main>
     </div>
   )
 }
