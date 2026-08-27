@@ -254,6 +254,9 @@ export default function FormPage() {
       sessionStorage.setItem(`interview_${slug}_company_id`, json.company_id)
       sessionStorage.setItem(`interview_${slug}_token`, json.token)
 
+      // TODO(SMS provider 接続前・必須): 送信失敗後に再押下すると applicant が再作成され得る（重複）。
+      //   provider 接続時に冪等化する（applicant_id 既存なら再作成せず /sms/send 再送のみ、または upsert）。
+      //   詳細は docs/PRE_RELEASE_CHECKLIST.md「Twilio Verify（実SMS）」。実 SMS 課金前に対応。
       // 「次へ進む」＝ SMS 送信トリガー（別ボタンは作らない）。送信成功時のみ /verify へ進む。
       //   demo 企業: 実 SMS を送らず success（channel:'demo'）→ /verify（固定コード 1234 案内）。
       //   通常企業: provider 未接続なら 503 SMS_NOT_AVAILABLE → /verify へ進めず form に留まり honest error 表示。
