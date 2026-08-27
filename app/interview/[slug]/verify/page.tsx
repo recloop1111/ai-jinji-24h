@@ -1,9 +1,21 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { APP_NAME } from '@/constants'
 import { useParams, useRouter } from 'next/navigation'
+import { Globe, ShieldCheck, Info } from 'lucide-react'
+import { StepIndicator } from '@/components/interview/FormComponents'
 import { normalizeDigits } from '@/lib/utils/normalizeDigits'
+
+// 応募開始/基本情報入力画面と同一のステップラベル・言語リスト（UI 統一）。ロジックは既存を変更しない。
+const STEP_LABELS = ['同意', '情報入力', 'SMS認証', '環境確認', '面接']
+const LANGUAGES = [
+  { code: 'ja', label: '日本語' },
+  { code: 'en', label: 'English' },
+  { code: 'vi', label: 'Tiếng Việt' },
+  { code: 'zh', label: '中文' },
+  { code: 'ne', label: 'नेपाली' },
+  { code: 'pt', label: 'Português' },
+]
 
 export default function VerifyPage() {
   const params = useParams()
@@ -24,6 +36,8 @@ export default function VerifyPage() {
   // 送信先電話番号のマスク（server が /sms/send で返した masked_phone を sessionStorage 経由で受け取る）。
   //   ハードコードしない。実送信していない（demo / 未接続）なら null のまま＝「送信しました」を出さない。
   const [maskedPhone, setMaskedPhone] = useState<string | null>(null)
+  // 応募開始/基本情報画面と統一のヘッダー言語切替（表示＋sessionStorage 保存のみ・認証ロジックには非干渉）。
+  const [selectedLanguage, setSelectedLanguage] = useState('ja')
   const inputRefs = [
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
@@ -65,6 +79,17 @@ export default function VerifyPage() {
       const m = sessionStorage.getItem(`interview_${slug}_masked_phone`)
       // eslint-disable-next-line react-hooks/set-state-in-effect
       if (m) setMaskedPhone(m)
+    } catch {
+      /* noop */
+    }
+  }, [slug])
+
+  // 同一タブで以前選んだ言語があれば表示を合わせる（開始/基本情報画面と同じ sessionStorage キー）。表示同期のための意図的な setState。
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(`interview_${slug}_language`)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (saved) setSelectedLanguage(saved)
     } catch {
       /* noop */
     }
@@ -202,110 +227,136 @@ export default function VerifyPage() {
     }
   }
 
+  // 応募開始/基本情報入力画面と統一のヘッダー（会社名 左 ＋ 言語切替 右）。loading/本体で共用。
+  const header = (
+    <header className="flex items-center justify-between gap-3 border-b border-slate-200/70 bg-white/70 px-5 py-4 backdrop-blur sm:px-8">
+      <span className="truncate text-base font-bold text-slate-900">{company?.name ?? ''}</span>
+      <div className="relative flex-shrink-0">
+        <Globe className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <select
+          value={selectedLanguage}
+          onChange={(e) => {
+            setSelectedLanguage(e.target.value)
+            try {
+              sessionStorage.setItem(`interview_${slug}_language`, e.target.value)
+            } catch {
+              /* noop */
+            }
+          }}
+          aria-label="言語を選択"
+          className="cursor-pointer rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          {LANGUAGES.map((lang) => (
+            <option key={lang.code} value={lang.code}>
+              {lang.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    </header>
+  )
+
   if (loading) {
     return (
-      <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen flex items-center justify-center">
-        <svg
-          className="animate-spin h-8 w-8 text-blue-600"
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <circle
-            className="opacity-25"
-            cx="12"
-            cy="12"
-            r="10"
-            stroke="currentColor"
-            strokeWidth="4"
-          />
-          <path
-            className="opacity-75"
-            fill="currentColor"
-            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-          />
-        </svg>
+      <div className="min-h-screen bg-slate-100">
+        {header}
+        <main className="mx-auto max-w-3xl px-4 py-8 sm:py-12">
+          <div className="rounded-[24px] border border-slate-200/80 bg-white p-8 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.25)]">
+            <div className="flex items-center justify-center py-12">
+              <svg
+                className="animate-spin h-8 w-8 text-blue-600"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                />
+              </svg>
+            </div>
+          </div>
+        </main>
       </div>
     )
   }
 
-  const displayCompany = company || { id: '', name: '企業名', logo_url: null, is_suspended: false, is_demo: false }
   const isCodeComplete = code.every((digit) => digit !== '')
   // デモ企業判定は public-config（server が slug→company を解決した結果）の is_demo のみを表示に使う。
   // 実際の認証可否は sms/verify 側で server が再判定するため、この表示はあくまで UX。
   const isDemo = company?.is_demo === true
 
   return (
-    <div className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen pb-8">
+    <div className="min-h-screen bg-slate-100">
       {/* トースト通知 */}
       {toast && (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 bg-gray-900 text-white px-6 py-3 rounded-lg shadow-lg animate-fade-in">
+        <div className="fixed top-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-6 py-3 text-white shadow-lg animate-fade-in">
           {toast}
         </div>
       )}
 
-      {/* ロゴと会社名 */}
-      <div className="pt-4 pb-3">
-        <h1 className="text-blue-700 font-bold text-base text-center">{APP_NAME}</h1>
-        <p className="text-gray-600 text-xs text-center mb-3">{displayCompany.name}</p>
-      </div>
+      {header}
 
-      {/* メインカード */}
-      <div className="mx-4 sm:max-w-lg sm:mx-auto mt-4 sm:mt-10 bg-white rounded-2xl sm:rounded-3xl shadow-xl sm:shadow-2xl p-5 sm:p-8 relative overflow-hidden">
-        {/* 上部装飾（円形グラデーション） */}
-        <div className="absolute top-0 left-0 right-0 h-32 overflow-hidden pointer-events-none">
-          <div className="absolute top-[-40px] left-[-20px] w-24 h-24 sm:w-32 sm:h-32 bg-blue-200/30 rounded-full blur-2xl"></div>
-          <div className="absolute top-[-30px] right-[-10px] w-24 h-24 sm:w-32 sm:h-32 bg-indigo-200/30 rounded-full blur-2xl"></div>
-          <div className="absolute top-[-20px] left-1/2 transform -translate-x-1/2 w-24 h-24 sm:w-32 sm:h-32 bg-sky-200/30 rounded-full blur-2xl"></div>
+      <main className="mx-auto max-w-3xl px-4 py-8 sm:py-12">
+        {/* ステッパー（SMS認証=現在=3）。既存 StepIndicator を流用し Design System へ統一。 */}
+        <div className="mb-8">
+          <StepIndicator currentStep={3} totalSteps={5} labels={STEP_LABELS} />
         </div>
 
-        <div className="relative space-y-5">
-          {/* タイトル */}
-          <div className="text-center">
-            <h2 className="text-xl font-bold text-gray-800 text-center">本人確認</h2>
+        <div className="rounded-[24px] border border-slate-200/80 bg-white p-6 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.25)] sm:p-10">
+          {/* 見出し: 本人確認バッジ＋大見出し＋（demo/normal で分岐する）補足。 */}
+          <div className="flex flex-col items-center text-center">
+            <span className="mb-5 inline-flex h-14 w-14 items-center justify-center rounded-full bg-blue-50 text-blue-600 ring-4 ring-blue-50/60">
+              <ShieldCheck className="h-7 w-7" />
+            </span>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">本人確認</h1>
             {isDemo ? (
-              <p className="text-sm text-gray-500 text-center mt-2">
+              <p className="mt-2.5 text-sm leading-relaxed text-slate-500">
                 これはデモ環境です。SMSは送信されません。<br />
                 下記のデモ用コードを入力してください。
               </p>
             ) : maskedPhone ? (
               /* 通常企業（実送信後のみ）: 送信済みを honest に案内。 */
-              <p className="text-sm text-gray-500 text-center mt-2">
+              <p className="mt-2.5 text-sm leading-relaxed text-slate-500">
                 ご入力いただいた電話番号にSMSで認証コードを送信しました。<br />
                 届いた4桁のコードを入力してください。
               </p>
             ) : (
               /* 通常企業（provider 未接続＝未送信）: 「送信しました」を出さず honest に案内。 */
-              <p className="text-sm text-gray-500 text-center mt-2">
+              <p className="mt-2.5 text-sm leading-relaxed text-slate-500">
                 SMS認証は現在準備中です。<br />
                 お手数ですが運営までお問い合わせください。
               </p>
             )}
           </div>
 
-          {isDemo ? (
-            /* デモ企業: 実SMSは送らず固定コードで認証。応募者にデモであることと入力コードを明示する。 */
-            <div
-              className="text-center bg-blue-50 border border-blue-200 rounded-lg py-3 px-4"
-              role="status"
-            >
-              <p className="text-sm text-blue-800 font-medium">
-                デモ環境のため、認証コード「
-                <span className="font-mono font-bold tracking-widest">1234</span>
-                」を入力してください。
-              </p>
-            </div>
-          ) : maskedPhone ? (
-            /* 通常企業（実送信後のみ）: 送信先電話番号のマスク（server 由来・ハードコードしない）。 */
-            <div className="text-center">
-              <div className="text-gray-700 font-mono bg-gray-50 rounded-lg py-2 px-4 inline-block">
-                {maskedPhone}
+          {/* demo 情報ボックス / normal マスク電話番号。demo 情報は is_demo=true のときだけ。 */}
+          <div className="mx-auto mt-6 max-w-md">
+            {isDemo ? (
+              /* デモ企業: 実SMSは送らず固定コードで認証。応募者にデモであることと入力コードを明示する。 */
+              <div
+                className="flex items-center justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-center"
+                role="status"
+              >
+                <Info className="h-4 w-4 flex-shrink-0 text-blue-500" />
+                <p className="text-sm text-blue-800">
+                  デモ環境のため、認証コード「
+                  <span className="font-mono font-bold tracking-widest text-blue-700">1234</span>
+                  」を入力してください。
+                </p>
               </div>
-            </div>
-          ) : null}
+            ) : maskedPhone ? (
+              /* 通常企業（実送信後のみ）: 送信先電話番号のマスク（server 由来・ハードコードしない）。 */
+              <div className="text-center">
+                <div className="inline-block rounded-xl bg-slate-50 px-4 py-2 font-mono text-slate-700">{maskedPhone}</div>
+              </div>
+            ) : null}
+          </div>
 
-          {/* 認証コード入力 */}
-          <div className="flex justify-center gap-3">
+          {/* 認証コード入力（4桁・正方形寄り・focus で blue ring）。auto-focus/Backspace/paste/normalize は不変。 */}
+          <div className="mt-7 flex justify-center gap-3 sm:gap-4">
             {code.map((digit, index) => (
               <input
                 key={index}
@@ -313,51 +364,56 @@ export default function VerifyPage() {
                 type="text"
                 inputMode="numeric"
                 maxLength={1}
+                aria-label={`認証コード ${index + 1} 桁目`}
                 value={digit}
                 onChange={(e) => handleCodeChange(index, e.target.value)}
                 onKeyDown={(e) => handleKeyDown(index, e)}
                 onPaste={handlePaste}
-                className="w-14 h-14 sm:w-16 sm:h-16 text-2xl text-center font-bold border-2 border-gray-200 rounded-xl focus:border-blue-600 focus:outline-none transition-colors"
+                className="h-16 w-14 rounded-xl border-2 border-slate-200 bg-white text-center text-2xl font-bold text-slate-900 transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/25 sm:h-[72px] sm:w-[72px]"
               />
             ))}
           </div>
 
           {codeError && (
-            <p className="text-center text-sm text-red-600" role="alert">{codeError}</p>
+            <p className="mt-4 text-center text-sm text-red-600" role="alert">
+              {codeError}
+            </p>
           )}
 
-          {/* 認証するボタン */}
+          {/* 認証する（ブランドブルー・幅広・開始/基本情報画面の CTA と同じ Design Language）。disabled 条件は不変。 */}
           <button
             onClick={handleVerify}
             disabled={!isCodeComplete}
-            className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-full py-4 text-base font-semibold shadow-lg active:scale-95 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed min-h-[48px]"
+            className="mt-7 flex min-h-[56px] w-full items-center justify-center rounded-2xl bg-blue-600 py-4 text-base font-bold text-white shadow-lg shadow-blue-600/25 transition-all duration-200 hover:bg-blue-700 hover:shadow-xl hover:shadow-blue-600/30 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40 active:scale-[0.99] disabled:pointer-events-none disabled:bg-blue-300 disabled:opacity-70 disabled:shadow-none"
           >
             認証する
           </button>
 
-          {/* コードが届かない場合（デモ企業は実SMSを送らないため非表示） */}
+          {/* コードが届かない場合（デモ企業は実SMSを送らないため非表示・handleResend は不変）。 */}
           {!isDemo && (
-            <p className="text-center">
-              <button
-                onClick={handleResend}
-                className="text-sm text-blue-600 hover:text-blue-700 underline"
-              >
+            <div className="mt-4 text-center">
+              <button onClick={handleResend} className="text-sm font-medium text-blue-600 underline underline-offset-2 hover:text-blue-700">
                 コードが届かない場合
               </button>
-            </p>
+            </div>
           )}
 
-          {/* 面接をキャンセルする */}
-          <p className="text-center">
-            <button
-              onClick={() => router.back()}
-              className="text-sm text-gray-400 hover:text-gray-500 underline"
-            >
+          {/* 面接をキャンセルする（控えめ・router 挙動不変）。 */}
+          <div className="mt-3 text-center">
+            <button onClick={() => router.back()} className="text-sm text-slate-400 underline underline-offset-2 hover:text-slate-500">
               面接をキャンセルする
             </button>
-          </p>
+          </div>
+
+          {/* セキュリティ補助（separator＋shield＋文言。開始/基本情報画面と統一）。 */}
+          <div className="mt-6 border-t border-slate-100 pt-4">
+            <p className="flex items-center justify-center gap-1.5 text-xs text-slate-400">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              入力いただいた情報は暗号化して安全に管理します
+            </p>
+          </div>
         </div>
-      </div>
+      </main>
     </div>
   )
 }
