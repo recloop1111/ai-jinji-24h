@@ -13,7 +13,9 @@ import {
 import {
   shouldPassMicTest,
   isVoiceActive,
-  isGreetingMatch,
+  hasSpeechTranscript,
+  isFatalSpeechError,
+  computeNoiseFloor,
   MIC_NOISE_FLOOR_SAMPLE_MS,
 } from '@/lib/interview/mic-test'
 import {
@@ -99,17 +101,19 @@ export default function PreparePage() {
   const micTestPassedRef = useRef(false)
   const acquiringRef = useRef(false) // 連打/race 防止
   const cancelledRef = useRef(false) // unmount 後の state 更新防止
-  // マイクテスト（誤判定防止）用: noise floor 計測・voice activity 継続・挨拶認識。
+  // マイクテスト（誤判定防止）用: robust noise floor・voice activity 継続・発話 transcript 取得。
   const micTestStartRef = useRef<number | null>(null)
   const noiseFloorRef = useRef<number>(0)
-  const noiseSumRef = useRef<number>(0)
-  const noiseCountRef = useRef<number>(0)
+  const noiseSamplesRef = useRef<number[]>([]) // noise floor 計測窓のサンプル（median＋cap で robust 化）
   const voiceDetectedRef = useRef(false) // 一度でも発話らしい入力を検出したか
   const voiceActiveStartRef = useRef<number | null>(null) // 連続 voice-active の開始
   const sustainedVoiceMsRef = useRef<number>(0) // 連続 voice-active の最大継続時間
-  const phraseMatchedRef = useRef(false) // 「こんにちは/こんにちわ」を認識したか
+  const transcriptDetectedRef = useRef(false) // recognition が非空の発話 transcript を取得したか
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
-  const speechSupportedRef = useRef(false)
+  const speechApiAvailableRef = useRef(false) // SpeechRecognition API が存在するか
+  const speechHealthyRef = useRef(false) // recognition が現在正常に動作しているか（fatal error で false）
+  const micTestActiveRef = useRef(false) // マイクテスト稼働中か（cleanup/unmount 後の restart 防止）
+  const recognitionRestartsRef = useRef(0) // onend 後の restart 回数（無限 loop 防止）
   // 顔検出/明るさ用（すべて一時 client state。unmount で破棄。保存/送信しない）。
   const faceStabilityRef = useRef<FaceStabilityState>(initFaceStability())
   const faceDetectorRef = useRef<FacePresenceDetector | null>(null)
@@ -147,6 +151,8 @@ export default function PreparePage() {
 
   // マイクテスト（音量解析＋音声認識）の後始末。再試行/アンマウントで確実に解放し、判定 refs をリセット。
   const cleanupMicTest = useCallback(() => {
+    // 先に active フラグを落とす（onend が発火しても restart しない＝unmount 後 restart 防止）。
+    micTestActiveRef.current = false
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
       animationFrameRef.current = null
@@ -170,76 +176,107 @@ export default function PreparePage() {
     analyserRef.current = null
     micTestStartRef.current = null
     noiseFloorRef.current = 0
-    noiseSumRef.current = 0
-    noiseCountRef.current = 0
+    noiseSamplesRef.current = []
     voiceDetectedRef.current = false
     voiceActiveStartRef.current = null
     sustainedVoiceMsRef.current = 0
-    phraseMatchedRef.current = false
-    speechSupportedRef.current = false
+    transcriptDetectedRef.current = false
+    speechApiAvailableRef.current = false
+    speechHealthyRef.current = false
+    recognitionRestartsRef.current = 0
   }, [])
 
-  // マイクテスト（誤判定防止）。実際に発話したことを確認してから合格にする（環境音/無音では合格しない）。
-  //   - 開始直後に noise floor を計測 → それを明確に超える入力を voice activity とみなす（固定 threshold のみに依存しない）。
-  //   - SpeechRecognition(ja-JP) 対応: 「こんにちは/こんにちわ」認識(phraseMatched) ＋ voice で合格。
-  //   - 非対応 fallback: noise floor を超える sustained voice activity（既定 800ms）で合格。
+  // マイクテスト（誤判定防止）。目的＝「マイクが正常で本人の明確な発話が入力されている」ことの確認。
+  //   - Primary: recognition が正常動作 ＋ 非空の発話 transcript ＋ voice activity（文字列の完全一致は不要）。
+  //   - Fallback: recognition が使えない/未取得でも、robust な noise floor を明確に超える sustained voice で合格。
+  //   - fatal な recognition error（network/service-not-allowed/audio-capture/not-allowed）は healthy=false にして
+  //     必ず WebAudio fallback に移行（ユーザーを永久に詰ませない）。onend は稼働中・未合格・上限内なら安全に restart。
   //   - analyser/AudioContext 失敗を「自動合格」にしない（fail-open 廃止）。
   const startMicTest = useCallback(
     (stream: MediaStream) => {
       cleanupMicTest()
       micTestStartRef.current = Date.now()
+      micTestActiveRef.current = true
+      recognitionRestartsRef.current = 0
 
-      // SpeechRecognition（あれば）をマイクテスト中だけ起動。認識で発話＋挨拶を確認する。
+      // 合格判定（recognition/analyser の両経路から共通で呼ぶ）。
+      const tryPass = (): boolean => {
+        if (micTestPassedRef.current || cancelledRef.current) return false
+        const hasLiveAudio = stream.getAudioTracks().some((t) => t.readyState === 'live')
+        if (
+          shouldPassMicTest({
+            hasLiveAudio,
+            speechRecognitionHealthy: speechHealthyRef.current,
+            transcriptDetected: transcriptDetectedRef.current,
+            voiceDetected: voiceDetectedRef.current,
+            sustainedVoiceMs: sustainedVoiceMsRef.current,
+          })
+        ) {
+          micTestPassedRef.current = true
+          setMicTestPassed(true)
+          return true
+        }
+        return false
+      }
+
+      // SpeechRecognition（あれば）をマイクテスト中だけ起動。「API が存在」と「正常動作中」を区別する。
       const w = window as unknown as {
         SpeechRecognition?: new () => SpeechRecognitionLike
         webkitSpeechRecognition?: new () => SpeechRecognitionLike
       }
       const SpeechRecognition = w.SpeechRecognition || w.webkitSpeechRecognition
-      speechSupportedRef.current = !!SpeechRecognition
-      if (SpeechRecognition) {
+      speechApiAvailableRef.current = !!SpeechRecognition
+      speechHealthyRef.current = !!SpeechRecognition // API があれば一旦 healthy。fatal error で false へ。
+      const MAX_RESTARTS = 6
+      const startRecognition = () => {
+        if (!SpeechRecognition) return
         try {
           const recognition = new SpeechRecognition()
           recognition.lang = 'ja-JP'
           recognition.continuous = true
           recognition.interimResults = true
           recognition.onresult = (event) => {
-            // 認識結果が来た＝発話が存在する（voice）。挨拶一致なら phraseMatched。
-            voiceDetectedRef.current = true
             for (let i = event.resultIndex; i < event.results.length; i++) {
               const transcript = event.results[i]?.[0]?.transcript ?? ''
-              if (isGreetingMatch(transcript)) phraseMatchedRef.current = true
-            }
-            // 挨拶が認識された＝実際に発話済み。analyser が使えなくても合格にできる（fail-open ではない）。
-            if (phraseMatchedRef.current && !micTestPassedRef.current && !cancelledRef.current) {
-              const hasLiveAudio = stream.getAudioTracks().some((t) => t.readyState === 'live')
-              if (
-                shouldPassMicTest({
-                  hasLiveAudio,
-                  speechSupported: true,
-                  phraseMatched: true,
-                  voiceDetected: true,
-                  sustainedVoiceMs: 0,
-                })
-              ) {
-                micTestPassedRef.current = true
-                setMicTestPassed(true)
+              // 非空の発話 transcript ＝ 実際に人が話した（voice も立てる）。greeting 完全一致は要求しない。
+              if (hasSpeechTranscript(transcript)) {
+                transcriptDetectedRef.current = true
+                voiceDetectedRef.current = true
               }
             }
+            tryPass()
           }
-          recognition.onerror = () => {
-            /* 認識エラーは fallback（analyser の voice activity）に委ねる。ここで合格にはしない。 */
+          recognition.onerror = (e) => {
+            // fatal（recognition service を利用できない）→ healthy=false にして WebAudio fallback に委ねる。
+            //   no-speech / aborted 等は retriable（ここで合格にせず、onend で安全に restart）。
+            if (isFatalSpeechError(e?.error ?? '')) speechHealthyRef.current = false
           }
           recognition.onend = () => {
-            /* 途中終了しても analyser tick 側の判定を継続。 */
+            // 稼働中・未合格・上限内・healthy・未離脱なら安全に再開（無限 loop / unmount 後 restart は防止）。
+            if (
+              !cancelledRef.current &&
+              micTestActiveRef.current &&
+              !micTestPassedRef.current &&
+              speechHealthyRef.current &&
+              recognitionRestartsRef.current < MAX_RESTARTS
+            ) {
+              recognitionRestartsRef.current += 1
+              try {
+                recognition.start()
+              } catch {
+                /* 二重 start 等は無視（fallback が継続） */
+              }
+            }
           }
           recognition.start()
           recognitionRef.current = recognition
         } catch {
-          speechSupportedRef.current = false
+          speechHealthyRef.current = false // 起動不可＝正常動作していない。fallback に委ねる。
         }
       }
+      startRecognition()
 
-      // Web Audio analyser（voice activity / noise floor / 音量バー）。失敗しても「合格」にしない。
+      // Web Audio analyser（voice activity / robust noise floor / 音量バー）。失敗しても「合格」にしない。
       try {
         const audioContext = new AudioContext()
         const analyser = audioContext.createAnalyser()
@@ -248,7 +285,6 @@ export default function PreparePage() {
         audioContextRef.current = audioContext
         analyserRef.current = analyser
         const dataArray = new Uint8Array(analyser.frequencyBinCount)
-        let lastTs = Date.now()
         const tick = () => {
           if (!analyserRef.current || micTestPassedRef.current || cancelledRef.current) return
           analyserRef.current.getByteFrequencyData(dataArray)
@@ -257,11 +293,11 @@ export default function PreparePage() {
           const now = Date.now()
           const elapsed = now - (micTestStartRef.current ?? now)
 
-          // 開始直後 MIC_NOISE_FLOOR_SAMPLE_MS は noise floor を計測（この間は合格判定しない）。
+          // 開始直後 MIC_NOISE_FLOOR_SAMPLE_MS は noise floor を計測（median＋cap で robust・この間は合格判定しない）。
+          //   即発話でも floor が高止まりせず、普通の声で確実に voice activity を超えられる。
           if (elapsed < MIC_NOISE_FLOOR_SAMPLE_MS) {
-            noiseSumRef.current += level
-            noiseCountRef.current += 1
-            noiseFloorRef.current = noiseCountRef.current > 0 ? noiseSumRef.current / noiseCountRef.current : 0
+            noiseSamplesRef.current.push(level)
+            noiseFloorRef.current = computeNoiseFloor(noiseSamplesRef.current)
           } else {
             const active = isVoiceActive(level, noiseFloorRef.current)
             if (active) {
@@ -272,29 +308,13 @@ export default function PreparePage() {
             } else {
               voiceActiveStartRef.current = null
             }
-            const hasLiveAudio = stream.getAudioTracks().some((t) => t.readyState === 'live')
-            if (
-              shouldPassMicTest({
-                hasLiveAudio,
-                speechSupported: speechSupportedRef.current,
-                phraseMatched: phraseMatchedRef.current,
-                voiceDetected: voiceDetectedRef.current,
-                sustainedVoiceMs: sustainedVoiceMsRef.current,
-              })
-            ) {
-              micTestPassedRef.current = true
-              setMicTestPassed(true)
-              return
-            }
+            if (tryPass()) return
           }
-          void lastTs
-          lastTs = now
           animationFrameRef.current = requestAnimationFrame(tick)
         }
         tick()
       } catch {
-        // fail-open 廃止: analyser 不能でも自動合格にしない。SpeechRecognition が挨拶を認識できれば
-        // その onresult 経由で voiceDetected/phraseMatched が立つが、ここで setMicTestPassed(true) はしない。
+        // fail-open 廃止: analyser 不能でも自動合格にしない。recognition の transcript 経由でのみ合格し得る。
       }
     },
     [cleanupMicTest],
