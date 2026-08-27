@@ -16,76 +16,77 @@ import {
 // 目的: 「マイクが正常で本人の明確な発話が入力されている」ことの確認。文字列の完全一致は合否条件にしない。
 //   以前の「環境音/無音で通る」バグは再発させず、「人が普通に話せば確実に通る」ことを純ロジックで固定。
 
-describe('shouldPassMicTest: Primary（recognition 正常＋発話 transcript＋voice）', () => {
-  it('1. recognition 正常 ＋「こんにちは」認識（非空 transcript）＋ voice → pass', () => {
+describe('shouldPassMicTest: recognition 正常環境は挨拶認識を必須にする', () => {
+  it('1. healthy ＋ voice ＋「こんにちは」→ pass', () => {
     expect(isGreetingMatch('こんにちは')).toBe(true)
     expect(
-      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: true, transcriptDetected: true, voiceDetected: true, sustainedVoiceMs: 0 }),
+      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: true, greetingMatched: true, voiceDetected: true, sustainedVoiceMs: 0 }),
     ).toBe(true)
   })
-  it('2. 「今日は」認識でも pass 可能（greeting 完全一致に依存しない）', () => {
+  it('2. healthy ＋ voice ＋「こんにちわ」→ pass', () => {
+    expect(isGreetingMatch('こんにちわ')).toBe(true)
+    expect(
+      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: true, greetingMatched: true, voiceDetected: true, sustainedVoiceMs: 0 }),
+    ).toBe(true)
+  })
+  it('3. healthy ＋ voice ＋「今日は」→ pass', () => {
     expect(isGreetingMatch('今日は')).toBe(true)
-    expect(hasSpeechTranscript('今日は')).toBe(true)
     expect(
-      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: true, transcriptDetected: true, voiceDetected: true, sustainedVoiceMs: 0 }),
+      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: true, greetingMatched: true, voiceDetected: true, sustainedVoiceMs: 0 }),
     ).toBe(true)
   })
-  it('3. 非空 transcript（挨拶でなくても）＋ voice → pass', () => {
-    expect(hasSpeechTranscript('テストです')).toBe(true)
+  it('4. healthy ＋ voice ＋ transcript「テストです」（greeting 無し）→ fail', () => {
     expect(isGreetingMatch('テストです')).toBe(false)
+    expect(hasSpeechTranscript('テストです')).toBe(true)
     expect(
-      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: true, transcriptDetected: true, voiceDetected: true, sustainedVoiceMs: 0 }),
-    ).toBe(true)
+      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: true, greetingMatched: false, voiceDetected: true, sustainedVoiceMs: 0 }),
+    ).toBe(false)
   })
-  it('transcript はあるが voice 未検出 → Primary では pass しない（fallback 判定へ）', () => {
+  it('5. healthy ＋ sustainedVoice 2000ms ＋ greeting 無し → fail（sustained だけで healthy pass しない）', () => {
     expect(
-      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: true, transcriptDetected: true, voiceDetected: false, sustainedVoiceMs: 0 }),
+      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: true, greetingMatched: false, voiceDetected: true, sustainedVoiceMs: 2000 }),
+    ).toBe(false)
+  })
+  it('6. healthy ＋ voice ＋ greeting 無し（空 transcript 相当）→ fail', () => {
+    expect(
+      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: true, greetingMatched: false, voiceDetected: true, sustainedVoiceMs: 0 }),
+    ).toBe(false)
+  })
+  it('healthy ＋ greeting あり だが voice 未検出 → fail', () => {
+    expect(
+      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: true, greetingMatched: true, voiceDetected: false, sustainedVoiceMs: 0 }),
     ).toBe(false)
   })
 })
 
-describe('shouldPassMicTest: recognition 不調でも詰まない → WebAudio fallback', () => {
-  it('4. API ありだが network エラーで healthy=false → speechSupported=true で永久に詰まらない（無言なら false）', () => {
+describe('shouldPassMicTest: recognition が本当に使えない時だけ WebAudio fallback', () => {
+  it('7. unhealthy ＋ sustainedVoice ≥ threshold → pass', () => {
+    expect(
+      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: false, greetingMatched: false, voiceDetected: true, sustainedVoiceMs: MIC_FALLBACK_SUSTAINED_MS }),
+    ).toBe(true)
+  })
+  it('8. unhealthy ＋ 一瞬 noise（sustained 不足）→ fail', () => {
+    expect(
+      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: false, greetingMatched: false, voiceDetected: true, sustainedVoiceMs: 200 }),
+    ).toBe(false)
+  })
+  it('API ありだが network fatal → healthy=false 判定へ（fallback で救済）', () => {
     expect(isFatalSpeechError('network')).toBe(true)
-    // healthy=false（fatal 後）＋無発話 → false（勝手に合格にしない）
-    expect(
-      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: false, transcriptDetected: false, voiceDetected: false, sustainedVoiceMs: 0 }),
-    ).toBe(false)
-  })
-  it('5. recognition failure 後 → WebAudio fallback（sustained voice）で pass できる', () => {
-    expect(
-      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: false, transcriptDetected: false, voiceDetected: true, sustainedVoiceMs: MIC_FALLBACK_SUSTAINED_MS }),
-    ).toBe(true)
-  })
-  it('recognition healthy でも transcript 未取得なら sustained voice fallback で pass（engine lag 救済）', () => {
-    expect(
-      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: true, transcriptDetected: false, voiceDetected: true, sustainedVoiceMs: 1000 }),
-    ).toBe(true)
   })
 })
 
-describe('shouldPassMicTest: 誤判定防止（以前のバグを戻さない）', () => {
-  it('8. 無言（transcript 無し・voice 無し）→ pass しない', () => {
+describe('shouldPassMicTest: 誤判定防止', () => {
+  it('9. 無言（voice 無し）→ pass しない（healthy / unhealthy とも）', () => {
     expect(
-      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: true, transcriptDetected: false, voiceDetected: false, sustainedVoiceMs: 0 }),
+      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: true, greetingMatched: false, voiceDetected: false, sustainedVoiceMs: 0 }),
     ).toBe(false)
     expect(
-      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: false, transcriptDetected: false, voiceDetected: false, sustainedVoiceMs: 0 }),
+      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: false, greetingMatched: false, voiceDetected: false, sustainedVoiceMs: 9999 }),
     ).toBe(false)
-  })
-  it('9. キーボード等の一瞬 noise（sustained 不足）→ pass しない', () => {
-    expect(
-      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: false, transcriptDetected: false, voiceDetected: true, sustainedVoiceMs: 200 }),
-    ).toBe(false)
-  })
-  it('10. sustained human voice（fallback 環境）→ pass', () => {
-    expect(
-      shouldPassMicTest({ hasLiveAudio: true, speechRecognitionHealthy: false, transcriptDetected: false, voiceDetected: true, sustainedVoiceMs: 1000 }),
-    ).toBe(true)
   })
   it('hasLiveAudio 無し → 常に false（fail-open しない）', () => {
     expect(
-      shouldPassMicTest({ hasLiveAudio: false, speechRecognitionHealthy: true, transcriptDetected: true, voiceDetected: true, sustainedVoiceMs: 9999 }),
+      shouldPassMicTest({ hasLiveAudio: false, speechRecognitionHealthy: true, greetingMatched: true, voiceDetected: true, sustainedVoiceMs: 9999 }),
     ).toBe(false)
   })
 })

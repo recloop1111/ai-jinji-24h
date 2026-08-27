@@ -13,6 +13,7 @@ import {
 import {
   shouldPassMicTest,
   isVoiceActive,
+  isGreetingMatch,
   hasSpeechTranscript,
   isFatalSpeechError,
   computeNoiseFloor,
@@ -108,7 +109,7 @@ export default function PreparePage() {
   const voiceDetectedRef = useRef(false) // 一度でも発話らしい入力を検出したか
   const voiceActiveStartRef = useRef<number | null>(null) // 連続 voice-active の開始
   const sustainedVoiceMsRef = useRef<number>(0) // 連続 voice-active の最大継続時間
-  const transcriptDetectedRef = useRef(false) // recognition が非空の発話 transcript を取得したか
+  const greetingMatchedRef = useRef(false) // recognition が挨拶（こんにちは系）を認識したか
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const speechApiAvailableRef = useRef(false) // SpeechRecognition API が存在するか
   const speechHealthyRef = useRef(false) // recognition が現在正常に動作しているか（fatal error で false）
@@ -180,7 +181,7 @@ export default function PreparePage() {
     voiceDetectedRef.current = false
     voiceActiveStartRef.current = null
     sustainedVoiceMsRef.current = 0
-    transcriptDetectedRef.current = false
+    greetingMatchedRef.current = false
     speechApiAvailableRef.current = false
     speechHealthyRef.current = false
     recognitionRestartsRef.current = 0
@@ -207,7 +208,7 @@ export default function PreparePage() {
           shouldPassMicTest({
             hasLiveAudio,
             speechRecognitionHealthy: speechHealthyRef.current,
-            transcriptDetected: transcriptDetectedRef.current,
+            greetingMatched: greetingMatchedRef.current,
             voiceDetected: voiceDetectedRef.current,
             sustainedVoiceMs: sustainedVoiceMsRef.current,
           })
@@ -238,11 +239,9 @@ export default function PreparePage() {
           recognition.onresult = (event) => {
             for (let i = event.resultIndex; i < event.results.length; i++) {
               const transcript = event.results[i]?.[0]?.transcript ?? ''
-              // 非空の発話 transcript ＝ 実際に人が話した（voice も立てる）。greeting 完全一致は要求しない。
-              if (hasSpeechTranscript(transcript)) {
-                transcriptDetectedRef.current = true
-                voiceDetectedRef.current = true
-              }
+              // 非空 transcript＝実際に発話あり（voice を立てる）。ただし healthy 環境の合格は挨拶認識が必須。
+              if (hasSpeechTranscript(transcript)) voiceDetectedRef.current = true
+              if (isGreetingMatch(transcript)) greetingMatchedRef.current = true
             }
             tryPass()
           }
