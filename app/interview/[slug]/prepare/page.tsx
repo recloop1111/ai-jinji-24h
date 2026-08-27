@@ -20,9 +20,11 @@ import {
   initFaceStability,
   updateFaceStability,
   classifyBrightness,
-  faceSizePositionGuidance,
+  classifyFaceFraming,
+  faceFramingMessage,
   environmentCanProceed,
   type FaceStabilityState,
+  type FaceFraming,
 } from '@/lib/interview/environment-check'
 import { createFacePresenceDetector, type FacePresenceDetector } from '@/lib/interview/face-detector'
 
@@ -80,11 +82,13 @@ export default function PreparePage() {
   const [volume, setVolume] = useState(0)
   const [micError, setMicError] = useState<string | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
-  // 顔検出/明るさ（完全ブラウザ内・presence のみ・保存/送信なし）。cameraStatus とは別軸。
-  const [faceStatus, setFaceStatus] = useState<'checking' | 'ok' | 'none' | 'error'>('checking')
+  // 顔フレーミング/明るさ（完全ブラウザ内・presence+framing のみ・保存/送信なし）。cameraStatus とは別軸。
+  //   facePhase = detector ライフサイクル（loading→running / 失敗で error）。faceFraming = 現在の映り方。
+  //   faceVerified = 「顔全体が適正に映っている」状態が約1秒安定したか（＝進行条件の一部）。
+  const [facePhase, setFacePhase] = useState<'loading' | 'running' | 'error'>('loading')
+  const [faceFraming, setFaceFraming] = useState<FaceFraming>('none')
   const [faceVerified, setFaceVerified] = useState(false)
   const [brightnessStatus, setBrightnessStatus] = useState<'checking' | 'ok' | 'dark'>('checking')
-  const [faceGuidance, setFaceGuidance] = useState<string | null>(null)
   const [faceRetryNonce, setFaceRetryNonce] = useState(0)
 
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -454,7 +458,7 @@ export default function PreparePage() {
     return () => window.removeEventListener('pointerdown', onPointerDown)
   }, [cameraStatus])
 
-  // 顔検出（presence のみ）＋明るさチェック（完全ブラウザ内・~2fps・保存/送信なし）。cameraStatus==='ok' の間だけ稼働。
+  // 顔フレーミング判定（presence+framing）＋明るさチェック（完全ブラウザ内・~2fps・保存/送信なし）。cameraStatus==='ok' の間だけ稼働。
   useEffect(() => {
     if (cameraStatus !== 'ok') return
     let disposed = false
@@ -464,8 +468,8 @@ export default function PreparePage() {
     canvas.height = 36
     const ctx = canvas.getContext('2d', { willReadFrequently: true })
 
-    setFaceStatus('checking')
-    setFaceVerified(false)
+    // 初期 state（loading/none/false）は既定値と一致。再ロード時は下の cleanup が reset するため、
+    // ここで同期 setState はしない（cascading renders 回避）。ref のみリセット。
     faceStabilityRef.current = initFaceStability()
     ;(async () => {
       let detector: FacePresenceDetector
@@ -473,7 +477,7 @@ export default function PreparePage() {
         detector = await createFacePresenceDetector()
       } catch {
         // モデル/WASM ロード失敗 → fail-open しない（faceVerified は false のまま）。honest error＋retry を表示。
-        if (!disposed) setFaceStatus('error')
+        if (!disposed) setFacePhase('error')
         return
       }
       if (disposed) {
@@ -481,6 +485,7 @@ export default function PreparePage() {
         return
       }
       faceDetectorRef.current = detector
+      if (!disposed) setFacePhase('running')
 
       faceIntervalRef.current = setInterval(() => {
         if (disposed) return
@@ -488,21 +493,19 @@ export default function PreparePage() {
         const det = faceDetectorRef.current
         if (!v || !det || v.readyState < 2) return
         const now = Date.now()
-        // 顔存在（present）と bounding box 比率のみ取得（画像/embedding は扱わない）。
-        let present = false
-        let box: { widthRatio: number; centerXRatio: number; centerYRatio: number } | undefined
+        // bounding box 比率のみ取得（画像/embedding は扱わない）→ フレーミング分類。
+        let framing: FaceFraming = 'none'
         try {
           const r = det.detect(v, now)
-          present = r.present
-          box = r.box
+          framing = classifyFaceFraming(r.box)
         } catch {
-          present = false
+          framing = 'none'
         }
-        faceStabilityRef.current = updateFaceStability(faceStabilityRef.current, { faceDetected: present, nowMs: now })
-        const verified = faceStabilityRef.current.verified
-        setFaceVerified(verified)
-        setFaceStatus(verified ? 'ok' : present ? 'checking' : 'none')
-        setFaceGuidance(present && box ? faceSizePositionGuidance(box) : null)
+        // 「顔全体が適正に映っている(framing==='ok')」が約1秒安定 → verified。debounce で一瞬の NG では戻さない。
+        const framingOk = framing === 'ok'
+        faceStabilityRef.current = updateFaceStability(faceStabilityRef.current, { faceDetected: framingOk, nowMs: now })
+        setFaceVerified(faceStabilityRef.current.verified)
+        setFaceFraming(framing)
         // 明るさ: 縮小画像の平均輝度（Y=0.2126R+0.7152G+0.0722B）。警告のみ・blocking しない。
         if (ctx) {
           try {
@@ -530,7 +533,10 @@ export default function PreparePage() {
         faceDetectorRef.current = null
       }
       faceStabilityRef.current = initFaceStability()
+      // 次回 run（camera 再取得 / retry）に備え UI を初期状態へ戻す（cleanup 内の setState は許容）。
       setFaceVerified(false)
+      setFaceFraming('none')
+      setFacePhase('loading')
     }
     // faceRetryNonce の変化で再ロード（detector load 失敗時の retry）。
   }, [cameraStatus, faceRetryNonce])
@@ -599,24 +605,23 @@ export default function PreparePage() {
     <div className="min-h-screen bg-slate-100">
       {header}
 
-      <main className="mx-auto max-w-3xl px-4 py-8 sm:py-12">
+      <main className="mx-auto max-w-3xl px-4 py-6 sm:py-8 lg:py-6">
         {/* ステッパー（環境確認=現在=4）。既存フロー優先（同意→情報入力→SMS認証→環境確認→面接）。 */}
-        <div className="mb-8">
+        <div className="mb-5 lg:mb-4">
           <StepIndicator currentStep={4} totalSteps={5} labels={STEP_LABELS} />
         </div>
 
-        <div className="rounded-[24px] border border-slate-200/80 bg-white p-6 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.25)] sm:p-10">
+        <div className="rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.25)] sm:p-7 lg:p-6">
           {/* 見出し＋補足（マイクテスト前/後で文言を切替）。 */}
           <div className="text-center">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">カメラ・マイクの確認</h1>
-            <p className="mt-2.5 text-sm leading-relaxed text-slate-500">
-              面接ではカメラ・マイクを使用します。<br />
+            <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">カメラ・マイクの確認</h1>
+            <p className="mt-1.5 text-sm leading-relaxed text-slate-500">
               {bothVerified ? '正常に動作していることを確認しました。' : 'マイクに向かって「こんにちは」と話しかけてください。'}
             </p>
           </div>
 
-          {/* カメラプレビュー（16:9・mirror）。カメラは必須。取得不可なら honest 案内＋再取得。 */}
-          <div className="relative mt-6 aspect-video overflow-hidden rounded-2xl bg-slate-900">
+          {/* カメラプレビュー（16:9・mirror）。カメラは必須。Desktop は高さを clamp して 1画面に収める。 */}
+          <div className="relative mx-auto mt-4 aspect-video w-full overflow-hidden rounded-2xl bg-slate-900 lg:[max-height:clamp(190px,28dvh,260px)] lg:[max-width:calc(clamp(190px,28dvh,260px)*16/9)]">
             <video
               ref={videoRef}
               autoPlay={true}
@@ -624,6 +629,12 @@ export default function PreparePage() {
               muted={true}
               style={{ transform: 'scaleX(-1)', width: '100%', height: '100%', objectFit: 'cover' }}
             />
+            {/* 顔を合わせる位置の薄いガイド（撮影アプリ的に派手にしない・確認済みで消す）。 */}
+            {cameraStatus === 'ok' && facePhase === 'running' && !faceVerified && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden="true">
+                <div className="h-[66%] w-[42%] rounded-[50%] border-2 border-dashed border-white/25" />
+              </div>
+            )}
             {cameraStatus === 'error' && (
               <div className="absolute inset-0 flex items-center justify-center bg-slate-900/90 p-4" role="status">
                 <div className="text-center text-white">
@@ -660,32 +671,21 @@ export default function PreparePage() {
             </div>
           )}
 
-          {/* マイクテスト: 未合格は「こんにちは」案内＋音量バー、合格は大きな緑チェック。 */}
-          {micStatus === 'ok' && (
-            <div className="mt-6 text-center">
-              {!micTestPassed ? (
-                <>
-                  <p className="text-sm font-medium text-slate-700">「こんにちは」と話しかけてください</p>
-                  <div className="mx-auto mt-3 h-2 w-64 max-w-full overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
-                    <div
-                      className="h-full rounded-full bg-blue-600 transition-all duration-100"
-                      style={{ width: `${Math.min((volume / 255) * 100, 100)}%` }}
-                    />
-                  </div>
-                </>
-              ) : (
-                <div className="flex items-center justify-center gap-2 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-green-700" role="status">
-                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-green-600 text-white">
-                    <Check className="h-4 w-4" aria-hidden="true" />
-                  </span>
-                  <span className="text-base font-bold">マイク確認済み</span>
-                </div>
-              )}
+          {/* マイクテスト: 未合格の間だけ「こんにちは」案内＋音量バー（合格状態は下のステータス pill で表示・重複を排除）。 */}
+          {micStatus === 'ok' && !micTestPassed && (
+            <div className="mt-4 text-center">
+              <p className="text-sm font-medium text-slate-700">「こんにちは」と話しかけてください</p>
+              <div className="mx-auto mt-2.5 h-2 w-64 max-w-full overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
+                <div
+                  className="h-full rounded-full bg-blue-600 transition-all duration-100"
+                  style={{ width: `${Math.min((volume / 255) * 100, 100)}%` }}
+                />
+              </div>
             </div>
           )}
 
-          {/* ステータス pill（色だけに依存せず ✓/✗/○＋文言）。マイク/カメラ/顔/明るさ を別軸で表示（折返し可）。 */}
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+          {/* ステータス pill（色だけに依存せず ✓/✗/○/⚠＋文言）。マイク/カメラ/顔/明るさ を別軸で表示（折返し可）。 */}
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
             {micStatus === 'loading' ? (
               <span className="rounded-full border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm text-slate-500">マイク確認中...</span>
             ) : micTestPassed ? (
@@ -719,13 +719,8 @@ export default function PreparePage() {
               </span>
             )}
 
-            {/* 顔検出（cameraStatus とは別軸）。 */}
-            {faceStatus === 'ok' ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3.5 py-2 text-sm font-medium text-green-700">
-                <Check className="h-4 w-4" aria-hidden="true" />
-                顔を確認しました
-              </span>
-            ) : faceStatus === 'error' ? (
+            {/* 顔確認（cameraStatus とは別軸）。「顔を確認しました」は顔全体が適正に映って安定したときだけ表示。 */}
+            {facePhase === 'error' ? (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3.5 py-2 text-sm font-medium text-amber-700">
                 <AlertCircle className="h-4 w-4" aria-hidden="true" />
                 顔確認を開始できませんでした
@@ -734,10 +729,15 @@ export default function PreparePage() {
                   再試行
                 </button>
               </span>
-            ) : faceStatus === 'none' ? (
+            ) : faceVerified ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3.5 py-2 text-sm font-medium text-green-700">
+                <Check className="h-4 w-4" aria-hidden="true" />
+                顔を確認しました
+              </span>
+            ) : facePhase === 'running' && faceFraming !== 'none' && faceFramingMessage(faceFraming) ? (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3.5 py-2 text-sm font-medium text-amber-700">
                 <AlertCircle className="h-4 w-4" aria-hidden="true" />
-                顔が確認できません
+                {faceFramingMessage(faceFraming)}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm text-slate-500">
@@ -762,41 +762,43 @@ export default function PreparePage() {
             )}
           </div>
 
-          {/* 顔サイズ/位置・明るさのガイダンス（warning のみ・blocking しない）。 */}
-          {(faceGuidance || (faceStatus === 'none' && cameraStatus === 'ok') || brightnessStatus === 'dark') && (
-            <div className="mt-3 space-y-1 text-center text-xs text-amber-600">
-              {faceStatus === 'none' && cameraStatus === 'ok' && <p>顔全体が映るようにしてください</p>}
-              {faceGuidance && <p>{faceGuidance}</p>}
+          {/* ガイダンス（warning のみ・blocking しない）。顔未検出の促し＋明るさ。フレーミング指示は上の顔 pill に表示。 */}
+          {((facePhase === 'running' && faceFraming === 'none' && !faceVerified && cameraStatus === 'ok') ||
+            brightnessStatus === 'dark') && (
+            <div className="mt-2.5 space-y-1 text-center text-xs text-amber-600">
+              {facePhase === 'running' && faceFraming === 'none' && !faceVerified && cameraStatus === 'ok' && (
+                <p>顔全体が映るようにしてください</p>
+              )}
               {brightnessStatus === 'dark' && <p>明るい場所へ移動してください</p>}
             </div>
           )}
 
-          {/* 面接中の注意事項（カメラは必須＝「使う場合は」を撤去）。 */}
-          <div className="mt-8">
-            <h2 className="mb-3 text-base font-bold text-slate-900">面接中の注意事項</h2>
-            <div className="space-y-2.5">
-              <div className="flex items-start gap-2.5">
+          {/* 面接中の注意事項（カメラは必須＝「使う場合は」を撤去）。Desktop は横並びで高さを節約。 */}
+          <div className="mt-5">
+            <h2 className="mb-2 text-sm font-bold text-slate-900">面接中の注意事項</h2>
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-center sm:gap-6">
+              <div className="flex items-start gap-2">
                 <Volume2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden="true" />
                 <p className="text-sm text-slate-500">静かな場所で、はっきりお話しください</p>
               </div>
-              <div className="flex items-start gap-2.5">
+              <div className="flex items-start gap-2">
                 <User className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden="true" />
                 <p className="text-sm text-slate-500">顔全体が映るようにしてください</p>
               </div>
             </div>
           </div>
 
-          {/* 面接練習へ進む（カメラ・マイクともに正常＋マイクテスト合格のときだけ active）。 */}
+          {/* 面接練習へ進む（カメラ・マイク正常＋マイクテスト合格＋顔確認のときだけ active）。 */}
           <button
             onClick={handleNext}
             disabled={!canProceed}
             aria-disabled={!canProceed}
-            className="mt-7 flex min-h-[56px] w-full items-center justify-center rounded-2xl bg-blue-600 py-4 text-base font-bold text-white shadow-lg shadow-blue-600/25 transition-all duration-200 hover:bg-blue-700 hover:shadow-xl hover:shadow-blue-600/30 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40 active:scale-[0.99] disabled:pointer-events-none disabled:bg-blue-300 disabled:opacity-70 disabled:shadow-none"
+            className="mt-5 flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-blue-600 py-3.5 text-base font-bold text-white shadow-lg shadow-blue-600/25 transition-all duration-200 hover:bg-blue-700 hover:shadow-xl hover:shadow-blue-600/30 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40 active:scale-[0.99] disabled:pointer-events-none disabled:bg-blue-300 disabled:opacity-70 disabled:shadow-none"
           >
             面接練習へ進む
           </button>
 
-          <div className="mt-4 text-center">
+          <div className="mt-3 text-center">
             <button onClick={() => router.back()} className="text-sm text-slate-400 underline underline-offset-2 hover:text-slate-500">
               面接をキャンセルする
             </button>

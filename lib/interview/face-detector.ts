@@ -1,11 +1,13 @@
-// 完全ブラウザ内の「顔の存在」検出（本人特定/顔認証/embedding/属性推定なし）。
+// 完全ブラウザ内の「顔の存在＋フレーミング」検出（本人特定/顔認証/embedding/属性推定なし）。
 //   @mediapipe/tasks-vision を lazy import（prepare 画面でだけ読み込む）。WASM/モデルは self-host の
 //   ローカル静的アセット（/mediapipe/**）から取得＝カメラフレームは一切外部送信しない・追加API課金 0。
 //   返すのは present:boolean と bounding box の比率のみ（画像/embedding は返さない・保存しない）。
 
+import type { FaceBox } from './environment-check'
+
 export interface FacePresenceResult {
   present: boolean
-  box?: { widthRatio: number; centerXRatio: number; centerYRatio: number }
+  box?: FaceBox
 }
 
 export interface FacePresenceDetector {
@@ -35,12 +37,22 @@ export async function createFacePresenceDetector(): Promise<FacePresenceDetector
       const d = res.detections?.[0]
       const bb = d?.boundingBox
       if (!bb) return { present: (res.detections?.length ?? 0) > 0 }
+      // normalized 比率（端切れ判定のため min/max/height も算出。負値/1超もそのまま返す＝はみ出しを検出可能に）。
+      const widthRatio = bb.width / w
+      const heightRatio = bb.height / h
+      const xMinRatio = bb.originX / w
+      const yMinRatio = bb.originY / h
       return {
         present: true,
         box: {
-          widthRatio: bb.width / w,
-          centerXRatio: (bb.originX + bb.width / 2) / w,
-          centerYRatio: (bb.originY + bb.height / 2) / h,
+          xMinRatio,
+          yMinRatio,
+          xMaxRatio: xMinRatio + widthRatio,
+          yMaxRatio: yMinRatio + heightRatio,
+          widthRatio,
+          heightRatio,
+          centerXRatio: xMinRatio + widthRatio / 2,
+          centerYRatio: yMinRatio + heightRatio / 2,
         },
       }
     },
