@@ -19,6 +19,16 @@ export const AVATAR_FULLFRAME_LIPSYNC_ENABLED = false
 //   OFF にすると speaking も neutral 静止（顔安定）へ退避＝アバター障害時の HARD fallback と同じ絵。
 export const AVATAR_OVERLAY_LIPSYNC_ENABLED = true
 
+// ── overlay 方式の種類（QA 比較用の feature flag・Human QA 後に正式確定）─────────────────────────────
+//   'lowerface' = neutral 固定 base ＋「下顔面（人中〜顎・口角外側少し）」の color-matched overlay（採用候補）。
+//     口だけでなく顎/口角/下頬の自然な動きを取り込み、各 mouth source の肌色差を Lab 統計で neutral へ補正する
+//     （synthetic 定量 QA: ROI 外の顔=画素差 0 / lower-face skin ΔE≈1.5＝知覚困難 / 口 region は state ごとに明確変化）。
+//   'mouth' = 従来の「口領域だけ」の極小 overlay（より単純だが顎/口角が固定＝腹話術的になりやすい・肌色差が残る）。
+//   AVATAR_OVERLAY_LIPSYNC_ENABLED を master ON/OFF、本 mode を「どちらの overlay を描くか」に用いる。
+//   いきなり lowerface へ固定せず、両方式を切替えて Human QA で比較できる構造を維持する（正式採用は QA 後）。
+export type AvatarLipsyncMode = 'lowerface' | 'mouth'
+export const AVATAR_LIPSYNC_MODE: AvatarLipsyncMode = 'lowerface'
+
 // ── 音声→口の開き（mouth level）─────────────────────────────────────────────────────────────
 export const AVATAR_AUDIO = {
   // AnalyserNode 設定（軽量）。fftSize は小さめ（負荷/遅延を抑える）。

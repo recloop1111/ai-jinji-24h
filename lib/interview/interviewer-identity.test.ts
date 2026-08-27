@@ -6,7 +6,10 @@ import {
   AI_INTERVIEWER_PRELOAD_LIST,
   interviewerFrameSrc,
   interviewerMouthOverlaySrc,
+  interviewerLowerFaceOverlaySrc,
+  interviewerOverlaySrc,
 } from './interviewer-identity'
+import { AVATAR_LIPSYNC_MODE } from '@/lib/interview/avatar/avatar-config'
 import { REALTIME_VOICE } from '@/lib/config/openai'
 
 // AIMEN24 標準AI面接官（全企業共通）の SoT を固定。
@@ -59,20 +62,26 @@ describe('interviewerFrameSrc（描画フレーム解決・優先順位 blink > 
   })
 })
 
-describe('口 overlay（採用方式＝neutral 固定 base ＋ 口領域のみ overlay）', () => {
-  it('3 段階の透過 overlay path を 1 箇所で提供する', () => {
+describe('overlay アセット（mouth-only / lower-face の 2 方式を 1 箇所で提供）', () => {
+  it('mouth-only overlay path', () => {
     expect(AI_INTERVIEWER.mouthOverlays.small).toBe('/images/interviewer/ai-interviewer-mouth-small-overlay.webp')
     expect(AI_INTERVIEWER.mouthOverlays.medium).toBe('/images/interviewer/ai-interviewer-mouth-medium-overlay.webp')
     expect(AI_INTERVIEWER.mouthOverlays.large).toBe('/images/interviewer/ai-interviewer-mouth-large-overlay.webp')
   })
-  it('preload は通常 Production 経路（overlay ON / full-frame OFF）で実描画する 5 枚のみ（旧 full-frame mouth を含めない）', () => {
-    // neutral + blink + 口 overlay 3 枚 = 5。旧 full-frame mouth を通常経路で無駄 download しない。
+  it('lower-face overlay path（採用候補・color-matched）', () => {
+    expect(AI_INTERVIEWER.lowerFaceOverlays.small).toBe('/images/interviewer/ai-interviewer-lowerface-small-overlay.webp')
+    expect(AI_INTERVIEWER.lowerFaceOverlays.medium).toBe('/images/interviewer/ai-interviewer-lowerface-medium-overlay.webp')
+    expect(AI_INTERVIEWER.lowerFaceOverlays.large).toBe('/images/interviewer/ai-interviewer-lowerface-large-overlay.webp')
+  })
+  it('preload は通常 Production 経路（overlay ON / full-frame OFF）で実描画する 5 枚のみ（有効 mode の overlay・旧 full-frame は含めない）', () => {
+    const active = AVATAR_LIPSYNC_MODE === 'lowerface' ? AI_INTERVIEWER.lowerFaceOverlays : AI_INTERVIEWER.mouthOverlays
+    // neutral + blink + 有効 mode の overlay 3 枚 = 5。旧 full-frame mouth を通常経路で無駄 download しない。
     expect(AI_INTERVIEWER_PRELOAD_LIST).toHaveLength(5)
     expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.images.neutral)
     expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.images.blink)
-    expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.mouthOverlays.small)
-    expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.mouthOverlays.medium)
-    expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(AI_INTERVIEWER.mouthOverlays.large)
+    expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(active.small)
+    expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(active.medium)
+    expect(AI_INTERVIEWER_PRELOAD_LIST).toContain(active.large)
     // 旧 full-frame mouth（実験用 asset）は通常経路では preload しない。
     expect(AI_INTERVIEWER_PRELOAD_LIST).not.toContain(AI_INTERVIEWER.images.mouthSmall)
     expect(AI_INTERVIEWER_PRELOAD_LIST).not.toContain(AI_INTERVIEWER.images.mouthMedium)
@@ -80,18 +89,35 @@ describe('口 overlay（採用方式＝neutral 固定 base ＋ 口領域のみ o
   })
 })
 
-describe('interviewerMouthOverlaySrc（speaking のみ・small/medium/large だけ overlay・他は null）', () => {
-  it('speaking + small/medium/large → 対応 overlay', () => {
-    expect(interviewerMouthOverlaySrc({ visualState: 'speaking', mouthState: 'small' })).toBe(AI_INTERVIEWER.mouthOverlays.small)
-    expect(interviewerMouthOverlaySrc({ visualState: 'speaking', mouthState: 'medium' })).toBe(AI_INTERVIEWER.mouthOverlays.medium)
-    expect(interviewerMouthOverlaySrc({ visualState: 'speaking', mouthState: 'large' })).toBe(AI_INTERVIEWER.mouthOverlays.large)
+describe('interviewerOverlaySrc（mode で lowerface/mouth 切替・speaking のみ・他は null）', () => {
+  it('既定 mode（AVATAR_LIPSYNC_MODE）で speaking + small/medium/large → 対応 overlay', () => {
+    const active = AVATAR_LIPSYNC_MODE === 'lowerface' ? AI_INTERVIEWER.lowerFaceOverlays : AI_INTERVIEWER.mouthOverlays
+    expect(interviewerOverlaySrc({ visualState: 'speaking', mouthState: 'small' })).toBe(active.small)
+    expect(interviewerOverlaySrc({ visualState: 'speaking', mouthState: 'medium' })).toBe(active.medium)
+    expect(interviewerOverlaySrc({ visualState: 'speaking', mouthState: 'large' })).toBe(active.large)
+  })
+  it('mode=lowerface / mode=mouth を明示すると対応 set を返す', () => {
+    expect(interviewerOverlaySrc({ visualState: 'speaking', mouthState: 'large', mode: 'lowerface' })).toBe(AI_INTERVIEWER.lowerFaceOverlays.large)
+    expect(interviewerOverlaySrc({ visualState: 'speaking', mouthState: 'large', mode: 'mouth' })).toBe(AI_INTERVIEWER.mouthOverlays.large)
   })
   it('speaking + closed / 未解析 → null（base neutral の口閉じのまま）', () => {
-    expect(interviewerMouthOverlaySrc({ visualState: 'speaking', mouthState: 'closed' })).toBeNull()
-    expect(interviewerMouthOverlaySrc({ visualState: 'speaking' })).toBeNull()
+    expect(interviewerOverlaySrc({ visualState: 'speaking', mouthState: 'closed' })).toBeNull()
+    expect(interviewerOverlaySrc({ visualState: 'speaking' })).toBeNull()
   })
   it('非 speaking（listening/neutral）は mouthState に関わらず null（fail-safe＝発話外で口を出さない）', () => {
+    expect(interviewerOverlaySrc({ visualState: 'listening', mouthState: 'large' })).toBeNull()
+    expect(interviewerOverlaySrc({ visualState: 'neutral', mouthState: 'medium' })).toBeNull()
+    expect(interviewerOverlaySrc({ visualState: 'listening', mouthState: 'large', mode: 'lowerface' })).toBeNull()
+  })
+})
+
+describe('QA 比較用の明示 helper（interviewerMouthOverlaySrc / interviewerLowerFaceOverlaySrc）', () => {
+  it('mouth-only helper は常に mouthOverlays を返す', () => {
+    expect(interviewerMouthOverlaySrc({ visualState: 'speaking', mouthState: 'medium' })).toBe(AI_INTERVIEWER.mouthOverlays.medium)
     expect(interviewerMouthOverlaySrc({ visualState: 'listening', mouthState: 'large' })).toBeNull()
-    expect(interviewerMouthOverlaySrc({ visualState: 'neutral', mouthState: 'medium' })).toBeNull()
+  })
+  it('lower-face helper は常に lowerFaceOverlays を返す', () => {
+    expect(interviewerLowerFaceOverlaySrc({ visualState: 'speaking', mouthState: 'medium' })).toBe(AI_INTERVIEWER.lowerFaceOverlays.medium)
+    expect(interviewerLowerFaceOverlaySrc({ visualState: 'speaking', mouthState: 'closed' })).toBeNull()
   })
 })

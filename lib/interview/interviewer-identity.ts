@@ -17,6 +17,8 @@ import { REALTIME_VOICE } from '@/lib/config/openai'
 import {
   AVATAR_FULLFRAME_LIPSYNC_ENABLED,
   AVATAR_OVERLAY_LIPSYNC_ENABLED,
+  AVATAR_LIPSYNC_MODE,
+  type AvatarLipsyncMode,
   type MouthState,
 } from '@/lib/interview/avatar/avatar-config'
 
@@ -43,6 +45,15 @@ export const AI_INTERVIEWER = {
     medium: '/images/interviewer/ai-interviewer-mouth-medium-overlay.webp',
     large: '/images/interviewer/ai-interviewer-mouth-large-overlay.webp',
   },
+  // 下顔面（Lower-Face）の color-matched 透過 overlay（採用候補・mouth-only の改善版）。
+  //   neutral 固定 base に「人中〜顎・口角外側少し」の下顔面差分を重ねる＝口だけでなく顎/口角/下頬の自然な動きを取り込む。
+  //   各 mouth source の下顔面 skin を Lab 統計で neutral へ color-match（口＝唇/歯/口腔は保持）＋ organic 楕円 feather。
+  //   透過 WebP・full-canvas 1024x1536（base と同 object-fit/position＝位置合わせ不要）・各~18KB。offline 生成（生成 AI 不使用）。
+  lowerFaceOverlays: {
+    small: '/images/interviewer/ai-interviewer-lowerface-small-overlay.webp',
+    medium: '/images/interviewer/ai-interviewer-lowerface-medium-overlay.webp',
+    large: '/images/interviewer/ai-interviewer-lowerface-large-overlay.webp',
+  },
   imageAlt: 'AI面接官',
   // 共通 voice 方針の SoT（実 voice 名の最終確定は将来 actual でも可。現状は Realtime 既定 voice を単一の真実にする）。
   voicePolicy: REALTIME_VOICE,
@@ -62,16 +73,24 @@ export const AI_INTERVIEWER_IMAGE_LIST: readonly string[] = [
   AI_INTERVIEWER.images.blink,
 ]
 
-// preload 用（実際に描画される asset だけ・有効フラグに追従）。旧 full-frame mouth を通常 Production 経路で無駄に
+// 有効な overlay 方式の 3 段階 overlay path（mode に追従）。lowerface（採用候補）or mouth（従来）。
+function overlaySetForMode(mode: AvatarLipsyncMode): { small: string; medium: string; large: string } {
+  return mode === 'lowerface' ? AI_INTERVIEWER.lowerFaceOverlays : AI_INTERVIEWER.mouthOverlays
+}
+
+// preload 用（実際に描画される asset だけ・有効フラグ/モードに追従）。旧 full-frame mouth を通常 Production 経路で無駄に
 //   download しないよう、AI_INTERVIEWER_IMAGE_LIST（全 base 5 枚）ではなく「今の描画経路で必要な最小集合」を組む。
 //   - base 常時: neutral（既定/listening/非 speaking）＋ blink（瞬き）。
-//   - overlay 方式 ON（採用・既定）: 口 overlay 3 枚を追加（speaking 開始直後の切替で初回 download 待ちを出さない）。
+//   - overlay 方式 ON（採用・既定）: 有効 mode の overlay 3 枚を追加（speaking 開始直後の切替で初回 download 待ちを出さない）。
 //   - full-frame 実験 ON 時のみ: full-frame mouth 3 枚を追加（false の通常 Production 経路では preload しない＝実験用に温存）。
 export const AI_INTERVIEWER_PRELOAD_LIST: readonly string[] = [
   AI_INTERVIEWER.images.neutral,
   AI_INTERVIEWER.images.blink,
   ...(AVATAR_OVERLAY_LIPSYNC_ENABLED
-    ? [AI_INTERVIEWER.mouthOverlays.small, AI_INTERVIEWER.mouthOverlays.medium, AI_INTERVIEWER.mouthOverlays.large]
+    ? (() => {
+        const s = overlaySetForMode(AVATAR_LIPSYNC_MODE)
+        return [s.small, s.medium, s.large]
+      })()
     : []),
   ...(AVATAR_FULLFRAME_LIPSYNC_ENABLED
     ? [AI_INTERVIEWER.images.mouthSmall, AI_INTERVIEWER.images.mouthMedium, AI_INTERVIEWER.images.mouthLarge]
@@ -103,24 +122,43 @@ export function interviewerFrameSrc(input: {
   return AI_INTERVIEWER.images.neutral
 }
 
-// 口 overlay 解決（採用方式・唯一の写像）。speaking かつ mouthState=small/medium/large のときだけ overlay path、
-//   それ以外（非 speaking / closed / 未解析）は null（＝overlay を出さない＝base の neutral 口閉じのまま）。
+// overlay 解決（唯一の写像・mode で lowerface/mouth を切替）。speaking かつ mouthState=small/medium/large のときだけ
+//   overlay path、それ以外（非 speaking / closed / 未解析）は null（＝overlay を出さない＝base の neutral 口閉じのまま）。
 //   render 側は base（interviewerFrameSrc）を常に描き、これが非 null のときだけ透過 overlay を上に重ねる。
+//   mode 省略時は SoT の既定 AVATAR_LIPSYNC_MODE（＝Human QA 後に確定する正式方式）を用いる。
+export function interviewerOverlaySrc(input: {
+  visualState: InterviewerVisualState
+  mouthState?: MouthState
+  mode?: AvatarLipsyncMode
+}): string | null {
+  if (input.visualState !== 'speaking') return null
+  const set = overlaySetForMode(input.mode ?? AVATAR_LIPSYNC_MODE)
+  switch (input.mouthState) {
+    case 'small':
+      return set.small
+    case 'medium':
+      return set.medium
+    case 'large':
+      return set.large
+    default:
+      return null // closed / 未解析 → overlay なし（base neutral の口閉じ）
+  }
+}
+
+// 後方互換 / 明示的に mouth-only を要する箇所（QA 比較等）。= interviewerOverlaySrc(mode:'mouth')。
 export function interviewerMouthOverlaySrc(input: {
   visualState: InterviewerVisualState
   mouthState?: MouthState
 }): string | null {
-  if (input.visualState !== 'speaking') return null
-  switch (input.mouthState) {
-    case 'small':
-      return AI_INTERVIEWER.mouthOverlays.small
-    case 'medium':
-      return AI_INTERVIEWER.mouthOverlays.medium
-    case 'large':
-      return AI_INTERVIEWER.mouthOverlays.large
-    default:
-      return null // closed / 未解析 → overlay なし（base neutral の口閉じ）
-  }
+  return interviewerOverlaySrc({ ...input, mode: 'mouth' })
+}
+
+// 明示的に lower-face を要する箇所（QA 比較等）。= interviewerOverlaySrc(mode:'lowerface')。
+export function interviewerLowerFaceOverlaySrc(input: {
+  visualState: InterviewerVisualState
+  mouthState?: MouthState
+}): string | null {
+  return interviewerOverlaySrc({ ...input, mode: 'lowerface' })
 }
 
 export type AiInterviewerIdentity = typeof AI_INTERVIEWER

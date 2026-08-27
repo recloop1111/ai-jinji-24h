@@ -13,7 +13,7 @@ import {
   AI_INTERVIEWER,
   AI_INTERVIEWER_PRELOAD_LIST,
   interviewerFrameSrc,
-  interviewerMouthOverlaySrc,
+  interviewerOverlaySrc,
 } from '@/lib/interview/interviewer-identity'
 import { interviewerVisualForPhase } from '@/lib/interview/interviewer-visual'
 import { nextNodDelayMs, shouldNodNow, nodAllowed, nextBlinkDelayMs, isDoubleBlink, blinkAllowed } from '@/lib/interview/avatar/avatar-motion'
@@ -191,8 +191,9 @@ export default function InterviewerAvatar({
     mouthState: AVATAR_FULLFRAME_LIPSYNC_ENABLED && visualState === 'speaking' ? mouthState : 'closed',
     blinking,
   })
-  // 口 overlay（採用方式・既定 ON）。speaking かつ mouthState=small/medium/large のときだけ非 null（それ以外は base の口閉じ）。
-  const overlaySrc = AVATAR_OVERLAY_LIPSYNC_ENABLED ? interviewerMouthOverlaySrc({ visualState, mouthState }) : null
+  // overlay（採用方式・既定 ON・mode=AVATAR_LIPSYNC_MODE で lowerface/mouth を切替）。speaking かつ
+  //   mouthState=small/medium/large のときだけ非 null（それ以外は base の口閉じ）。
+  const overlaySrc = AVATAR_OVERLAY_LIPSYNC_ENABLED ? interviewerOverlaySrc({ visualState, mouthState }) : null
 
   return (
     <div className="flex flex-col items-center">

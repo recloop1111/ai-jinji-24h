@@ -6,8 +6,12 @@
 > ため不採用（`AVATAR_FULLFRAME_LIPSYNC_ENABLED=false`）。代わりに、方式A の mouth フレームから **offline（sharp・生成 AI 不使用）**
 > で neutral へ並進登録＋楕円 feather マスク（唇/開口のみ）を切り出し、**口だけの透過 overlay 3 枚**
 > `ai-interviewer-mouth-{small,medium,large}-overlay.webp`（full-canvas 1024×1536 透過・各~16KB）を生成。
-> 描画は「**neutral 固定 base ＋ 口 overlay を重ねる**」方式（`AVATAR_OVERLAY_LIPSYNC_ENABLED=true`）。SoT = `AI_INTERVIEWER.images`
-> ＋ `AI_INTERVIEWER.mouthOverlays`、描画写像 = `interviewerFrameSrc`（base）＋ `interviewerMouthOverlaySrc`（overlay）。
+> 描画は「**neutral 固定 base ＋ overlay を重ねる**」方式（`AVATAR_OVERLAY_LIPSYNC_ENABLED=true`）。overlay の種類は
+> `AVATAR_LIPSYNC_MODE` で切替（`'lowerface'`（採用候補・下顔面 color-matched・各~18KB）/ `'mouth'`（口のみ・各~16KB））。
+> **lower-face** は下顔面 ROI（人中〜顎・口角外側少し）を neutral へ登録し、ROI 内 skin を Lab/mean-std で neutral へ
+> color-match（口＝唇/歯/口腔は保持）＝口だけでなく顎/口角の自然な動きを取り込み、mouth source の肌色差を吸収する。
+> SoT = `AI_INTERVIEWER.images` ＋ `AI_INTERVIEWER.{mouthOverlays,lowerFaceOverlays}`、描画写像 = `interviewerFrameSrc`（base）
+> ＋ `interviewerOverlaySrc`（mode 追従）。生成 = `scripts/avatar/generate-{mouth,lowerface}-overlays.mjs`（offline・生成 AI 不使用）。
 > 音声連動口パク（overlay 切替）・瞬き・呼吸・頷きは実装・配線済み（`components/interview/InterviewerAvatar.tsx`）。
 > lipsync-source は配信不要のため `.gitignore` 済み（base webp ＋ overlay webp のみコミット）。以下は当初の仕様（記録）。
 
