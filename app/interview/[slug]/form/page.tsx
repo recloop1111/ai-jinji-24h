@@ -253,7 +253,30 @@ export default function FormPage() {
       sessionStorage.setItem(`interview_${slug}_applicant_id`, json.applicant_id)
       sessionStorage.setItem(`interview_${slug}_company_id`, json.company_id)
       sessionStorage.setItem(`interview_${slug}_token`, json.token)
-      router.push(`/interview/${slug}/verify?phone=${encodeURIComponent(phone)}`)
+
+      // TODO(SMS provider 接続前・必須): 送信失敗後に再押下すると applicant が再作成され得る（重複）。
+      //   provider 接続時に冪等化する（applicant_id 既存なら再作成せず /sms/send 再送のみ、または upsert）。
+      //   詳細は docs/PRE_RELEASE_CHECKLIST.md「Twilio Verify（実SMS）」。実 SMS 課金前に対応。
+      // 「次へ進む」＝ SMS 送信トリガー（別ボタンは作らない）。送信成功時のみ /verify へ進む。
+      //   demo 企業: 実 SMS を送らず success（channel:'demo'）→ /verify（固定コード 1234 案内）。
+      //   通常企業: provider 未接続なら 503 SMS_NOT_AVAILABLE → /verify へ進めず form に留まり honest error 表示。
+      const sendRes = await fetch(`/api/interview/${slug}/sms/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: json.token, applicant_id: json.applicant_id }),
+      })
+      const sendJson = await sendRes.json().catch(() => null)
+      if (!sendRes.ok || !sendJson?.sent) {
+        // 送っていないのに先へ進めない（虚偽の「送信しました」を作らない）。応募者は作成済み。
+        setErrors({ submit: sendJson?.error?.message || 'SMS認証は現在準備中です。お手数ですが運営までお問い合わせください。' })
+        setSubmitting(false)
+        return
+      }
+      // 送信先電話番号のマスク（server が返す masked_phone。demo は無し）を verify 表示用に保持。PII は URL に載せない。
+      if (typeof sendJson.masked_phone === 'string' && sendJson.masked_phone) {
+        sessionStorage.setItem(`interview_${slug}_masked_phone`, sendJson.masked_phone)
+      }
+      router.push(`/interview/${slug}/verify`)
     } catch {
       setErrors({ submit: '情報の保存に失敗しました。もう一度お試しください。' })
       setCaptchaToken('')

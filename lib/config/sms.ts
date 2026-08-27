@@ -11,7 +11,7 @@ export function isSmsProviderEnabled(env: NodeJS.ProcessEnv = process.env): bool
 }
 
 // ── OTP ポリシー（Task A3）──────────────────────────────────────────────────────────────────────
-export const OTP_CODE_LENGTH = 6 // 実 SMS OTP は 6 桁（demo の 1234=4桁 とは別系統）
+export const OTP_CODE_LENGTH = 4 // 正式仕様: 実 SMS OTP は 4 桁（demo の 1234 とは別系統・UI も 4 マス）。provider 接続時に Verify 側の Code Length も 4 に合わせる。
 export const OTP_TTL_MS = 5 * 60 * 1000 // コード有効期限 5 分
 export const OTP_MAX_VERIFY_ATTEMPTS = 5 // 1 コードあたりの照合失敗上限（超過で lockout）
 export const OTP_RESEND_COOLDOWN_MS = 60 * 1000 // 再送の最小間隔（連打抑制）

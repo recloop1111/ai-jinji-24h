@@ -21,6 +21,9 @@ export default function VerifyPage() {
   const [code, setCode] = useState(['', '', '', ''])
   const [toast, setToast] = useState<string | null>(null)
   const [codeError, setCodeError] = useState<string | null>(null)
+  // 送信先電話番号のマスク（server が /sms/send で返した masked_phone を sessionStorage 経由で受け取る）。
+  //   ハードコードしない。実送信していない（demo / 未接続）なら null のまま＝「送信しました」を出さない。
+  const [maskedPhone, setMaskedPhone] = useState<string | null>(null)
   const inputRefs = [
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
@@ -55,6 +58,17 @@ export default function VerifyPage() {
       return () => clearTimeout(timer)
     }
   }, [toast])
+
+  // /sms/send が返した送信先マスク（実送信後のみ存在）を読む。存在しなければ「送信しました」を表示しない。
+  useEffect(() => {
+    try {
+      const m = sessionStorage.getItem(`interview_${slug}_masked_phone`)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (m) setMaskedPhone(m)
+    } catch {
+      /* noop */
+    }
+  }, [slug])
 
   function handleCodeChange(index: number, rawValue: string) {
     // 全角数字（１２３４）も半角へ正規化してから判定・保持する
@@ -156,16 +170,36 @@ export default function VerifyPage() {
     }
   }
 
-  function handleResend() {
-    try {
-      // TODO: Phase 4 - Supabase経由でのSMS再送信
-      // TODO: 段階4 - Supabase接続を本実装する
-      // ここでSupabase/API呼び出しを行う予定
-    } catch {
-      // TODO: 段階4 - Supabase接続を本実装する
+  async function handleResend() {
+    // 再送も「送信ボタン」を別に作らず /sms/send を再呼び出しする seam。虚偽トーストは出さない。
+    const token = sessionStorage.getItem(`interview_${slug}_token`)
+    const applicantId = sessionStorage.getItem(`interview_${slug}_applicant_id`)
+    if (!token || !applicantId) {
+      setToast('セッションが無効です')
+      return
     }
-
-    setToast('認証コードを再送信しました')
+    try {
+      const res = await fetch(`/api/interview/${slug}/sms/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, applicant_id: applicantId }),
+      })
+      const data = await res.json().catch(() => null)
+      if (res.ok && data?.sent) {
+        if (typeof data.masked_phone === 'string' && data.masked_phone) {
+          sessionStorage.setItem(`interview_${slug}_masked_phone`, data.masked_phone)
+          setMaskedPhone(data.masked_phone)
+        }
+        setToast('認証コードを再送信しました')
+      } else if (res.status === 503 || data?.error?.code === 'SMS_NOT_AVAILABLE') {
+        // 通常企業（provider 未接続）: honest。虚偽の「再送信しました」を出さない。
+        setToast('SMS認証は現在準備中です')
+      } else {
+        setToast(data?.error?.message || '再送信できませんでした')
+      }
+    } catch {
+      setToast('通信エラーが発生しました')
+    }
   }
 
   if (loading) {
@@ -234,10 +268,17 @@ export default function VerifyPage() {
                 これはデモ環境です。SMSは送信されません。<br />
                 下記のデモ用コードを入力してください。
               </p>
-            ) : (
+            ) : maskedPhone ? (
+              /* 通常企業（実送信後のみ）: 送信済みを honest に案内。 */
               <p className="text-sm text-gray-500 text-center mt-2">
                 ご入力いただいた電話番号にSMSで認証コードを送信しました。<br />
                 届いた4桁のコードを入力してください。
+              </p>
+            ) : (
+              /* 通常企業（provider 未接続＝未送信）: 「送信しました」を出さず honest に案内。 */
+              <p className="text-sm text-gray-500 text-center mt-2">
+                SMS認証は現在準備中です。<br />
+                お手数ですが運営までお問い合わせください。
               </p>
             )}
           </div>
@@ -254,14 +295,14 @@ export default function VerifyPage() {
                 」を入力してください。
               </p>
             </div>
-          ) : (
-            /* 通常企業: 送信先電話番号（マスク表示） */
+          ) : maskedPhone ? (
+            /* 通常企業（実送信後のみ）: 送信先電話番号のマスク（server 由来・ハードコードしない）。 */
             <div className="text-center">
               <div className="text-gray-700 font-mono bg-gray-50 rounded-lg py-2 px-4 inline-block">
-                090-****-5678
+                {maskedPhone}
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* 認証コード入力 */}
           <div className="flex justify-center gap-3">

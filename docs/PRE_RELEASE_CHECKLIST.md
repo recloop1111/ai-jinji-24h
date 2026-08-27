@@ -167,7 +167,7 @@ RLSハードニング（Phase 1〜2-e）完了時点の本番前確認・棚卸�
 - [ ] **質問ラリー UX**（§下記の未実装項目）：質問読み上げ→「回答してください」→回答→無音検知/「回答完了」→次質問→完了判定
 - [ ] **EBCA 評価 writer**：面接終了後に全Q&Aから6軸スコアを生成し `interview_results`（evaluation_axes / total_score / detail_json）へ書き込み
 - [ ] **R2 録画保存**：録画アップロード・180日保持
-- [ ] **Twilio Verify（実SMS）**：OTP 送信・検証（「1234」モックを置換）
+- [ ] **Twilio Verify（実SMS）**：OTP 送信・検証（「1234」モックを置換）。送信 seam は実装済み（`/api/interview/[slug]/sms/send`・gate OFF で actual 0）。**接続前の必須TODO**: 通常企業で SMS 送信失敗（`SMS_NOT_AVAILABLE` 等）後に「次へ進む」を再押下すると `applicant` が再作成され得る（重複）。provider 接続時に**冪等化**する（例: sessionStorage の `applicant_id` 既存時は applicant 再作成せず `/sms/send` の再送のみ、または applicant upsert）。実 SMS 課金前に必ず対応。
 - [ ] **請求（自前・Stripe不採用）**：自前 billing_records 確定 writer（月末/翌月）／請求書PDF（サーバ生成・pdfkit・client/admin DL）／admin 請求管理（payment_status: unpaid/paid/overdue・入金済み手動変更・メモ）。**外部API不要＝Free/Hobby で先行実装可**。詳細は `docs/GROUP_C_PLAN.md` §3-⑤〜⑤-c
 - [ ] **Resend 通知**：トランザクションメール送信＋**請求通知**（確定時/期限7日前/当日/超過後）。Resend 接続フェーズで実装（初期は管理画面で通知対象を可視化）
 - [ ] ~~Stripe 確定請求~~：**初期リリース不採用**（将来カード決済が必要になった場合のみ再検討。`docs/GROUP_C_PLAN.md` §3-⑦）
