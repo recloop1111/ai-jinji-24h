@@ -5,14 +5,16 @@
 //   （表示名・画像・基本 persona・基本トーン・基本 voice 方針）は本ファイルを唯一の入口にして共通化する。
 //   → 表示名・画像・voice 方針を変えたいときは「ここ 1 箇所」を変えれば全画面へ反映される。
 //
-// 画像（正式アセット・3 状態）: neutral / speaking / listening。画面側で path を直書きしない（本 SoT から取得）。
-//   最終画像への差し替えは public/images/interviewer/ 配下のファイル置換、または本 SoT の images を変えるだけ。
-//   ＝差し替え箇所は 1 箇所に集約。現時点は静止画 3 枚の切替のみ（口パク/animation は未実装・別 scope）。
+// 画像（正式アセット・5 枚・同一人物 同一 pose・1024x1536・WebP 各~55KB）: neutral / mouth-small / mouth-medium /
+//   mouth-large / blink。speaking は「音声レベルに応じて mouth-* を切替」、listening/neutral は neutral を使う。
+//   画面側で path を直書きしない（本 SoT / interviewerFrameSrc から取得）。差し替えは public/images/interviewer/ の
+//   ファイル置換、または本 SoT の images を変えるだけ（1 箇所）。
 //
 // persona/tone は会話挙動 SoT（lib/interview/conversation-policy.ts の INTERVIEW_TONE / INTERVIEW_PRINCIPLES）を
 // 権威にする（本ファイルは「AI 面接官という 1 資産」の identity を束ねる。挙動の詳細はそちらを唯一の権威にする）。
 
 import { REALTIME_VOICE } from '@/lib/config/openai'
+import type { MouthState } from '@/lib/interview/avatar/avatar-config'
 
 // 面接官の視覚状態（3 状態）。runtime の presence/state からここへ写像する（interviewer-visual.ts）。
 export type InterviewerVisualState = 'neutral' | 'speaking' | 'listening'
@@ -20,11 +22,13 @@ export type InterviewerVisualState = 'neutral' | 'speaking' | 'listening'
 export const AI_INTERVIEWER = {
   // 応募者に見せる共通の表示名（企業名とは別。企業名は company.name として別途表示）。
   displayName: 'AI面接官',
-  // 正式 3 状態画像（全企業共通・差し替えは 1 箇所）。Web 配信用に WebP へ最適化済み（同寸法・構図/色/顔不変・各~50KB）。
+  // 正式アセット 5 枚（全企業共通・同一 pose・差し替えは 1 箇所）。
   images: {
-    neutral: '/images/interviewer/ai-interviewer-neutral.webp', // 待機/接続/処理/終了/エラー 等（既定）
-    speaking: '/images/interviewer/ai-interviewer-speaking.webp', // AI 発話中
-    listening: '/images/interviewer/ai-interviewer-listening.webp', // 応募者の回答待ち/回答中
+    neutral: '/images/interviewer/ai-interviewer-neutral.webp', // 口閉じ・目開き（既定：待機/接続/処理/listening/終了 等）
+    mouthSmall: '/images/interviewer/ai-interviewer-mouth-small.webp', // 発話・小
+    mouthMedium: '/images/interviewer/ai-interviewer-mouth-medium.webp', // 発話・中
+    mouthLarge: '/images/interviewer/ai-interviewer-mouth-large.webp', // 発話・大
+    blink: '/images/interviewer/ai-interviewer-blink.webp', // 瞬き（目閉じ・口閉じ）
   },
   imageAlt: 'AI面接官',
   // 共通 voice 方針の SoT（実 voice 名の最終確定は将来 actual でも可。現状は Realtime 既定 voice を単一の真実にする）。
@@ -36,17 +40,37 @@ export const AI_INTERVIEWER = {
 // 既定画像（後方互換 / 単一画像を要する箇所用）。= neutral。
 export const AI_INTERVIEWER_DEFAULT_IMAGE = AI_INTERVIEWER.images.neutral
 
-// preload 用の 3 状態画像リスト（session/practice 開始時にキャッシュへ入れ、切替時の network 待ちを防ぐ）。
+// preload 用の全アセットリスト（session/practice 開始時にキャッシュへ入れ、切替時の network 待ちを防ぐ）。
 export const AI_INTERVIEWER_IMAGE_LIST: readonly string[] = [
   AI_INTERVIEWER.images.neutral,
-  AI_INTERVIEWER.images.speaking,
-  AI_INTERVIEWER.images.listening,
+  AI_INTERVIEWER.images.mouthSmall,
+  AI_INTERVIEWER.images.mouthMedium,
+  AI_INTERVIEWER.images.mouthLarge,
+  AI_INTERVIEWER.images.blink,
 ]
 
-// 視覚状態 → 画像 path（未知/未指定は neutral にフォールバック）。
-export function interviewerImageForState(state: InterviewerVisualState | null | undefined): string {
-  if (state === 'speaking') return AI_INTERVIEWER.images.speaking
-  if (state === 'listening') return AI_INTERVIEWER.images.listening
+// 描画フレーム解決（唯一の写像・画面で直書きしない）。優先順位: blink > speaking の mouth > neutral。
+//   - blinking=true は最優先で blink（発話中の瞬きも自然に一瞬入る）。
+//   - speaking 中は mouthState（closed→neutral / small・medium・large→対応フレーム）。
+//   - listening / neutral / その他は neutral。解析不可（mouthState 未指定/closed）でも neutral へ安全退避。
+export function interviewerFrameSrc(input: {
+  visualState: InterviewerVisualState
+  mouthState?: MouthState
+  blinking?: boolean
+}): string {
+  if (input.blinking) return AI_INTERVIEWER.images.blink
+  if (input.visualState === 'speaking') {
+    switch (input.mouthState) {
+      case 'small':
+        return AI_INTERVIEWER.images.mouthSmall
+      case 'medium':
+        return AI_INTERVIEWER.images.mouthMedium
+      case 'large':
+        return AI_INTERVIEWER.images.mouthLarge
+      default:
+        return AI_INTERVIEWER.images.neutral // closed / 未解析
+    }
+  }
   return AI_INTERVIEWER.images.neutral
 }
 

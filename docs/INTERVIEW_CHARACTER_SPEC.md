@@ -80,15 +80,22 @@
 - 面接官として中立
 - 長い相槌をしない
 
-## Task 13 — アニメーション境界（更新: Lightweight Realtime Avatar）
-- **実装済み（追加アセット不要・原価 0）**: 呼吸 breathing（全状態・ごく僅か）／listening 頷き nod（随時・機械的でない）。
-  reduced-motion で無効化。3 状態切替は維持。ロジック SoT = `lib/interview/avatar/`（audio-analyzer / avatar-motion / avatar-config）。
-- **アセット待ち（同一人物・同一 pose の mouth/eye 差分が必須）**: 音声連動の軽量口パク（lip-sync）／瞬き（blink）。
-  仕様 = `docs/AVATAR_ASSET_CONTRACT.md`。Audio Analyzer（Realtime remote audio→ブラウザ内 RMS→mouth level）は実装済み・配線待ち。
+## Task 13 — アニメーション境界（Lightweight Realtime Avatar・実装済み）
+- **正式アセット = 5 枚**（同一人物・同一 pose・1024×1536・WebP 各~55KB・`public/images/interviewer/`）:
+  `ai-interviewer-neutral`（口閉じ/目開き・既定）/ `-mouth-small` / `-mouth-medium` / `-mouth-large`（発話）/ `-blink`（目閉じ）。
+- **実装済み（追加アセット不要・原価 0）**:
+  - 呼吸 breathing（全状態・ごく僅か）／listening 頷き nod（随時・機械的でない）。
+  - **音声連動 口パク（speaking のみ）**: Realtime remote audio(MediaStream)→ブラウザ内 RMS→smoothing→mouthState
+    （closed/small/medium/large）→対応フレーム。**無音/barge-in/非 speaking/解析不可 → 即 neutral（口閉じ）**。
+  - **瞬き blink**: randomized interval・短い・稀にダブル。全状態。
+  - reduced-motion で breathing/nod/blink を無効化（口パクの状態切替自体は維持）。
+  - ロジック SoT = `lib/interview/avatar/`（audio-analyzer / avatar-motion / avatar-config）＋描画写像 = `interviewerFrameSrc`。
+- **描画優先順位**: blink > speaking の mouth(小/中/大) > neutral。setState は「離散 mouthState 変化時のみ」＝毎 frame 再 render しない
+  （~20fps 間引き・rAF・GPU 合成 transform）。
 - **禁止（本 scope 外）**: 音素完全一致 viseme / 動画 avatar / Live2D / Wav2Lip server / 外部 Talking Avatar API /
-  リアルタイム表情生成 / 手振り生成。すべてブラウザ内処理のみ・1 面接あたり追加外部 API 原価 0。
-- **fallback（HARD）**: AudioContext/Analyser 不可・Safari 制約・権限問題でも、静止 3 状態（neutral/speaking/listening）へ安全に退避。
-  アバター障害で面接本体を止めない。
+  リアルタイム表情生成 / 手振り生成。すべてブラウザ内処理のみ・**1 面接あたり追加外部 API 原価 0**。
+- **fallback（HARD）**: AudioContext/Analyser 不可・Safari 制約・権限問題・mock（remote stream 無し）でも、静止 neutral へ安全退避。
+  アバター障害で面接本体を止めない。実 audio 連動の体感は R1 で確認。
 
 ## R1 acceptance（Avatar・実接続時に確認）
 - AI 音声開始と口の開始が自然（極端な遅延なし）／音声停止・barge-in で口が即閉じる。

@@ -121,6 +121,8 @@ export default function SessionPage() {
   // effect クロージャに捕捉されて elapsedSeconds が陳腐化するため、ref で常に現在値を参照する。
   const elapsedRef = useRef(0)
   const remoteAudioRef = useRef<HTMLAudioElement>(null)
+  // AI 音声の MediaStream（アバターの口パク解析用。mock/未接続は null＝口パクせず静止 neutral）。
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
   // transcript は PR-2 ではメモリ保持のみ（DB保存は PR-3）。
   const transcriptRef = useRef<{ role: 'applicant' | 'ai'; text: string }[]>([])
   // 二重 /end 防止（自動完了・手動終了・時間切れの競合を同期的に弾く）
@@ -652,6 +654,7 @@ export default function SessionPage() {
             }
             // AI 音声チャンネルが有効化＝AI が最初に挨拶/質問する側 → speaking 表示（3状態アバター）。
             setPhase('speaking')
+            setRemoteStream(rs) // アバターの口パク解析へ供給（ブラウザ内・外部送信なし）。
           },
           onTranscript: (t) => {
             transcriptRef.current.push(t) // メモリ保持（表示/ウォッチドッグ用）
@@ -1203,7 +1206,7 @@ export default function SessionPage() {
             </span>
           </div>
 
-          <InterviewerAvatar phase={interviewPhase} />
+          <InterviewerAvatar phase={interviewPhase} remoteStream={remoteStream} />
 
           {/* Phase I-3: 現在質問（AI発話テキスト）表示エリア。
               長文でも切れずに読めるよう line-clamp を撤去し、max-height＋縦スクロール＋折り返しにする。

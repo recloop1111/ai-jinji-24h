@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { interviewerVisualForPhase, resolveInterviewerVisual } from './interviewer-visual'
-import { interviewerImageForState } from './interviewer-identity'
+import { interviewerFrameSrc } from './interviewer-identity'
 import type { InterviewPhase } from './presence'
 
 // AI面接官の視覚状態写像（neutral/speaking/listening）+ 優先順位を固定（OpenAI 非接続・純ロジック）。
@@ -21,7 +21,8 @@ describe('interviewerVisualForPhase: presence phase → 3状態', () => {
     for (const p of ['connecting', 'idle', 'listening', 'thinking', 'speaking', 'ending'] as InterviewPhase[]) {
       const v = interviewerVisualForPhase(p)
       expect(['neutral', 'speaking', 'listening']).toContain(v)
-      expect(interviewerImageForState(v)).toMatch(/ai-interviewer-(neutral|speaking|listening)\.webp$/)
+      // frame は常に実在アセット（未解析 speaking も neutral へ安全退避）。
+      expect(interviewerFrameSrc({ visualState: v })).toMatch(/ai-interviewer-(neutral|mouth-(small|medium|large)|blink)\.webp$/)
     }
   })
 })

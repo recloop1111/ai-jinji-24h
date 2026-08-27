@@ -1,5 +1,12 @@
 # Lightweight Realtime Avatar — 追加アセット仕様（人間側で用意）
 
+> **STATUS（更新）: 方式A の 5 枚アセットを受領・統合済み。** `public/images/interviewer/lipsync-source/` に配置された
+> 元 PNG（同一 pose・1024×1536）を WebP q82（各~55KB・構図/顔/背景不変）へ最適化し、`ai-interviewer-neutral.webp` /
+> `-mouth-small.webp` / `-mouth-medium.webp` / `-mouth-large.webp` / `-blink.webp` として配置。SoT `AI_INTERVIEWER.images` と
+> `interviewerFrameSrc` で一元管理。音声連動口パク・瞬きは実装・配線済み（`components/interview/InterviewerAvatar.tsx`）。
+> lipsync-source は配信不要のため `.gitignore` 済み（webp のみコミット）。以下は当初の仕様（記録）。
+
+
 本 PR（`feature/lightweight-realtime-avatar`）は **追加アセット不要の部分**（Audio Analyzer / Motion Controller /
 呼吸 breathing / 頷き nod / fallback / config SoT）を実装済み。**自然な口パク(lip-sync)と瞬き(blink)は同一人物・同一 pose の
 差分アセットが必須**（現在の 3 枚は各々「別 pose の全身写真」で、全フレーム高速切替は不自然な“パカパカ”になり不可）。
