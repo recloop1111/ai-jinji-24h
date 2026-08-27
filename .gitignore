@@ -44,3 +44,4 @@ scripts/reset-demo-password.mjs
 next-env.d.ts
 .next 2
 public/images/interviewer/lipsync-source/
+public/_avatar-qa/

@@ -2,6 +2,14 @@
 //   すべてブラウザ内処理・外部 API 0・追加従量原価 0 を前提にした軽量パラメータ。
 //   実 audio 品質・体感の最終調整は R1（実接続）で行う。ここは決定論的な既定値の唯一の入口。
 
+// ── full-frame lipsync のゲート（synthetic visual QA の判定を反映・既定 OFF）──────────────────────────
+//   採用 5 枚は independently-generated で、フレーム間で頭部/髪/視線/表情が口より大きくドリフトする
+//   （QA: 可視顔域で 非口(額/目/髪)≈口帯の約3倍変化）。full-frame swap すると「口」より「顔全体がモーフ」して
+//   見えるため、full-frame 方式は既定 OFF にする（speaking も neutral 静止＝顔が安定）。blink/breathing/nod は維持。
+//   自然な口パクには「同一頭部・口のみ差分の登録済みアセット」または「口領域だけの overlay+alignment」が必要（別対応）。
+//   ※ audio-analyzer / mouthState ロジックは温存し、本フラグを true にすれば full-frame 動作へ戻せる（実験用）。
+export const AVATAR_FULLFRAME_LIPSYNC_ENABLED = false
+
 // ── 音声→口の開き（mouth level）─────────────────────────────────────────────────────────────
 export const AVATAR_AUDIO = {
   // AnalyserNode 設定（軽量）。fftSize は小さめ（負荷/遅延を抑える）。

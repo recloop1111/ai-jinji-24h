@@ -12,7 +12,7 @@ import { INTERVIEW_PHASE_LABELS, type InterviewPhase } from '@/lib/interview/pre
 import { AI_INTERVIEWER, AI_INTERVIEWER_IMAGE_LIST, interviewerFrameSrc } from '@/lib/interview/interviewer-identity'
 import { interviewerVisualForPhase } from '@/lib/interview/interviewer-visual'
 import { nextNodDelayMs, shouldNodNow, nodAllowed, nextBlinkDelayMs, isDoubleBlink, blinkAllowed } from '@/lib/interview/avatar/avatar-motion'
-import { AVATAR_NOD, AVATAR_BLINK, AVATAR_AUDIO, type MouthState } from '@/lib/interview/avatar/avatar-config'
+import { AVATAR_NOD, AVATAR_BLINK, AVATAR_AUDIO, AVATAR_FULLFRAME_LIPSYNC_ENABLED, type MouthState } from '@/lib/interview/avatar/avatar-config'
 import { createRemoteAudioAnalyzer, smoothLevel, mouthStateForLevel, resolveMouthLevel } from '@/lib/interview/avatar/audio-analyzer'
 import { avatarVariantForPhase, type AvatarTone } from '@/lib/interview/avatarVisual'
 
@@ -73,6 +73,8 @@ export default function InterviewerAvatar({
   const [mouthState, setMouthState] = useState<MouthState>('closed')
   const levelRef = useRef(0)
   useEffect(() => {
+    // full-frame lipsync が OFF（既定）なら解析しない＝speaking も neutral 静止（顔モーフを出さない・CPU/電池も節約）。
+    if (!AVATAR_FULLFRAME_LIPSYNC_ENABLED) return
     // speaking かつ stream があるときだけ解析。それ以外は render 側ガードで closed（fail-safe）。
     if (visualState !== 'speaking' || !remoteStream) return
     const analyzer = createRemoteAudioAnalyzer(remoteStream)
@@ -107,6 +109,9 @@ export default function InterviewerAvatar({
   const blinkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     if (!blinkAllowed(visualState, reducedMotion)) return
+    // full-frame lipsync 有効時は speaking 中の blink を抑制（blink 画像は口閉じ＝発話中に口が一瞬閉じるのを防ぐ）。
+    // lipsync OFF（既定）は speaking も neutral 静止なので、speaking 中の blink（目のみ）は自然＝許可。
+    if (AVATAR_FULLFRAME_LIPSYNC_ENABLED && visualState === 'speaking') return
     let cancelled = false
     const rng = () => Math.random()
     const doBlink = (remaining: number) => {
@@ -182,7 +187,12 @@ export default function InterviewerAvatar({
             key を付けず src だけ差替＝preload 済みで即時（白フラッシュ/ガタつきなし）。画像エラー時は neutral へ。 */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={interviewerFrameSrc({ visualState, mouthState: visualState === 'speaking' ? mouthState : 'closed', blinking })}
+          src={interviewerFrameSrc({
+            visualState,
+            // full-frame lipsync OFF（既定）は speaking も口を開けない（neutral 静止＝顔モーフ回避）。ON 時のみ mouthState を反映。
+            mouthState: AVATAR_FULLFRAME_LIPSYNC_ENABLED && visualState === 'speaking' ? mouthState : 'closed',
+            blinking,
+          })}
           alt={AI_INTERVIEWER.imageAlt}
           style={{ objectPosition: 'center 18%' }}
           onError={(e) => {

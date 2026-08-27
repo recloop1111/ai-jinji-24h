@@ -83,12 +83,14 @@
 ## Task 13 — アニメーション境界（Lightweight Realtime Avatar・実装済み）
 - **正式アセット = 5 枚**（同一人物・同一 pose・1024×1536・WebP 各~55KB・`public/images/interviewer/`）:
   `ai-interviewer-neutral`（口閉じ/目開き・既定）/ `-mouth-small` / `-mouth-medium` / `-mouth-large`（発話）/ `-blink`（目閉じ）。
-- **実装済み（追加アセット不要・原価 0）**:
-  - 呼吸 breathing（全状態・ごく僅か）／listening 頷き nod（随時・機械的でない）。
-  - **音声連動 口パク（speaking のみ）**: Realtime remote audio(MediaStream)→ブラウザ内 RMS→smoothing→mouthState
-    （closed/small/medium/large）→対応フレーム。**無音/barge-in/非 speaking/解析不可 → 即 neutral（口閉じ）**。
-  - **瞬き blink**: randomized interval・短い・稀にダブル。全状態。
-  - reduced-motion で breathing/nod/blink を無効化（口パクの状態切替自体は維持）。
+- **有効（追加アセット不要・原価 0）**:
+  - 呼吸 breathing（全状態・ごく僅か）／listening 頷き nod（随時・機械的でない）／瞬き blink（randomized・短い・稀にダブル）。
+  - reduced-motion で breathing/nod/blink を無効化。
+- **full-frame 口パクは既定 OFF（`AVATAR_FULLFRAME_LIPSYNC_ENABLED=false`）— synthetic visual QA の判定 C を反映**:
+  採用 5 枚は independently-generated で、フレーム間で**頭部/髪/視線/表情が口より大きくドリフト**する（可視顔域で
+  非口(額/目/髪)≈口帯の約 3 倍変化）。full-frame swap すると「口」より「顔全体がモーフ」して見えるため、speaking も
+  neutral 静止にする（顔が安定）。**audio-analyzer / mouthState / interviewerFrameSrc のロジックは温存**（フラグ ON で復帰可・実験用）。
+  自然な口パクには「同一頭部・口のみ差分の**登録済み(registered)アセット**」または「**口領域だけの overlay + alignment**」が必要（別対応）。
   - ロジック SoT = `lib/interview/avatar/`（audio-analyzer / avatar-motion / avatar-config）＋描画写像 = `interviewerFrameSrc`。
 - **描画優先順位**: blink > speaking の mouth(小/中/大) > neutral。setState は「離散 mouthState 変化時のみ」＝毎 frame 再 render しない
   （~20fps 間引き・rAF・GPU 合成 transform）。
