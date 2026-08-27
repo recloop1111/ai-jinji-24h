@@ -55,6 +55,15 @@ export const MOUTH_LEVEL_THRESHOLDS = {
 } as const
 export type MouthState = 'closed' | 'small' | 'medium' | 'large'
 
+// ── Synthetic Avatar Driver（demo 企業限定・音声なしの疑似口パク・UI/Avatar QA 用）────────────────────────
+//   Production の demo 応募者フロー（remoteStream=null＝実 audio 無し）でも AI 発話相当時に口 overlay を疑似的に
+//   動かして Human が目視 QA するための遅延幅。高速フリッカーにせず「人が喋る程度」の自然な幅にする。
+//   ロジックは lib/interview/avatar/synthetic-lipsync.ts（seed 可能な純関数＝test で決定的）。
+export const AVATAR_SYNTHETIC = {
+  minDelayMs: 110, // 口の変化の最小間隔
+  maxDelayMs: 240, // 最大（ランダム幅で機械的にしない）
+} as const
+
 // ── 瞬き（blink）────────────────────────────────────────────────────────────────────────────
 export const AVATAR_BLINK = {
   minIntervalMs: 2600, // 次の瞬きまでの最小

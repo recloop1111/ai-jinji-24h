@@ -44,7 +44,7 @@ export async function POST(
     // slug → 企業特定（停止中は受付不可）。月間上限判定用に limit 列も取得。
     const { data: company, error: compError } = await supabase
       .from('companies')
-      .select('id, is_suspended, monthly_interview_limit, next_month_interview_limit, next_month_limit_effective_month')
+      .select('id, is_demo, is_suspended, monthly_interview_limit, next_month_interview_limit, next_month_limit_effective_month')
       .eq('interview_slug', slug)
       .single()
     if (compError || !company) return apiError('NOT_FOUND', '無効な面接URLです')
@@ -185,7 +185,8 @@ export async function POST(
       .single()
     if (insError || !interview) return apiError('INTERNAL_ERROR', '面接の開始に失敗しました')
 
-    return successJson({ interview_id: interview.id, job_id: jobId, company_id: company.id })
+    // is_demo は DB の権威値。demo 企業のみ「Synthetic Avatar Driver（音声なしの疑似口パク・UI/UX QA 用）」を許可する。
+    return successJson({ interview_id: interview.id, job_id: jobId, company_id: company.id, is_demo: company.is_demo === true })
   } catch {
     return apiError('INTERNAL_ERROR')
   }

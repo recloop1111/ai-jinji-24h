@@ -69,6 +69,8 @@ export default function SessionPage() {
   const [interviewId, setInterviewId] = useState<string | null>(null)
   const [applicantId, setApplicantId] = useState<string | null>(null)
   const [companyId, setCompanyId] = useState<string | null>(null)
+  // demo 企業か（DB 権威＝start API の is_demo）。demo のみ Synthetic Avatar Driver（音声なし疑似口パク・UI QA 用）を許可。
+  const [isDemo, setIsDemo] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [totalQuestions, setTotalQuestions] = useState(0)
   const [answeredQuestions, setAnsweredQuestions] = useState(0)
@@ -199,6 +201,7 @@ export default function SessionPage() {
         setInterviewId(json.interview_id)
         setJobId(json.job_id ?? null)
         if (json.company_id) setCompanyId(json.company_id)
+        setIsDemo(json.is_demo === true) // demo 企業のみ Synthetic Avatar Driver を許可（DB 権威）
         sessionStorage.setItem(`interview_${slug}_interview_id`, json.interview_id)
       } catch {
         setBlockingError('面接を開始できませんでした。通信環境をご確認のうえ、もう一度お試しください。')
@@ -1206,7 +1209,13 @@ export default function SessionPage() {
             </span>
           </div>
 
-          <InterviewerAvatar phase={interviewPhase} remoteStream={remoteStream} />
+          {/* Synthetic Avatar Driver は demo 企業 × mock モードのときだけ有効化（音声なしの疑似口パク・UI QA 用）。
+              normal company / realtime（remoteStream あり）では OFF（Avatar 側でも remoteStream 有無で二重ガード）。 */}
+          <InterviewerAvatar
+            phase={interviewPhase}
+            remoteStream={remoteStream}
+            syntheticLipsync={isDemo && mode === 'mock'}
+          />
 
           {/* Phase I-3: 現在質問（AI発話テキスト）表示エリア。
               長文でも切れずに読めるよう line-clamp を撤去し、max-height＋縦スクロール＋折り返しにする。

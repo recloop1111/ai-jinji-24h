@@ -26,6 +26,7 @@ import {
   type MouthState,
 } from '@/lib/interview/avatar/avatar-config'
 import { createRemoteAudioAnalyzer, smoothLevel, mouthStateForLevel, resolveMouthLevel } from '@/lib/interview/avatar/audio-analyzer'
+import { nextSyntheticMouthState, nextSyntheticDelayMs, shouldRunSyntheticLipsync } from '@/lib/interview/avatar/synthetic-lipsync'
 import { avatarVariantForPhase, type AvatarTone } from '@/lib/interview/avatarVisual'
 
 const RING_TONE: Record<AvatarTone, string> = {
@@ -50,10 +51,14 @@ const BAR_TONE: Record<AvatarTone, string> = {
 export default function InterviewerAvatar({
   phase,
   remoteStream = null,
+  syntheticLipsync = false,
 }: {
   phase: InterviewPhase
   // Realtime AI 音声の MediaStream（speaking 時の口パク解析に使う。未指定/解析不可なら neutral へ安全退避）。
   remoteStream?: MediaStream | null
+  // demo 企業限定の Synthetic Avatar Driver（音声なしの疑似口パク・UI/Avatar QA 用）。true かつ speaking かつ
+  //   remoteStream 無しのときだけ mouthState を疑似駆動する。normal company / realtime（remoteStream あり）では OFF。
+  syntheticLipsync?: boolean
 }) {
   const v = avatarVariantForPhase(phase)
   const label = INTERVIEW_PHASE_LABELS[phase]
@@ -116,6 +121,39 @@ export default function InterviewerAvatar({
       setMouthState('closed') // teardown 時に口を閉じる（speaking 終了/stream 変化で口だけ残さない）
     }
   }, [visualState, remoteStream])
+
+  // ── Synthetic Avatar Driver（demo 企業限定・音声なしの疑似口パク・UI/Avatar QA 用）─────────────────────────
+  //   HARD guard: syntheticLipsync（=demo のみ true）かつ overlay 有効かつ speaking かつ remoteStream 無しのときだけ起動。
+  //   remoteStream があれば実 audio 解析が優先（本エフェクトは起動しない）＝normal/realtime では絶対に動かない。
+  //   setTimeout の単一チェーン（重複タイマー無し）。phase 変化/unmount で必ず cleanup し、口を closed に戻す。
+  useEffect(() => {
+    // HARD guard（純関数）。overlay 有効 / demo / speaking / remoteStream 無し をすべて満たすときだけ起動。
+    if (
+      !shouldRunSyntheticLipsync({
+        overlayEnabled: AVATAR_OVERLAY_LIPSYNC_ENABLED,
+        syntheticLipsync,
+        visualState,
+        hasRemoteStream: !!remoteStream,
+      })
+    )
+      return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const rng = () => Math.random()
+    let cur: MouthState = 'closed'
+    const tick = () => {
+      if (cancelled) return
+      cur = nextSyntheticMouthState(cur, rng)
+      setMouthState(cur) // 離散変化時のみ再 render（effect body 同期 setState はしない＝tick 内）
+      timer = setTimeout(tick, nextSyntheticDelayMs(rng))
+    }
+    timer = setTimeout(tick, nextSyntheticDelayMs(rng))
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+      setMouthState('closed') // speaking 終了/unmount で口を閉じる（口だけ動き続けない）
+    }
+  }, [syntheticLipsync, visualState, remoteStream])
 
   // ── 瞬き（全状態・randomized・短い・稀にダブル）。reduced-motion で無効。────────────────────────────
   const [blinking, setBlinking] = useState(false)
