@@ -57,7 +57,7 @@ communication / logical_thinking / initiative / desire / stress_tolerance / inte
 - 公開面接フローの **browser Supabase 直書きを全廃**し、token付き **service-role API** へ移行（service-role は RLS bypass）。各APIは slug/applicant_id/company/interview の整合を再検証：
   - `POST /api/interview/[slug]/applicant` — 応募者作成＋token発行（company_id は slug 由来で確定）
   - `POST /api/interview/[slug]/start` — 面接開始（既存 in_progress を cancelled 化→新規 in_progress 作成）
-  - `POST /api/interview/[slug]/end` — 終了確定（interviews=completed/cancelled・ended_at・is_billable＝10分超／**applicants.status を end API 側で確定**：completed→'完了'・cancelled→'途中離脱'＋result='不採用'／他 in_progress を cancelled 化）
+  - `POST /api/interview/[slug]/end` — 終了確定（interviews=completed/cancelled・ended_at・**is_billable＝正式課金仕様**〔completed は必ず課金／applicant_exit は duration>=180s かつ(main質問50%以上 or duration>=480s)／technical・system・forced・孤児は非課金。旧「10分超で課金」は廃止・superseded。純ロジック=`lib/billing/interview-eligibility.ts`〕・**applicants.status を end API 側で確定**：completed→'完了'・cancelled→'途中離脱'＋result='不採用'／他 in_progress を cancelled 化）
   - `POST /api/interview/[slug]/satisfaction` — 満足度（1〜5）保存
   - `POST /api/interview/[slug]/snapshot` — 質問スナップショット保存（in_progress時のみ）
 - **interviews.status 運用 = `in_progress` / `completed` / `cancelled`**。applicants/interviews への公開フロー browser 直書きは無し。**公開フロー（/interview・/survey）の browser Supabase 直アクセスはすべて撤去済み**（読み取りも含め service-role API 経由。下記 Phase 2-d-1 / 2-e-1）。
@@ -207,7 +207,7 @@ openai, twilio, @aws-sdk/client-s3, idb
 ### 残課題（料金まわり以降）
 - billing 整理状況:
   - **当月見込みは実データ化済み**（admin `/api/admin/billing/summary`・client billing とも companies × interviews(`is_billable`) × price_per_interview のリアルタイム算出。Stripe非依存で動作）
-  - **課金フラグ列ドリフトを是正済み**: 実DB列は `interviews.is_billable`（旧 `billable` は不在）・`interviews.ended_at`（旧 `completed_at` は不在）。読み取りカウント側は `.eq('is_billable', true)` に統一。**is_billable の writer は Phase 2-a 以降 `POST /api/interview/[slug]/end`（service-role）で確定**（`is_billable = duration_seconds > 600`）。**課金判定 = 10分超（INT-009）。途中離脱でも10分超なら請求対象**。`/api/interview/[slug]/complete`・`/status` route は実DB列へ是正済みだが**呼び出しゼロの死蔵 endpoint**（削除は今回せず温存）
+  - **課金フラグ列ドリフトを是正済み**: 実DB列は `interviews.is_billable`（旧 `billable` は不在）・`interviews.ended_at`（旧 `completed_at` は不在）。読み取りカウント側は `.eq('is_billable', true)` に統一。**is_billable の writer は `POST /api/interview/[slug]/end`（service-role）で確定**（純ロジック `lib/billing/interview-eligibility.ts`）。**課金判定（正式仕様・旧「10分超」INT-009 は廃止/superseded）**: 1 interview=最大1課金。**completed は面接時間・質問数に関係なく必ず課金**／**applicant_exit（本人の途中離脱・時間切れ）は duration>=180s かつ(main質問50%以上回答〔ceil〕 or duration>=480s)**／**technical/system/forced/孤児（本人 /end 未達）は非課金**。duration は server 権威（started_at 由来）。answered/total は現状 client 申告（server 権威 progress=R1-A・Prod 未適用）＝答数は total にクランプ。`/api/interview/[slug]/complete`・`/status` route は実DB列へ是正済みだが**呼び出しゼロの死蔵 endpoint**（削除は今回せず温存）
   - **invoices 参照は billing_records に是正済み**（実DBに invoices テーブルは無い。admin/client billing は billing_records 読み。amount=amount_jpy / tax=tax_jpy / period=billing_month→YYYY-MM / status=payment_status）
   - **確定請求 writer / Stripe月末締めバッチ（BATCH-001 `/api/internal/batch/monthly-billing`）は未実装** → 確定請求履歴・未入金・年間累計・月次グラフは writer 実装まで空状態。Stripe導入（P-10）連動で将来対応
   - `payment_status` の値集合は未確認（billing_records 0件）。writer 実装時に summary の status 正規化を再確認

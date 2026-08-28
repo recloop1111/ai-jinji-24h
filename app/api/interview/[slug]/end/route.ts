@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server'
 import { successJson, apiError } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifyInterviewToken } from '@/lib/interview/capability-token'
+import { classifyTermination, computeIsBillable } from '@/lib/billing/interview-eligibility'
 
 // node:crypto（token検証）を使うため Node runtime を明示
 export const runtime = 'nodejs'
@@ -77,15 +78,40 @@ export async function POST(
       })
     }
 
-    // 課金は応募者制御の入力（body.duration_seconds）を信用しない。
-    // サーバ保存の started_at とサーバ終了時刻の差分で算出する（10分超の面接後に 0 を送る等の過少申告で課金回避させない）。
+    // 課金は応募者制御の入力（body.duration_seconds / body.is_billable）を信用しない。
+    // duration はサーバ保存の started_at とサーバ終了時刻の差分で算出する（過少/過大申告で課金操作させない）。
     const endedAtIso = new Date().toISOString()
     const startedAtMs = interview.started_at ? new Date(interview.started_at).getTime() : NaN
     const durationSeconds = Number.isFinite(startedAtMs)
       ? Math.max(0, Math.floor((new Date(endedAtIso).getTime() - startedAtMs) / 1000))
       : 0
-    // 課金判定（INT-009）: 10分超の利用は途中離脱でも従量課金対象（サーバ算出値で判定）
-    const isBillable = durationSeconds > 600
+
+    // 課金判定（正式仕様・旧「開始後10分超で課金」は廃止/superseded）: 1 interview = 最大1 billing unit。
+    //   A. 正常完了（completed）→ 面接時間・質問数に関係なく必ず billable。
+    //   B. 応募者本人の途中離脱（applicant_exit）→ duration>=180s かつ（main質問50%以上回答 or duration>=480s）。
+    //   C. technical/system/forced/未確定 → 非課金。
+    //   ※ main質問数(total)/回答数(answered) は現状 client 申告値（server 権威 progress は R1-A・Prod 未適用）。
+    //     answered は total を超えないようクランプ。total 不明時は 50%ルール不適用（8分ルールのみ）。純ロジックは
+    //     lib/billing/interview-eligibility.ts。duration は上記のとおり server 権威。
+    const category = classifyTermination({
+      finalStatus,
+      endReason: typeof body.end_reason === 'string' ? body.end_reason : null,
+    })
+    const totalMain =
+      typeof body.total_questions === 'number' && Number.isFinite(body.total_questions)
+        ? Math.max(0, Math.floor(body.total_questions))
+        : null
+    const answeredRaw =
+      typeof body.answered_questions === 'number' && Number.isFinite(body.answered_questions)
+        ? Math.max(0, Math.floor(body.answered_questions))
+        : null
+    const answeredMain = answeredRaw !== null && totalMain !== null ? Math.min(answeredRaw, totalMain) : answeredRaw
+    const isBillable = computeIsBillable({
+      category,
+      durationSeconds,
+      answeredMainQuestions: answeredMain,
+      totalMainQuestions: totalMain,
+    })
 
     // 対象 interview を確定（status='in_progress' 条件付きUPDATEで競合時の二重確定も防ぐ）
     const { data: updatedRows, error: updError } = await supabase
@@ -153,7 +179,8 @@ export async function POST(
     // ※ ブランケット更新だと、リロード等で並行する /start が挿入した「後から始まった新しい in_progress」まで
     //   巻き込み、ended_at < started_at / duration_seconds=null の不整合行を生む（新セッションを即殺してしまう）。
     //   started_at で「この面接以前」に限定し、後発の新面接は触らない。
-    //   巻き込む正当な孤児は started_at からサーバ算出した duration で is_billable を確定する（/start の孤児finalizeと同方式）。
+    //   孤児は「応募者本人の正規な終了（/end）が届かなかった行」＝本人利用の確証が無い（network/crash/離脱不明）。
+    //   正式仕様では確証の無い離脱は非課金のため is_billable=false で確定する（旧 dur>600 は廃止）。
     const cleanupNowIso = new Date().toISOString()
     const { data: olderOrphans } = await supabase
       .from('interviews')
@@ -169,7 +196,7 @@ export async function POST(
         : 0
       await supabase
         .from('interviews')
-        .update({ status: 'cancelled', ended_at: cleanupNowIso, duration_seconds: dur, is_billable: dur > 600 })
+        .update({ status: 'cancelled', ended_at: cleanupNowIso, duration_seconds: dur, is_billable: false })
         .eq('id', orphan.id)
         .eq('status', 'in_progress')
     }
