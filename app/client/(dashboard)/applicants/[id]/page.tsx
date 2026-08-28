@@ -20,220 +20,16 @@ import {
   CONFIDENCE_HINT,
   type DisplayAxis,
 } from '@/lib/evaluation/evaluation-view'
-import { ChevronLeft as ChevronLeftIcon, ChevronDown as ChevronDownIcon, Play as PlayIcon, Download, Mail, LinkIcon, Copy, Check } from 'lucide-react'
+import {
+  formatInterviewDuration,
+  formatAnsweredProgress,
+  isAnsweredProgressAvailable,
+  endReasonLabel,
+  interviewBillingLabel,
+  aiEvaluationAbsenceMessage,
+} from '@/lib/interview/interview-summary-display'
+import { ChevronLeft as ChevronLeftIcon, ChevronDown as ChevronDownIcon, Download, Mail, LinkIcon, Copy, Check } from 'lucide-react'
 
-// TODO: Phase 4 実データに差替え
-// TODO: Phase 4 - 面接完了時にステータスを自動で「未対応」に設定
-const DUMMY = {
-  name: '山田 太郎',
-  email: 'yamada@example.com',
-  phone: '090-1234-5678',
-  furigana: 'やまだ たろう',
-  jobType: '店舗マネージャー',
-  appliedAt: '2025-02-14 10:00',
-  status: 'second_pass',
-  memo: '',
-  // 概要タブ: AIサマリー
-  aiSummary: {
-    profile: '飲食業界で5年の店長経験を持つ、数値管理と現場改善に強い実行力重視の人材。',
-    career:
-      '大学卒業後、大手飲食チェーンに入社し、入社2年目で副店長、3年目で店長に昇進。担当店舗では月間売上を前年比115%に改善し、人手不足の状況下で3ヶ月間に5名の新規採用を実現した。8名のスタッフのシフト管理・教育にも携わり、現場マネジメントの実務経験が豊富。',
-    impression:
-      '質問の意図を正確に汲み取り、具体的な数値を交えて簡潔に回答する傾向がある。特に過去の実績に関する質問では、課題→施策→結果の構造で論理的に語れており、説得力が高い。一方で、想定外の質問にはやや回答に時間がかかる場面が見られた。',
-    strengthsAndConcerns:
-      '最大の強みは、現場で培った問題解決力と数値に基づく説明力。即戦力としてマネジメント業務への適性が高い。懸念点は、3〜5年後のキャリアビジョンが漠然としており、長期定着への確信が持ちにくい点。また、チームワークに関する具体的なエピソードが少なく、協調性の実態は面接だけでは判断しきれない。',
-  },
-  recommendGrade: 'B',
-  recommendReason:
-    '実務経験とコミュニケーションが高く即戦力として期待できる。キャリアビジョンの明確化が課題。',
-  totalScore: 78,
-  averageScore: 72,
-  // 概要タブ: レーダーチャート（6軸）
-  // 軸配置（時計回り）: 上→右上→右下→下→左下→左上
-  radarAxis: [
-    { label: 'コミュニケーション', value: 78, comment: '質問意図の理解力が高く、簡潔で的確な回答ができている' }, // 上（-90度）
-    { label: '論理的思考', value: 65, comment: '結論→理由→具体例の構成は概ねできているが、仮説構築にやや弱さがある' }, // 右上（-30度）
-    { label: '仕事意欲', value: 85, comment: '自発的にプロジェクトを推進した経験を複数語っており、意欲が高い' }, // 右下（30度）
-    { label: 'ストレス耐性・柔軟性', value: 80, comment: '想定外の質問にも落ち着いて対応しており、柔軟性がある' }, // 下（90度）
-    { label: '誠実性・一貫性', value: 58, comment: '発言に一貫性があるが、深掘りされた際にやや曖昧な回答があった' }, // 左下（150度）
-    { label: '主体性・行動力', value: 70, comment: '自ら動いた経験はあるが、自己認識の深さにやや欠ける' }, // 左上（210度）
-  ],
-  // 概要タブ: 性格タイプ・強み・弱み（旧レポートタブから統合）
-  personalityType: '実行型リーダー',
-  personalityDesc:
-    '目標達成に向けて計画的に行動し、チームを率いる力がある。決断力が高い反面、他者の意見を取り入れる柔軟性にやや欠ける場面がある。組織内ではプロジェクト推進役として機能しやすい。',
-  personalityForCompany:
-    '管理職やリーダーポジションに適性あり。ただし、チーム内の合意形成プロセスに課題が出る可能性がある。',
-  strengths: [
-    { title: '数値に基づく説明力', desc: '売上やスタッフ数など具体的な数値を交えて実績を説明する力がある' },
-    { title: '課題解決への主体性', desc: '問題に対して自ら解決策を考え実行した経験を複数持つ' },
-    { title: 'マネジメント経験', desc: '5名以上のチームを管理した実績があり、リーダーシップがある' },
-  ],
-  weaknesses: [
-    { title: 'キャリアビジョンの不明確さ', desc: '3〜5年後の目標について具体性が薄く、長期定着に不安がある' },
-    { title: 'チームワークの具体性不足', desc: '協調性をアピールしているが、具体的なエピソードが少ない' },
-  ],
-  // 詳細評価タブ: 各軸スコア＋関連Q&A
-  // TODO: Phase 4 - 企業が設定した質問数に合わせて動的に生成
-  axisDetails: [
-    {
-      label: 'コミュニケーション',
-      score: 78,
-      max: 100,
-      comment: '質問意図の理解力が高く、簡潔で的確な回答ができている',
-      questions: [
-        {
-          grade: 'A',
-          questionSummary: 'これまでのご経歴を簡単に教えてください',
-          answerSummary: '大学卒業後、飲食チェーンに入社し5年間勤務。入社2年目で副店長、3年目で店長に昇進。担当店舗の月間売上を15%向上させた実績がある。スタッフ8名のシフト管理・教育も担当。',
-          evalPoint: '具体的な数値と時系列が明確で、経歴の全体像が掴みやすい回答。',
-        },
-      ],
-    },
-    {
-      label: '論理的思考',
-      score: 65,
-      max: 100,
-      comment: '結論→理由→具体例の構成は概ねできているが、仮説構築にやや弱さがある',
-      questions: [
-        {
-          grade: 'A',
-          questionSummary: '最も成果を上げた経験を教えてください',
-          answerSummary: '人手不足で売上が低迷していた店舗に配属された際、採用プロセスを見直し3ヶ月で5名の採用に成功。同時にオペレーションを効率化し、売上を前年比115%に改善した。',
-          evalPoint: '課題→施策→結果の構造で語れており、再現性のある成果として評価できる。',
-        },
-      ],
-    },
-    {
-      label: 'ストレス耐性・柔軟性',
-      score: 80,
-      max: 100,
-      comment: '想定外の質問にも落ち着いて対応しており、柔軟性がある',
-      questions: [
-        {
-          grade: 'B',
-          questionSummary: 'なぜ当社に応募されたのですか',
-          answerSummary: '現職での店舗運営経験を活かし、より大きな組織でマネジメントに関わりたいと考えた。御社の急成長フェーズに惹かれ、自分の経験が貢献できると感じた。',
-          evalPoint: '意欲は伝わるが、当社固有の魅力への言及が薄く、汎用的な志望動機の印象。',
-        },
-      ],
-    },
-    {
-      label: '仕事意欲',
-      score: 85,
-      max: 100,
-      comment: '自発的にプロジェクトを推進した経験を複数語っており、意欲が高い',
-      questions: [
-        {
-          grade: 'A',
-          questionSummary: '最も成果を上げた経験を教えてください',
-          answerSummary: '人手不足で売上が低迷していた店舗に配属された際、採用プロセスを見直し3ヶ月で5名の採用に成功。同時にオペレーションを効率化し、売上を前年比115%に改善した。',
-          evalPoint: '自発的に課題を見つけ、主体的に行動した経験として高く評価できる。',
-        },
-        {
-          grade: 'B',
-          questionSummary: 'なぜ当社に応募されたのですか',
-          answerSummary: '現職での店舗運営経験を活かし、より大きな組織でマネジメントに関わりたいと考えた。御社の急成長フェーズに惹かれ、自分の経験が貢献できると感じた。',
-          evalPoint: '成長意欲は感じられるが、もう一段具体的な動機があるとなお良い。',
-        },
-      ],
-    },
-    {
-      label: '課題対応力',
-      score: 58,
-      max: 100,
-      comment: '困難な状況の質問でやや回答に詰まる場面があった',
-      questions: [
-        {
-          grade: 'C',
-          questionSummary: '仕事で最も困難だった経験とどう乗り越えたかを教えてください',
-          answerSummary: 'スタッフ間の人間関係のトラブルが発生し、退職者が出かけた。個別面談を実施して解決を図った。',
-          evalPoint: 'エピソードはあるが具体的な行動と結果の説明が不足しており、深掘りが必要な回答。',
-        },
-      ],
-    },
-    {
-      label: '成長可能性',
-      score: 70,
-      max: 100,
-      comment: '過去経験からの学びはあるが、自己認識の深さにやや欠ける',
-      questions: [
-        {
-          grade: 'C',
-          questionSummary: '3〜5年後のキャリアプランを教えてください',
-          answerSummary: 'マネジメントのスキルをさらに磨き、将来的にはエリアマネージャーのような立場で複数店舗を統括したい。',
-          evalPoint: '方向性は示しているが、具体的なステップや数値目標がなく、ビジョンの解像度が低い。',
-        },
-      ],
-    },
-  ],
-  // TODO: Phase 4 - Supabaseから会話ログを取得
-  // TODO: Phase 4 - 企業が設定した質問数に合わせて動的に生成
-  conversationLog: [
-    {
-      number: 1,
-      question: 'これまでのご経歴を簡単に教えてください。',
-      answer: '大学卒業後、大手飲食チェーンの株式会社フードワークスに入社し、5年間勤務しております。入社2年目で副店長、3年目で店長に昇進しました。現在は担当店舗の月間売上を前年比115%に改善し、人手不足の状況下で3ヶ月間に5名の新規採用を実現しました。スタッフ8名のシフト管理・教育にも携わっています。',
-      answerDuration: '2分30秒',
-      axisLabels: ['コミュニケーション', '論理的思考'],
-      aiMemo: '具体例が豊富で説得力がある',
-      followUp: null,
-    },
-    {
-      number: 2,
-      question: 'なぜ当社に応募されたのですか。',
-      answer: '現職での店舗運営経験を活かし、より大きな組織でマネジメントに関わりたいと考えました。御社の急成長フェーズに惹かれ、自分の経験が貢献できると感じたためです。また、御社が掲げる「従業員の成長を第一に」という理念に共感し、ここでなら長期的に自分も成長できると確信しました。',
-      answerDuration: '1分45秒',
-      axisLabels: ['主体性', '仕事への意欲'],
-      aiMemo: '意欲は伝わるが当社固有の魅力への言及がやや薄い',
-      followUp: {
-        question: '当社の理念に共感されたとのことですが、具体的にどのような点に最も共感されましたか？',
-        answer: '「従業員の成長を第一に」という点です。現職でもスタッフ育成に力を入れており、個別面談を月1回実施して成長計画を一緒に考えるなど、人の成長に寄り添う仕事にやりがいを感じています。御社ではそれが全社的な文化として根付いている点に強く共感しました。',
-        answerDuration: '1分20秒',
-      },
-    },
-    {
-      number: 3,
-      question: '最も成果を上げた経験を教えてください。',
-      answer: '人手不足で売上が低迷していた店舗に配属された際の経験です。まず現場のオペレーションを分析し、ボトルネックを特定しました。次に採用プロセスを見直し、求人媒体の選定から面接フローの改善まで主導した結果、3ヶ月で5名の採用に成功しました。同時にシフト最適化とマニュアル整備を進め、売上を前年比115%に改善することができました。',
-      answerDuration: '2分15秒',
-      axisLabels: ['論理的思考', '仕事への意欲'],
-      aiMemo: '課題→施策→結果の構造で語れており再現性が高い',
-      followUp: null,
-    },
-    {
-      number: 4,
-      question: '仕事で最も困難だった経験と、どう乗り越えたかを教えてください。',
-      answer: 'スタッフ間の人間関係のトラブルが発生し、退職者が出かけたことがありました。個別面談を実施して各自の不満を把握し、解決を図りました。',
-      answerDuration: '1分10秒',
-      axisLabels: ['課題対応力'],
-      aiMemo: 'エピソードはあるが行動と結果の説明が不足している',
-      followUp: {
-        question: '個別面談ではどのような点をヒアリングし、最終的にどのように解決に至りましたか？',
-        answer: '各スタッフに「現状で困っていること」「理想の職場環境」をヒアリングしました。結果、シフトの偏りと業務分担の不公平感が主因と判明したため、シフト作成基準を透明化し、業務チェックリストを作成しました。その後、退職希望者も翻意し、3ヶ月後にはチーム満足度が改善しました。',
-        answerDuration: '1分50秒',
-      },
-    },
-    {
-      number: 5,
-      question: '3〜5年後のキャリアプランを教えてください。',
-      answer: 'マネジメントのスキルをさらに磨き、将来的にはエリアマネージャーのような立場で複数店舗を統括したいと考えています。現場で培った経験を活かしつつ、より広い視野で組織運営に携わりたいです。',
-      answerDuration: '1分30秒',
-      axisLabels: ['成長可能性'],
-      aiMemo: '方向性は示しているが具体的なステップが不足',
-      followUp: null,
-    },
-  ],
-  // 録画再生タブ
-  recordingDuration: '25:30',
-  recordingAt: '2025-02-14 14:30',
-  // TODO: Phase 4 AIハイライトは面接分析APIから自動生成
-  highlights: [
-    { time: '03:12', label: '売上改善の実績を具体的な数値で説明', timestamp: '14:33:12' },
-    { time: '08:45', label: '採用プロセス改善の成功体験を詳述', timestamp: '14:38:45' },
-    { time: '18:20', label: '困難な状況への対応で回答に詰まる場面', timestamp: '14:48:20' },
-  ],
-}
 
 const STATUS_OPTIONS = [
   { value: 'pending', label: '未対応' },
@@ -281,6 +77,9 @@ type InterviewRow = {
   recording_url?: string | null
   total_questions?: number | null
   answered_questions?: number | null
+  duration_seconds?: number | null
+  end_reason?: string | null
+  is_billable?: boolean | null
 }
 
 type InterviewResultRow = {
@@ -358,6 +157,9 @@ export default function ApplicantDetailPage() {
   const [interview, setInterview] = useState<InterviewRow | null>(null)
   const [interviewResult, setInterviewResult] = useState<InterviewResultRow | null>(null)
   const [loading, setLoading] = useState(true)
+  // 利用計上表示用の demo 判定（DB 権威 companies.is_demo）。service-role API 経由（自社のみ・鍵は server）。
+  //   取得不能/未取得は false（安全側）。client の is_demo/query/mode は使わない。
+  const [isDemoCompany, setIsDemoCompany] = useState(false)
   // P3: 会話ログ（Transcript）。この応募者の最新 interview を browser Supabase(RLS) で取得。
   //   4状態（ready/empty/schema_pending/error）を区別。missing-schema のみ safe empty へ縮退。
   const [transcriptState, setTranscriptState] = useState<TranscriptFetchState>({ status: 'empty', items: [] })
@@ -423,6 +225,23 @@ export default function ApplicantDetailPage() {
     fetchApplicant()
   }, [id, supabase])
 
+  // 利用計上の demo 判定を DB 権威で取得（自社のみ・service-role API）。取得失敗は false（安全側）。
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/client/company-flags')
+        const json = await res.json().catch(() => null)
+        if (!cancelled && res.ok && json) setIsDemoCompany(json.is_demo === true)
+      } catch {
+        /* noop: demo 不明として false（利用計上は通常表示） */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // P3: 会話ログ取得。最新 interview の transcript を RLS(company_select_interview_transcripts)＋
   //   interview_id 絞り込みで取得（service-role をブラウザに出さない・companyId をブラウザから信用しない）。
   //   最小列のみ SELECT・seq 昇順。missing-schema/permission/unknown は resolveTranscriptFetchState が区別。
@@ -462,9 +281,6 @@ export default function ApplicantDetailPage() {
   }, [])
   const [selectionMemo, setSelectionMemo] = useState('')
   const [toast, setToast] = useState('')
-  // 録画再生タブ用
-  const [playbackSpeed, setPlaybackSpeed] = useState('1x')
-  const [subtitleEnabled, setSubtitleEnabled] = useState(true)
   // 共有タブ用
   const [shareEmail, setShareEmail] = useState('')
   const [shareMessage, setShareMessage] = useState('')
@@ -657,12 +473,13 @@ export default function ApplicantDetailPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <h2 className="text-lg font-bold text-red-900 mb-2">この応募者は面接を途中で離脱しました</h2>
-                  <p className="text-sm text-red-800 mb-4">面接が完了していないため、AI分析レポートは生成されていません。</p>
-                  
-                  {/* 離脱情報 */}
+                  {/* technical failure と本人都合を区別（本人がやめたと断定しない） */}
+                  <p className="text-sm text-red-800 mb-4">{aiEvaluationAbsenceMessage(interview?.status, interview?.end_reason)}</p>
+
+                  {/* 面接情報（既存データのみ・presentation 整形。回答進捗は null と 0 を区別） */}
                   {interview && (
-                    <div className="bg-white/60 rounded-xl p-4 space-y-3 border border-red-100">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                    <div className="bg-white/60 rounded-xl p-4 border border-red-100">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
                         <div>
                           <dt className="text-red-600 font-semibold mb-1">離脱日時</dt>
                           <dd className="text-slate-700">
@@ -672,27 +489,35 @@ export default function ApplicantDetailPage() {
                               day: '2-digit',
                               hour: '2-digit',
                               minute: '2-digit'
-                            }) : '-'}
+                            }) : '—'}
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-red-600 font-semibold mb-1">回答済み質問数</dt>
+                          <dt className="text-red-600 font-semibold mb-1">面接時間</dt>
                           <dd className="text-slate-700">
-                            {interview.answered_questions ?? 0} / {interview.total_questions ?? 0}問
+                            {formatInterviewDuration({
+                              durationSeconds: interview.duration_seconds,
+                              startedAt: interview.started_at,
+                              endedAt: interview.ended_at,
+                            }) ?? '—'}
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-red-600 font-semibold mb-1">面接経過時間</dt>
+                          <dt className="text-red-600 font-semibold mb-1">回答進捗</dt>
                           <dd className="text-slate-700">
-                            {interview.started_at && interview.ended_at ? (() => {
-                              const start = new Date(interview.started_at)
-                              const end = new Date(interview.ended_at)
-                              const diffMs = end.getTime() - start.getTime()
-                              const minutes = Math.floor(diffMs / 60000)
-                              const seconds = Math.floor((diffMs % 60000) / 1000)
-                              return `${minutes}分${seconds}秒`
-                            })() : '-'}
+                            {formatAnsweredProgress({ answered: interview.answered_questions, total: interview.total_questions })}
                           </dd>
+                          {!isAnsweredProgressAvailable({ answered: interview.answered_questions, total: interview.total_questions }) && (
+                            <p className="text-[11px] text-slate-400 mt-0.5">回答進捗データ未取得</p>
+                          )}
+                        </div>
+                        <div>
+                          <dt className="text-red-600 font-semibold mb-1">終了理由</dt>
+                          <dd className="text-slate-700">{endReasonLabel(interview.end_reason)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-red-600 font-semibold mb-1">利用計上</dt>
+                          <dd className="text-slate-700">{interviewBillingLabel(interview.is_billable, isDemoCompany)}</dd>
                         </div>
                       </div>
                     </div>
@@ -1213,143 +1038,16 @@ export default function ApplicantDetailPage() {
             </div>
           ) : (
             <>
-              {/* TODO: Phase 4 Cloudflare R2 から動画URLを取得して再生 */}
-              {/* 途中離脱の場合でもデータがあればプレーヤー表示、データがなければメッセージ表示 */}
-              {/* 現時点ではダミーデータを使用（将来的には interview.recording_url などを確認） */}
-              {interview?.recording_url || false ? ( // 将来的には recording_url の有無で判定（現時点では常にfalse）
-                <>
-                  {/* 動画プレイヤー */}
-                  <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 overflow-hidden">
-                    <div className="aspect-video bg-slate-900 flex items-center justify-center relative">
-                      {/* メイン映像エリア: 応募者の映像（ダミー） */}
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        {/* TODO: Phase 4 Cloudflare R2 から動画URLを取得して再生 */}
-                        <button
-                          type="button"
-                          className="w-20 h-20 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white transition-all focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-slate-900"
-                          aria-label="再生"
-                        >
-                          <PlayIcon className="w-10 h-10 ml-1" />
-                        </button>
-                      </div>
-                  
-                      {/* 左上の小窓: AI面接官アバター */}
-                      <div className="absolute top-4 left-4 z-10 w-40 h-30 rounded-lg border border-white/20 overflow-hidden bg-slate-800">
-                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-700 to-slate-600">
-                          <svg
-                            viewBox="0 0 100 100"
-                            className="w-full h-full"
-                            preserveAspectRatio="xMidYMid meet"
-                          >
-                            {/* 頭部 */}
-                            <circle cx="50" cy="35" r="22" fill="#E8D5B7" />
-                            {/* 胴体 */}
-                            <ellipse cx="50" cy="75" rx="30" ry="25" fill="#334155" />
-                            {/* 左目 */}
-                            <circle cx="42" cy="32" r="2.5" fill="#1E293B" />
-                            {/* 右目 */}
-                            <circle cx="58" cy="32" r="2.5" fill="#1E293B" />
-                            {/* 口（微笑み曲線） */}
-                            <path
-                              d="M 40 42 Q 50 48 60 42"
-                              stroke="#1E293B"
-                              strokeWidth="1.5"
-                              fill="none"
-                              strokeLinecap="round"
-                            />
-                          </svg>
-                        </div>
-                      </div>
-                      
-                      {subtitleEnabled && (
-                        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/70 text-white text-sm px-4 py-2 rounded-lg max-w-[80%] text-center z-20">
-                          これまでのご経歴を簡単に教えてください。
-                        </div>
-                      )}
-                    </div>
-                    {/* コントロールバー */}
-                    <div className="p-4 sm:p-5 border-t border-slate-200/80">
-                      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs text-slate-500 shrink-0">速度:</span>
-                          {['0.5x', '1x', '1.5x', '2x', '3x'].map((speed) => (
-                            <button
-                              key={speed}
-                              type="button"
-                              onClick={() => setPlaybackSpeed(speed)}
-                              className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors ${
-                                playbackSpeed === speed
-                                  ? 'bg-blue-600 text-white'
-                                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                              }`}
-                            >
-                              {speed}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-500">字幕:</span>
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={subtitleEnabled}
-                            onClick={() => setSubtitleEnabled(!subtitleEnabled)}
-                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors ${
-                              subtitleEnabled ? 'bg-blue-600' : 'bg-slate-300'
-                            }`}
-                          >
-                            <span
-                              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform mt-[3px] ${
-                                subtitleEnabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
-                              }`}
-                            />
-                          </button>
-                          <span className="text-xs text-slate-500">{subtitleEnabled ? 'ON' : 'OFF'}</span>
-                        </div>
-                        <div className="ml-auto text-xs text-slate-500">
-                          <span>{DUMMY.recordingDuration}</span>
-                          <span className="mx-1.5 text-slate-300">|</span>
-                          <span>{DUMMY.recordingAt}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* AIハイライトマーカー */}
-                  <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
-                    <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">AI ハイライト</h2>
-                    <p className="text-xs text-slate-400 mb-4">AIが自動検出した注目ポイント</p>
-                    <div className="space-y-3">
-                      {/* TODO: Phase 4 面接分析APIから自動生成 */}
-                      {DUMMY.highlights.map((hl, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          className="w-full flex items-start gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200/80 hover:bg-blue-50 hover:border-blue-200 transition-colors text-left group"
-                        >
-                          <span className="shrink-0 inline-flex items-center justify-center w-14 h-8 rounded-lg bg-blue-100 text-blue-700 text-xs font-bold tabular-nums group-hover:bg-blue-200 transition-colors">
-                            {hl.time}
-                          </span>
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-slate-800 group-hover:text-blue-700 transition-colors">{hl.label}</p>
-                            <p className="text-xs text-slate-400 mt-0.5 tabular-nums">{hl.timestamp}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                // データがない場合（途中離脱でデータがない場合も含む）
-                <div className="rounded-2xl bg-white border border-slate-200/80 p-8 shadow-sm text-center">
-                  <p className="text-slate-600">録画データはありません</p>
-                  <p className="text-sm text-slate-500 mt-2">
-                    {applicant?.status === '途中離脱'
-                      ? '面接が途中で終了したため、録画データが保存されていません。'
-                      : '録画データが保存されていません。'}
-                  </p>
-                </div>
-              )}
+              {/* 将来: Cloudflare R2 の録画URL（interview.recording_url）が入ったら再生プレーヤーを実装する。
+                  実データが無い間はダミー表示せず「録画データはありません」を出す（fake data fallback 廃止）。 */}
+              <div className="rounded-2xl bg-white border border-slate-200/80 p-8 shadow-sm text-center">
+                <p className="text-slate-600">録画データはありません</p>
+                <p className="text-sm text-slate-500 mt-2">
+                  {applicant?.status === '途中離脱'
+                    ? '面接が途中で終了したため、録画データが保存されていません。'
+                    : '録画データが保存されていません。'}
+                </p>
+              </div>
             </>
           )}
         </div>
