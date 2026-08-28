@@ -39,24 +39,20 @@ describe('classifyBackendStatus（backend の completed 検証）', () => {
   })
 })
 
-describe('resolveCompleteState（正常完了 / 中断の分岐）', () => {
-  it('1/2. backend completed ＋ 表示可能サマリー → completed（サマリー必須表示）', () => {
-    expect(resolveCompleteState({ backendStatus: 'completed', hasLocalSummary: true, hasDisplayableSummary: true })).toBe('completed')
-    expect(resolveCompleteState({ backendStatus: 'completed', hasLocalSummary: false, hasDisplayableSummary: true })).toBe('completed')
+describe('resolveCompleteState（backend 権威: 完了 / 中断 / 検証エラー / サマリーエラー）', () => {
+  it('9. backend completed ＋ 表示可能サマリー → completed（サマリー必須表示）', () => {
+    expect(resolveCompleteState({ backendStatus: 'completed', hasDisplayableSummary: true })).toBe('completed')
   })
-  it('7. sessionStorage 無し＋backend completed（復元可能）→ completed', () => {
-    expect(resolveCompleteState({ backendStatus: 'completed', hasLocalSummary: false, hasDisplayableSummary: true })).toBe('completed')
+  it('10. backend other（cancelled/in_progress 等）→ interrupted（/ended）', () => {
+    expect(resolveCompleteState({ backendStatus: 'other', hasDisplayableSummary: true })).toBe('interrupted')
+    expect(resolveCompleteState({ backendStatus: 'other', hasDisplayableSummary: false })).toBe('interrupted')
   })
-  it('8/9/10. backend が completed でない（cancelled/in_progress）→ interrupted（正常完了 UI を出さない）', () => {
-    expect(resolveCompleteState({ backendStatus: 'other', hasLocalSummary: true, hasDisplayableSummary: true })).toBe('interrupted')
-    expect(resolveCompleteState({ backendStatus: 'other', hasLocalSummary: false, hasDisplayableSummary: false })).toBe('interrupted')
+  it('11/12. backend unknown（通信失敗）→ verification_error（local summary があっても completed にしない・/ended へも飛ばさない）', () => {
+    expect(resolveCompleteState({ backendStatus: 'unknown', hasDisplayableSummary: true })).toBe('verification_error')
+    expect(resolveCompleteState({ backendStatus: 'unknown', hasDisplayableSummary: false })).toBe('verification_error')
   })
-  it('backend unknown（ネットワーク不能）: local summary あり → completed / 無し → interrupted', () => {
-    expect(resolveCompleteState({ backendStatus: 'unknown', hasLocalSummary: true, hasDisplayableSummary: true })).toBe('completed')
-    expect(resolveCompleteState({ backendStatus: 'unknown', hasLocalSummary: false, hasDisplayableSummary: false })).toBe('interrupted')
-  })
-  it('11. 正常完了でも表示できるサマリーが皆無 → 空の完了画面を出さず interrupted', () => {
-    expect(resolveCompleteState({ backendStatus: 'completed', hasLocalSummary: true, hasDisplayableSummary: false })).toBe('interrupted')
+  it('14. backend completed だが表示できるサマリーが皆無 → summary_error（interrupted とは区別）', () => {
+    expect(resolveCompleteState({ backendStatus: 'completed', hasDisplayableSummary: false })).toBe('summary_error')
   })
 })
 
@@ -114,6 +110,17 @@ describe('complete/page.tsx: 正常完了検証 / ヘッダー / honest / 実デ
     expect(PAGE).toContain('/ended')
     // completed 以外は正常完了 UI を描画しない（viewState ガード）
     expect(PAGE).toContain("viewState !== 'completed'")
+  })
+  it('12/14. verification_error / summary_error を安全エラー＋再試行で表示（/ended へ飛ばさない）', () => {
+    expect(PAGE).toContain("viewState === 'verification_error'")
+    expect(PAGE).toContain("viewState === 'summary_error'")
+    expect(PAGE).toContain('完了状態を確認できませんでした')
+    expect(PAGE).toContain('サマリー情報を取得できませんでした')
+    expect(PAGE).toContain('再確認する')
+    expect(PAGE).toContain('再取得する')
+    expect(PAGE).toContain('handleRetry')
+    // interrupted のときだけ /ended へ replace（error 状態では replace しない）
+    expect(PAGE).toMatch(/state === 'interrupted'[\s\S]{0,200}router\.replace/)
   })
   it('9/10. 中断時は「面接が完了しました」「面接完了」サマリーを描画しない（completed 時のみ本体）', () => {
     // 完了本体（見出し）が viewState==='completed' ガードの後に置かれている

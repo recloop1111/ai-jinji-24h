@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { Globe, Check, CheckCircle2, ClipboardList, Clock, MessageSquareText, Star } from 'lucide-react'
+import { Globe, Check, CheckCircle2, ClipboardList, Clock, MessageSquareText, Star, AlertCircle } from 'lucide-react'
 import { APP_NAME } from '@/constants'
 import {
   parseInterviewSummary,
@@ -39,10 +39,16 @@ export default function CompletePage() {
   const [companyName, setCompanyName] = useState<string>(resolveCompanyName(null))
   const [selectedLanguage, setSelectedLanguage] = useState('ja')
 
-  // 表示状態: loading（判定中）/ completed（正常完了）/ interrupted（中断→/ended へ退避）。
-  const [viewState, setViewState] = useState<'loading' | 'completed' | 'interrupted'>('loading')
+  // 表示状態:
+  //   loading           判定中（backend で completed を検証中）
+  //   completed         正常完了（backend completed 確認済み・サマリー表示可）
+  //   interrupted       backend が明確に completed 以外 → /ended へ退避
+  //   verification_error backend 未確認（通信失敗）→ 完了とも中断ともみなさず「再確認」
+  //   summary_error     backend completed だがサマリー取得不能 → 中断とは区別し「再取得」
+  const [viewState, setViewState] = useState<'loading' | 'completed' | 'interrupted' | 'verification_error' | 'summary_error'>('loading')
   const [minutes, setMinutes] = useState<number | null>(null)
   const [questions, setQuestions] = useState<number | null>(null)
+  const [retryNonce, setRetryNonce] = useState(0) // 「再確認する / 再取得する」で判定を再実行
 
   const [rating, setRating] = useState(0)
   const [hoverRating, setHoverRating] = useState(0)
@@ -127,27 +133,36 @@ export default function CompletePage() {
       }
       if (cancelled) return
 
+      // サマリー表示は backend completed 確認後のみ。local を優先し、無ければ backend 復元値。
       const displayMinutes = localMinutes ?? backendMinutes
       const displayQuestions = localQuestions ?? backendQuestions
       const state = resolveCompleteState({
         backendStatus,
-        hasLocalSummary: local !== null,
         hasDisplayableSummary: displayMinutes !== null || displayQuestions !== null,
       })
       if (state === 'interrupted') {
-        // 正常完了 UI を出さず、既存の中断画面へ退避（新規状態を作らない）。
+        // backend が明確に completed 以外 → 既存の中断画面へ退避（新規状態を作らない）。
         setViewState('interrupted')
         router.replace(`/interview/${slug}/ended`)
         return
       }
-      setMinutes(displayMinutes)
-      setQuestions(displayQuestions)
-      setViewState('completed')
+      if (state === 'completed') {
+        setMinutes(displayMinutes)
+        setQuestions(displayQuestions)
+      }
+      // verification_error（通信失敗）/ summary_error（完了だがサマリー欠損）は /ended へ飛ばさず安全エラー表示。
+      setViewState(state)
     })()
     return () => {
       cancelled = true
     }
-  }, [slug, router])
+  }, [slug, router, retryNonce])
+
+  // 「再確認する / 再取得する」: 完了検証（backend）を再実行（永遠 loading にせず必ず終端状態へ）。
+  function handleRetry() {
+    setViewState('loading')
+    setRetryNonce((n) => n + 1)
+  }
 
   const canSubmit = canSubmitRating({ rating, submitting, submitted })
 
@@ -200,6 +215,39 @@ export default function CompletePage() {
       </div>
     </header>
   )
+
+  // 検証エラー（通信失敗）/ サマリー取得エラー（完了だが summary 欠損）は安全エラー＋再試行を表示。
+  //   どちらも /ended へは飛ばさず、正常完了 UI も出さない（interrupted とは区別）。
+  if (viewState === 'verification_error' || viewState === 'summary_error') {
+    const isVerify = viewState === 'verification_error'
+    return (
+      <div className="min-h-screen bg-slate-100">
+        {header}
+        <main className="mx-auto max-w-xl px-4 py-16">
+          <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-[0_10px_40px_-24px_rgba(15,23,42,0.25)]">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-50 ring-1 ring-amber-100">
+              <AlertCircle className="h-7 w-7 text-amber-500" aria-hidden="true" />
+            </div>
+            <h1 className="mt-5 text-xl font-bold tracking-tight text-slate-900">
+              {isVerify ? '完了状態を確認できませんでした' : '面接は完了しています'}
+            </h1>
+            <p className="mt-3 text-sm leading-relaxed text-slate-500">
+              {isVerify
+                ? '通信状況をご確認のうえ、もう一度お試しください。'
+                : 'サマリー情報を取得できませんでした。もう一度お試しください。'}
+            </p>
+            <button
+              type="button"
+              onClick={handleRetry}
+              className="mt-6 inline-flex min-h-[48px] w-full items-center justify-center rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/40"
+            >
+              {isVerify ? '再確認する' : '再取得する'}
+            </button>
+          </div>
+        </main>
+      </div>
+    )
+  }
 
   // 判定中 / 中断（/ended へ遷移中）は正常完了 UI を描画しない（空の完了画面を出さない）。
   if (viewState !== 'completed') {

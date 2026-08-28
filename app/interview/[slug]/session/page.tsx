@@ -18,6 +18,7 @@ import {
 import { computeQuestionProgress, turnHintForPhase } from '@/lib/interview/questionProgress'
 import { shouldShowAnswerCompleteFallback } from '@/lib/interview/session-answer-signal'
 import { buildInterviewSummary, serializeSummary, summaryStorageKey } from '@/lib/interview/completeSummary'
+import { classifyEndResponse } from '@/lib/interview/end-finalize'
 import {
   isGetUserMediaSupported,
   stopStream,
@@ -76,6 +77,14 @@ export default function SessionPage() {
   const [totalQuestions, setTotalQuestions] = useState(0)
   const [answeredQuestions, setAnsweredQuestions] = useState(0)
   const [isEnding, setIsEnding] = useState(false)
+  // 正常完了の /end 確定失敗（通信不能/!ok/final_status 欠落）: 面接自体は終えているため「中断」ではなく
+  //   「終了データ確定失敗」として blocking 表示し、やり直しさせず同一 payload で再送信させる。
+  const [endError, setEndError] = useState<string | null>(null)
+  const [endRetrying, setEndRetrying] = useState(false)
+  const pendingEndRef = useRef<{
+    payload: Record<string, unknown>
+    summary: { interviewId: string; durationSeconds: number; questionCount: number }
+  } | null>(null)
   // start / questions が失敗した場合のブロッキングエラー（面接UIを描画させない）
   const [blockingError, setBlockingError] = useState<string | null>(null)
   const [questionList, setQuestionList] = useState<string[]>([])
@@ -897,6 +906,47 @@ export default function SessionPage() {
     }
   }, [interviewId, applicantId, elapsedSeconds, totalQuestions, answeredQuestions, isEnding, slug, blockingError])
 
+  // 正常完了の終了確定: /end を送り、final_status==='completed' を確認してから summary を確定し complete へ。
+  //   失敗（通信不能/!ok/final_status 欠落）は complete にも /ended にも進めず、blocking error＋再送信にする。
+  //   retry は同一 interview_id / 同一 payload（/end は冪等・already_finalized）。response ロスト後の retry でも
+  //   already_finalized=true＋final_status='completed' なら正常完了として復旧（二重保存しない）。
+  const finalizeCompletion = useCallback(async () => {
+    const pending = pendingEndRef.current
+    if (!pending) return
+    setEndRetrying(true)
+    setEndError(null)
+    try {
+      const res = await fetch(`/api/interview/${slug}/end`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pending.payload),
+      })
+      const json = await res.json().catch(() => null)
+      const outcome = classifyEndResponse({ ok: res.ok, finalStatus: json?.final_status })
+      if (outcome === 'completed') {
+        // 正常完了確定 → summary を確定して complete フローへ（uploading 経由）。
+        try {
+          sessionStorage.setItem(summaryStorageKey(slug), serializeSummary(buildInterviewSummary(pending.summary)))
+        } catch {
+          /* summary 保存失敗は完了遷移に影響させない（complete 側で backend 復元） */
+        }
+        router.push(`/interview/${slug}/uploading`)
+        return
+      }
+      if (outcome === 'not_completed') {
+        // 他経路で completed 以外（cancelled 等）に確定済み → 正常完了扱いしない。中断画面へ。
+        router.push(`/interview/${slug}/ended`)
+        return
+      }
+      // retryable: 終了データ確定失敗。やり直しさせず再送信を促す（面接内容は保持）。
+      setEndError('面接内容は保持されています。\n通信状況をご確認のうえ、もう一度お試しください。')
+    } catch {
+      setEndError('面接内容は保持されています。\n通信状況をご確認のうえ、もう一度お試しください。')
+    } finally {
+      setEndRetrying(false)
+    }
+  }, [slug, router])
+
   // answeredOverride: 自動完了時など、最新の回答数をクロージャの古い値ではなく明示的に渡すための上書き。
   async function handleEndInterview(
     endReason: '全質問完了' | '時間切れ' | '自主終了' = '自主終了',
@@ -923,64 +973,55 @@ export default function SessionPage() {
       realtimeRef.current = null
     }
 
-    // 面接終了: interviewsテーブルをUPDATE
+    // 面接終了: interviews / applicants の status を確定する
     if (interviewId && applicantId) {
-      try {
-        // 送信する回答数（自動完了は確定値を渡す。古いクロージャ値で 0 を送らないため）。
-        const answeredForPayload = answeredOverride ?? answeredQuestions
-        // 全質問完了かどうかを判定（回答済み質問数が全質問数以上の場合）
-        const isAllQuestionsAnswered = answeredForPayload >= totalQuestions && totalQuestions > 0
-        const finalEndReason = endReason === '全質問完了' || (endReason === '時間切れ' && isAllQuestionsAnswered)
-          ? '全質問完了'
-          : endReason === '時間切れ'
-          ? '時間切れ'
-          : '自主終了'
-        // 正常完了（全質問完了）のみ completed。途中終了（自主終了・未完答の時間切れ）は cancelled。
-        const interviewStatus = finalEndReason === '全質問完了' ? 'completed' : 'cancelled'
+      // 送信する回答数（自動完了は確定値を渡す。古いクロージャ値で 0 を送らないため）。
+      const answeredForPayload = answeredOverride ?? answeredQuestions
+      // 全質問完了かどうかを判定（回答済み質問数が全質問数以上の場合）
+      const isAllQuestionsAnswered = answeredForPayload >= totalQuestions && totalQuestions > 0
+      const finalEndReason = endReason === '全質問完了' || (endReason === '時間切れ' && isAllQuestionsAnswered)
+        ? '全質問完了'
+        : endReason === '時間切れ'
+        ? '時間切れ'
+        : '自主終了'
+      const isNormalCompletion = finalEndReason === '全質問完了' || (finalEndReason === '時間切れ' && isAllQuestionsAnswered)
+      // 正常完了（全質問完了）のみ completed。途中終了（自主終了・未完答の時間切れ）は cancelled。
+      const interviewStatus: 'completed' | 'cancelled' = isNormalCompletion ? 'completed' : 'cancelled'
 
-        // 面接終了は service-role API（token検証）で interviews / applicants の status を確定する
-        const endToken = sessionStorage.getItem(`interview_${slug}_token`)
-        await fetch(`/api/interview/${slug}/end`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            token: endToken,
-            applicant_id: applicantId,
-            interview_id: interviewId,
-            final_status: interviewStatus,
-            end_reason: finalEndReason,
-            duration_seconds: elapsedSeconds,
-            total_questions: totalQuestions,
-            answered_questions: answeredForPayload,
-          }),
-        }).catch(() => {})
+      // 面接終了は service-role API（token検証）で interviews / applicants の status を確定する
+      const endToken = sessionStorage.getItem(`interview_${slug}_token`)
+      const endPayload = {
+        token: endToken,
+        applicant_id: applicantId,
+        interview_id: interviewId,
+        final_status: interviewStatus,
+        end_reason: finalEndReason,
+        duration_seconds: elapsedSeconds,
+        total_questions: totalQuestions,
+        answered_questions: answeredForPayload,
+      }
 
-        // 終了理由に応じて画面遷移を分岐
-        // 全質問完了または時間切れ（全質問回答済み）→ 完了画面へ
-        // それ以外（自主終了、時間切れで未完了）→ 途中終了画面へ
-        if (finalEndReason === '全質問完了' || (finalEndReason === '時間切れ' && isAllQuestionsAnswered)) {
-          // Phase I-4: 正常完了時のみ complete 画面用の実データ summary を保存（新API/DB不要）。
-          // interview_id を含めて別面接/stale の誤表示を防ぐ。質問数は totalQuestions（設問数＝Realtime でも
-          // 虚偽にならない）。所要時間は elapsedSeconds。complete が interview_id 一致時だけ使用する。
-          try {
-            // 陳腐化しない ref から最新の経過秒・質問数を取る（stale closure 対策）。
-            const summary = buildInterviewSummary({
-              interviewId,
-              durationSeconds: elapsedRef.current,
-              questionCount: totalQuestionsRef.current,
-            })
-            sessionStorage.setItem(summaryStorageKey(slug), serializeSummary(summary))
-          } catch {
-            /* noop: summary 保存失敗は完了遷移に影響させない */
-          }
-          // TODO: Cloudflare R2に録画保存
-          router.push(`/interview/${slug}/uploading`)
-        } else {
-          // 途中離脱の場合は途中終了画面へ
-          router.push(`/interview/${slug}/ended`)
+      if (isNormalCompletion) {
+        // 正常完了: /end の成功（final_status==='completed'）を確認してから complete へ。
+        //   失敗は「面接中断」ではなく「終了データ確定失敗」＝blocking error＋再送信（finalizeCompletion）。
+        //   summary は完了確定後に保存する（質問数は totalQuestions＝設問数・所要は elapsedRef。stale closure 回避）。
+        pendingEndRef.current = {
+          payload: endPayload,
+          summary: { interviewId, durationSeconds: elapsedRef.current, questionCount: totalQuestionsRef.current },
         }
-      } catch {
-        // エラー時も途中終了画面へ遷移（安全側に倒す）
+        // TODO: Cloudflare R2に録画保存
+        await finalizeCompletion()
+      } else {
+        // 途中終了（cancelled）: best-effort で確定し中断画面へ（従来どおり・失敗しても /ended）。
+        try {
+          await fetch(`/api/interview/${slug}/end`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(endPayload),
+          }).catch(() => {})
+        } catch {
+          /* noop: 中断確定の失敗は /ended 遷移に影響させない */
+        }
         router.push(`/interview/${slug}/ended`)
       }
     } else {
@@ -1001,6 +1042,32 @@ export default function SessionPage() {
           </div>
           <h2 className="text-lg font-bold text-gray-800">面接を開始できませんでした</h2>
           <p className="text-sm text-gray-600 whitespace-pre-line">{blockingError}</p>
+        </div>
+      </div>
+    )
+  }
+
+  // 正常完了の終了確定（/end）が通信失敗等で確定できなかった場合: 面接自体は最後まで終えているため
+  //   「中断」ではなく「終了データ確定失敗」として blocking 表示し、やり直しさせず同一 payload で再送信させる。
+  if (endError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center px-6">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center space-y-4">
+          <div className="mx-auto w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center">
+            <svg className="w-6 h-6 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3.75h.008M10.34 3.94l-7.5 12.99A1.5 1.5 0 004.14 19.5h15.72a1.5 1.5 0 001.3-2.25l-7.5-12.99a1.5 1.5 0 00-2.6 0z" />
+            </svg>
+          </div>
+          <h2 className="text-lg font-bold text-gray-800">面接の終了処理を完了できませんでした</h2>
+          <p className="text-sm text-gray-600 whitespace-pre-line">{endError}</p>
+          <button
+            type="button"
+            onClick={() => finalizeCompletion()}
+            disabled={endRetrying}
+            className="mt-2 inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+          >
+            {endRetrying ? '再送信中…' : '再送信する'}
+          </button>
         </div>
       </div>
     )

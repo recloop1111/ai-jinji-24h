@@ -16,10 +16,10 @@ export function canSubmitRating(input: { rating: number; submitting: boolean; su
   return input.rating >= 1 && input.rating <= 5 && !input.submitting && !input.submitted
 }
 
-// ── 正常完了 / 中断の分岐（backend の interviews.status を最優先） ──────────────
-//   normal complete UI は「正式に completion が成立した」ときだけ表示する。
-//   「面接画面を離れた」だけでは表示しない。sessionStorage を唯一の真実にしない（refresh/直アクセスで消える）。
-export type CompleteState = 'loading' | 'completed' | 'interrupted'
+// ── 正常完了 / 中断 / 検証エラー の分岐（backend の interviews.status を「完了」の唯一の権威にする） ──
+//   normal complete UI は「backend で completed を確認できた」ときだけ表示する。
+//   sessionStorage summary は表示データの cache/fallback であって、「完了した事実」の Source of Truth にしない。
+export type CompleteState = 'loading' | 'completed' | 'interrupted' | 'verification_error' | 'summary_error'
 export type BackendStatusClass = 'completed' | 'other' | 'unknown'
 
 // backend summary API 応答を分類。ok かつ status==='completed' のときだけ completed。
@@ -29,20 +29,18 @@ export function classifyBackendStatus(input: { ok: boolean; status: string | nul
   return input.status === 'completed' ? 'completed' : 'other'
 }
 
-// 表示すべき状態を決定。
-//   - backend が completed → 完了（backend が唯一の権威）。
-//   - backend が other（明示的に未完了）→ 中断（正常完了 UI を出さない）。
-//   - backend unknown（ネットワーク不能/未確認）→ ローカル summary があれば完了扱い、無ければ中断。
-//   さらに完了でも表示できるサマリー（面接時間・質問数のいずれか）が全く無い場合は中断へ倒す
-//   （空の正常完了画面を出さない）。
+// 表示すべき状態を決定（backend 権威）。
+//   - backend completed → 完了。ただし表示できるサマリーが皆無なら summary_error（中断とは区別する）。
+//   - backend other（明示的に completed 以外の terminal/進行中）→ 中断（/ended）。
+//   - backend unknown（通信失敗/未確認）→ verification_error（完了ともみなさず /ended へも飛ばさない・再確認）。
+//     ※ local summary があっても unknown で「面接が完了しました」を表示しない（完了は backend でのみ確定）。
 export function resolveCompleteState(input: {
   backendStatus: BackendStatusClass
-  hasLocalSummary: boolean
   hasDisplayableSummary: boolean
 }): CompleteState {
-  const completed =
-    input.backendStatus === 'completed' || (input.backendStatus === 'unknown' && input.hasLocalSummary)
-  if (!completed) return 'interrupted'
-  // 正常完了でも表示できるサマリーが皆無なら、空の完了画面を出さず中断（safe）へ。
-  return input.hasDisplayableSummary ? 'completed' : 'interrupted'
+  if (input.backendStatus === 'completed') {
+    return input.hasDisplayableSummary ? 'completed' : 'summary_error'
+  }
+  if (input.backendStatus === 'other') return 'interrupted'
+  return 'verification_error'
 }
