@@ -19,6 +19,7 @@ import { computeQuestionProgress, turnHintForPhase } from '@/lib/interview/quest
 import { shouldShowAnswerCompleteFallback } from '@/lib/interview/session-answer-signal'
 import { buildInterviewSummary, serializeSummary, summaryStorageKey } from '@/lib/interview/completeSummary'
 import { classifyEndResponse } from '@/lib/interview/end-finalize'
+import { resolveEndOutcome, type EndTrigger } from '@/lib/interview/end-reason'
 import {
   isGetUserMediaSupported,
   stopStream,
@@ -114,7 +115,7 @@ export default function SessionPage() {
   // その場合はローカル再接続 UI を出さず、無音送出のまま継続させず「途中終了」で終了する（PR-11 の切断→終了と整合）。
   const modeRef = useRef<SessionMode>('connecting')
   const endInterviewRef = useRef<
-    ((endReason?: '全質問完了' | '時間切れ' | '自主終了', answeredOverride?: number) => void) | null
+    ((endReason?: EndTrigger, answeredOverride?: number) => void) | null
   >(null)
   // Codex P2: mode と modeRef をアトミックに更新する統一ラッパ。全ての mode 遷移はこれ経由にする
   //（setModeState を直接呼ばない）。modeRef.current を先に同期更新してから React state を更新するため、
@@ -713,15 +714,15 @@ export default function SessionPage() {
           },
           // 追加P1/P2（Codex）: OpenAI の server error（{type:'error'}）を surface する。多くは recoverable
           // でセッション継続のため終了しない。terminal（session_expired 等・セッション終了）のときだけ、
-          // 無音放置を避けるため切断と同様に面接を終了する（realtime 終了は '自主終了'＝途中離脱。
-          // 二重 /end は endTriggeredRef で防止）。
+          // 無音放置を避けるため面接を終了する。**これは技術的失敗であり応募者の自主終了ではない**ため
+          // 'disconnected'（technical_failure・非課金）で終了する。二重 /end は endTriggeredRef で防止。
           onServerError: (info) => {
-            if (info.terminal) handleEndInterview('自主終了', answeredRef.current)
+            if (info.terminal) handleEndInterview('disconnected', answeredRef.current)
           },
           onDisconnect: () => {
             // P2-a: 確立後の切断は終了処理へ（モックへ戻さず・ハングさせない）。二重終了は endTriggeredRef で防止。
-            // 最新の回答数は ref から渡す（クロージャの answeredQuestions は陳腐化し 0/N になり得るため）。
-            handleEndInterview('自主終了', answeredRef.current)
+            // **接続切断は技術的失敗であり自主終了ではない** → 'disconnected'（technical_failure・非課金）で /end。
+            handleEndInterview('disconnected', answeredRef.current)
           },
         },
       })
@@ -949,7 +950,7 @@ export default function SessionPage() {
 
   // answeredOverride: 自動完了時など、最新の回答数をクロージャの古い値ではなく明示的に渡すための上書き。
   async function handleEndInterview(
-    endReason: '全質問完了' | '時間切れ' | '自主終了' = '自主終了',
+    endReason: EndTrigger = '自主終了',
     answeredOverride?: number,
   ) {
     // ref で同期的に二重 /end を弾く（自動完了・手動終了・時間切れが競合しても1回だけ送る）。
@@ -976,17 +977,15 @@ export default function SessionPage() {
     // 面接終了: interviews / applicants の status を確定する
     if (interviewId && applicantId) {
       // 送信する回答数（自動完了は確定値を渡す。古いクロージャ値で 0 を送らないため）。
+      //   ※ 課金は server 側で server-authoritative に算出する（/end）。ここで送る answered/total は
+      //     課金 SoT には使われない（/end は questions_snapshot / interview_progress を使用）。
       const answeredForPayload = answeredOverride ?? answeredQuestions
-      // 全質問完了かどうかを判定（回答済み質問数が全質問数以上の場合）
-      const isAllQuestionsAnswered = answeredForPayload >= totalQuestions && totalQuestions > 0
-      const finalEndReason = endReason === '全質問完了' || (endReason === '時間切れ' && isAllQuestionsAnswered)
-        ? '全質問完了'
-        : endReason === '時間切れ'
-        ? '時間切れ'
-        : '自主終了'
-      const isNormalCompletion = finalEndReason === '全質問完了' || (finalEndReason === '時間切れ' && isAllQuestionsAnswered)
-      // 正常完了（全質問完了）のみ completed。途中終了（自主終了・未完答の時間切れ）は cancelled。
-      const interviewStatus: 'completed' | 'cancelled' = isNormalCompletion ? 'completed' : 'cancelled'
+      // 終了トリガー → {DB end_reason, final_status, 正常完了か} を pure helper で一貫解決。
+      //   時間切れ=時間上限まで提供＝completed（正常完了・課金対象）／disconnected=technical（cancelled・非課金）／
+      //   自主終了=applicant_exit（cancelled）。全質問完了=completed。
+      const outcome = resolveEndOutcome(endReason)
+      const isNormalCompletion = outcome.isNormalCompletion
+      const interviewStatus = outcome.finalStatus
 
       // 面接終了は service-role API（token検証）で interviews / applicants の status を確定する
       const endToken = sessionStorage.getItem(`interview_${slug}_token`)
@@ -995,7 +994,7 @@ export default function SessionPage() {
         applicant_id: applicantId,
         interview_id: interviewId,
         final_status: interviewStatus,
-        end_reason: finalEndReason,
+        end_reason: outcome.endReason,
         duration_seconds: elapsedSeconds,
         total_questions: totalQuestions,
         answered_questions: answeredForPayload,
