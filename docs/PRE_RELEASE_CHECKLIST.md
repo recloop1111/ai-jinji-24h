@@ -99,7 +99,7 @@ RLSハードニング（Phase 1〜2-e）完了時点の本番前確認・棚卸�
 - [ ] session で面接開始（`start` API・interviews=in_progress 作成）
 - [ ] session で質問が表示される（`questions` API・job_questions）。※現状は**先頭1問のみ表示のモック**（質問ラリーは未実装＝下記 §2）
 - [ ] 面接終了（`end` API）で interviews=completed、`applicants.status='完了'`、is_billable=正式課金仕様（completed は必ず true／applicant_exit は duration>=180s かつ(main50%以上 or duration>=480s)／technical・system・forced・孤児は false。旧「10分超」は廃止・superseded）
-- [ ] 途中離脱（タブ閉じ/明示終了）で interviews=cancelled、`applicants.status='途中離脱'`＋result='不採用'
+- [ ] 途中離脱（タブ閉じ/明示終了）で interviews=cancelled、`applicants.status='途中離脱'`（**result は自動設定しない**＝途中離脱≠不採用。部分回答/transcript/progress は削除せず保持）
 - [ ] 満足度送信（`satisfaction` API・1〜5）で `applicants.satisfaction_rating` 保存
 - [ ] 質問スナップショット（`snapshot` API・in_progress時）で `interviews.questions_snapshot` 保存
 

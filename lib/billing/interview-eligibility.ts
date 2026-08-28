@@ -9,8 +9,9 @@
 
 // 終了理由の論理分類（既存 end_reason 値からの mapping。新しい DB enum は増やさない）。
 export type TerminationCategory =
-  | 'completed' // 正常完了
-  | 'applicant_exit' // 応募者本人による途中離脱/時間切れ（本人がサービスを利用した）
+  | 'completed' // 正常完了（全質問完了）
+  | 'time_limit' // 設定面接時間の上限まで正常に面接を提供した（時間切れ/timeout）＝サービス提供済み
+  | 'applicant_exit' // 応募者本人による途中離脱（本人が途中でやめた）。課金は duration/回答率で別途判定
   | 'technical_failure' // 切断など技術的失敗
   | 'system_failure' // サーバ/システム失敗
   | 'forced_termination' // 不適切行為等による system 側強制終了
@@ -18,11 +19,13 @@ export type TerminationCategory =
 
 // {final_status, end_reason} → 分類。end_reason は既存 CHECK 許可値
 //   （completed/user_ended/timeout/silence/inappropriate/disconnected/browser_closed/全質問完了/時間切れ/自主終了）。
+//   ※ 時間切れ/timeout は「面接時間の上限まで提供」＝time_limit（サービス提供済み＝課金）。applicant_exit とは区別する。
 export function classifyTermination(input: { finalStatus: string | null | undefined; endReason: string | null | undefined }): TerminationCategory {
   if (input.finalStatus === 'completed') return 'completed'
   const r = (input.endReason ?? '').trim()
-  // 応募者本人が利用したうえでの離脱/時間切れ（present して離脱・満了）。実際に課金するかは duration/回答率で別途判定。
-  if (['自主終了', 'user_ended', 'browser_closed', '時間切れ', 'timeout', 'silence'].includes(r)) return 'applicant_exit'
+  if (['時間切れ', 'timeout'].includes(r)) return 'time_limit' // 面接時間を最後まで提供＝正常提供
+  // 応募者本人が途中でやめた（present していて離脱）。課金は duration/回答率ゲートで別途判定。
+  if (['自主終了', 'user_ended', 'browser_closed', 'silence'].includes(r)) return 'applicant_exit'
   if (r === 'inappropriate') return 'forced_termination'
   if (r === 'disconnected') return 'technical_failure'
   // final_status='cancelled' で理由が null/不明 → 本人利用の確証がないため unknown（非課金）。
@@ -47,8 +50,8 @@ export function computeIsBillable(input: {
   answeredMainQuestions: number | null | undefined
   totalMainQuestions: number | null | undefined
 }): boolean {
-  // A. 正常完了は面接時間・質問数に関係なく必ず課金。
-  if (input.category === 'completed') return true
+  // A. 正常完了／面接時間の上限まで提供（time_limit）は、面接時間・質問数に関係なく必ず課金。
+  if (input.category === 'completed' || input.category === 'time_limit') return true
   // C. 応募者本人の途中離脱以外（technical/system/forced/unknown）は課金しない。
   if (input.category !== 'applicant_exit') return false
 

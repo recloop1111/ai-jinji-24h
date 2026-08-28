@@ -17,15 +17,29 @@ describe('classifyTermination（終了理由の論理分類）', () => {
   it('completed', () => {
     expect(classifyTermination({ finalStatus: 'completed', endReason: '全質問完了' })).toBe('completed')
   })
-  it('applicant_exit（自主終了/時間切れ/browser_closed 等）', () => {
+  it('11. applicant_exit（自主終了/user_ended/browser_closed）', () => {
     expect(classifyTermination({ finalStatus: 'cancelled', endReason: '自主終了' })).toBe('applicant_exit')
-    expect(classifyTermination({ finalStatus: 'cancelled', endReason: '時間切れ' })).toBe('applicant_exit')
+    expect(classifyTermination({ finalStatus: 'cancelled', endReason: 'user_ended' })).toBe('applicant_exit')
     expect(classifyTermination({ finalStatus: 'cancelled', endReason: 'browser_closed' })).toBe('applicant_exit')
   })
-  it('technical / forced / unknown', () => {
+  it('13. 時間切れ/timeout → time_limit（面接時間を最後まで提供＝applicant_exit ではない）', () => {
+    expect(classifyTermination({ finalStatus: 'cancelled', endReason: '時間切れ' })).toBe('time_limit')
+    expect(classifyTermination({ finalStatus: 'cancelled', endReason: 'timeout' })).toBe('time_limit')
+  })
+  it('12. silence → applicant_exit（本人 inactivity による途中終了・現状 session は未送出）', () => {
+    expect(classifyTermination({ finalStatus: 'cancelled', endReason: 'silence' })).toBe('applicant_exit')
+  })
+  it('14. technical / forced / unknown', () => {
     expect(classifyTermination({ finalStatus: 'cancelled', endReason: 'disconnected' })).toBe('technical_failure')
     expect(classifyTermination({ finalStatus: 'cancelled', endReason: 'inappropriate' })).toBe('forced_termination')
     expect(classifyTermination({ finalStatus: 'cancelled', endReason: null })).toBe('unknown')
+  })
+})
+
+describe('time_limit（面接時間の上限まで提供）は必ず課金', () => {
+  it('13. time_limit → 面接時間・質問数に関係なく true', () => {
+    expect(computeIsBillable({ category: 'time_limit', durationSeconds: min(3), answeredMainQuestions: 0, totalMainQuestions: 10 })).toBe(true)
+    expect(computeIsBillable({ category: 'time_limit', durationSeconds: min(15), answeredMainQuestions: null, totalMainQuestions: null })).toBe(true)
   })
 })
 
@@ -106,26 +120,49 @@ describe('computeIsBillable（正式仕様の網羅）', () => {
   })
 })
 
-describe('end/route.ts: server-side 判定・client is_billable 非依存・冪等・部分データ保存', () => {
+describe('end/route.ts: server-authoritative 判定・client 値非依存・冪等・部分データ保存・不採用自動化なし', () => {
   const END = readFileSync(join(process.cwd(), 'app/api/interview/[slug]/end/route.ts'), 'utf8')
   it('新 billing pure logic（computeIsBillable/classifyTermination）を使用し、旧 >600 を撤去', () => {
     expect(END).toContain('computeIsBillable')
     expect(END).toContain('classifyTermination')
     expect(END).not.toContain('durationSeconds > 600')
   })
+  it('1/2. answered/total は server 解決（snapshot / interview_progress）で、課金判定に client body を使わない', () => {
+    expect(END).toContain('questions_snapshot')
+    expect(END).toContain('interview_progress')
+    expect(END).toContain('restoreProgress')
+    expect(END).toContain('serverTotalMain')
+    expect(END).toContain('serverAnsweredMain')
+    // computeIsBillable / DB 保存とも body.answered_questions / body.total_questions を渡さない
+    expect(END).not.toContain('body.answered_questions')
+    expect(END).not.toContain('body.total_questions')
+  })
+  it('3/4. server progress 取得不能時は client 値へ fallback せず null（＝50%不使用・8分ルールのみ）', () => {
+    // 取得失敗は serverAnsweredMain = null（catch）。client への silent fallback が無い。
+    expect(END).toMatch(/catch[\s\S]{0,120}serverAnsweredMain = null/)
+  })
+  it('5/6. DB 保存も server-resolved / normalized 値（answered は total にクランプ・client raw 非保存）', () => {
+    expect(END).toContain('total_questions: serverTotalMain')
+    expect(END).toContain('answered_questions: serverAnsweredMain')
+  })
   it('duration は server 算出（started_at 由来）を課金判定に使う', () => {
     expect(END).toContain('started_at')
     expect(END).toMatch(/durationSeconds\s*=/)
   })
-  it('冪等: in_progress のときだけ確定（already_finalized で二重課金しない）', () => {
+  it('15/18. 冪等: in_progress のときだけ確定（already_finalized で二重課金しない）', () => {
     expect(END).toContain("interview.status !== 'in_progress'")
     expect(END).toContain('already_finalized')
     expect(END).toContain("status', 'in_progress')")
   })
-  it('部分データ保存: cancelled でも duration/total/answered/end_reason を保存（削除しない）', () => {
-    expect(END).toContain('total_questions')
-    expect(END).toContain('answered_questions')
-    expect(END).toContain('duration_seconds')
+  it('16. 部分データ保存: cancelled でも duration/total/answered/end_reason を保存（削除しない）', () => {
+    expect(END).toContain('total_questions:')
+    expect(END).toContain('answered_questions:')
+    expect(END).toContain('duration_seconds:')
     expect(END).not.toContain('.delete(')
+  })
+  it('7/8/9. 途中離脱は status=途中離脱・result=不採用 を自動設定しない（既存 result を上書きしない）', () => {
+    expect(END).toContain("'途中離脱'")
+    expect(END).not.toContain("applicantUpdate.result = '不採用'")
+    expect(END).not.toContain("result: '不採用'")
   })
 })

@@ -301,7 +301,7 @@ POST /api/interview/[slug]/end
 **検証/処理:**
 - token（slug/applicant_id）・company（停止中403）・applicant（company一致）・interview（applicant一致）。
 - 対象 interview を `status=final_status`・`ended_at`・`duration_seconds`・`total_questions`・`answered_questions`・`end_reason`・**`is_billable`（正式仕様・旧 INT-009「`duration_seconds > 600`＝10分超」は廃止/superseded）** で確定。is_billable は server-side 純ロジック `lib/billing/interview-eligibility.ts`：completed は必ず課金／applicant_exit は `duration>=180s` かつ(main質問50%以上〔ceil〕 or `duration>=480s`)／technical・system・forced・孤児は非課金。duration は server 算出（started_at 由来・client 値/`is_billable` は信用しない）。
-- **applicants.status をサーバ確定**: `completed`→`'完了'`／`cancelled`→`'途中離脱'`（＋`result='不採用'`）。
+- **applicants.status をサーバ確定**: `completed`→`'完了'`／`cancelled`→`'途中離脱'`。**`result` は自動設定しない**（途中離脱は面接状態であり選考結果ではない。`result` CHECK=`('未対応','検討中','二次通過','不採用')`・既存値を上書きしない。企業が部分回答を見て後から判断）。
 - 同一 applicant の他の `in_progress` interview を **`cancelled`** 化。
 
 **レスポンス（200）:**
