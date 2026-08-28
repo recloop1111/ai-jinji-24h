@@ -5,6 +5,7 @@ import { isValidUUID } from '@/lib/api/validation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifySettingPassword } from '@/lib/security/setting-password'
 import { applyNextMonthLimit, jstFirstOfNextMonthDate, jstCurrentMonthStartIso } from '@/lib/companies/applyNextMonthLimit'
+import { billableUsageCount } from '@/lib/billing/demo-exclusion'
 
 export async function GET(
   _request: NextRequest,
@@ -83,7 +84,7 @@ export async function GET(
         monthly_interview_limit: applied.monthly_interview_limit,
         next_month_interview_limit: applied.next_month_interview_limit,
         next_month_limit_effective_month: applied.next_month_limit_effective_month,
-        monthly_interview_count_actual: monthlyCount ?? 0,
+        monthly_interview_count_actual: billableUsageCount(monthlyCount, company.is_demo),
       },
       job_types: jobTypes ?? [],
     })
@@ -184,8 +185,11 @@ export async function PATCH(
         .eq('is_billable', true)
         .gte('created_at', monthStart)
 
-      if (newLimit < (monthlyCount ?? 0)) {
-        return apiError('VALIDATION_ERROR', `当月利用人数（${monthlyCount}件）未満には設定できません`)
+      // 正式仕様: DB 権威 is_demo=true は利用量から除外（当月利用人数=0）。
+      const { data: demoRow } = await supabase.from('companies').select('is_demo').eq('id', id).maybeSingle()
+      const usage = billableUsageCount(monthlyCount, demoRow?.is_demo)
+      if (newLimit < usage) {
+        return apiError('VALIDATION_ERROR', `当月利用人数（${usage}件）未満には設定できません`)
       }
     }
 

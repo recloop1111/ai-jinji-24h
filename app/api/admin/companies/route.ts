@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from('companies')
-      .select('id, name, email, plan, industry, is_suspended, is_active, status, monthly_interview_limit, monthly_interview_count, contact_person, contact_email, contract_start_date, created_at', { count: 'exact' })
+      .select('id, name, email, plan, industry, is_suspended, is_active, status, monthly_interview_limit, monthly_interview_count, contact_person, contact_email, contract_start_date, created_at, is_demo', { count: 'exact' })
 
     if (status === 'active') {
       query = query.eq('is_suspended', false)
@@ -66,7 +66,10 @@ export async function GET(request: NextRequest) {
     // 各企業の当月面接数を取得。当月境界は billing/上限判定と同じ JST 基準に統一
     // （サーバローカルTZ=Vercel UTC だと月初 0:00〜8:59 JST で課金/上限とズレるため）。
     const monthStart = jstCurrentMonthStartIso()
-    const companyIds = (companies ?? []).map((c: { id: string }) => c.id)
+    // 正式仕様: DB 権威 is_demo=true は当月利用数（課金対象）集計から完全除外（demo 企業は 0 件表示）。
+    const companyIds = (companies ?? [])
+      .filter((c: { is_demo?: boolean | null }) => c.is_demo !== true)
+      .map((c: { id: string }) => c.id)
 
     const monthlyCounts: Record<string, number> = {}
     if (companyIds.length > 0) {

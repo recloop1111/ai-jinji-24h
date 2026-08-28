@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { resolveEndOutcome } from './end-reason'
+import { resolveEndOutcome, isAllowedEndReason, claimsTimeLimit, ALLOWED_END_REASONS } from './end-reason'
 import { classifyTermination, computeIsBillable } from '@/lib/billing/interview-eligibility'
 
 // 終了トリガー → {end_reason, final_status, 正常完了か} の一貫解決＋課金カテゴリとの整合を固定。
@@ -53,6 +53,58 @@ describe('resolveEndOutcome → classifyTermination → computeIsBillable の一
   it('9/10/11/12/13. disconnected（Realtime/network/technical）→ technical_failure・billable false（12分でも）', () => {
     expect(classifyTermination({ finalStatus: 'cancelled', endReason: 'disconnected' })).toBe('technical_failure')
     expect(bill('disconnected', 720, 10, 10)).toBe(false)
+  })
+})
+
+describe('end_reason allow-list（DB CHECK と一致・未知値は 4xx）', () => {
+  it('11. 正式 allow-list 値はすべて許可', () => {
+    for (const r of ALLOWED_END_REASONS) expect(isAllowedEndReason(r)).toBe(true)
+    expect(ALLOWED_END_REASONS).toContain('disconnected')
+    expect(ALLOWED_END_REASONS).toContain('時間切れ')
+  })
+  it('12. 未知値は不許可（API 側で 4xx にする対象）', () => {
+    expect(isAllowedEndReason('hacked')).toBe(false)
+    expect(isAllowedEndReason('completed_now')).toBe(false)
+    expect(isAllowedEndReason('')).toBe(false)
+    expect(isAllowedEndReason(null)).toBe(false)
+    expect(isAllowedEndReason(undefined)).toBe(false)
+  })
+})
+
+describe('claimsTimeLimit（時間切れ主張の識別・server duration 検証対象）', () => {
+  it('時間切れ/timeout のみ true', () => {
+    expect(claimsTimeLimit('時間切れ')).toBe(true)
+    expect(claimsTimeLimit('timeout')).toBe(true)
+    expect(claimsTimeLimit('自主終了')).toBe(false)
+    expect(claimsTimeLimit('全質問完了')).toBe(false)
+    expect(claimsTimeLimit(null)).toBe(false)
+  })
+})
+
+describe('end/route.ts: time_limit server 検証＋end_reason allow-list（client 値を信用しない）', () => {
+  const END = readFileSync(join(process.cwd(), 'app/api/interview/[slug]/end/route.ts'), 'utf8')
+  it('12/13. end_reason を allow-list 検証し未知値は VALIDATION_ERROR（DB CHECK 500 回避）', () => {
+    expect(END).toContain('isAllowedEndReason')
+    expect(END).toMatch(/!isAllowedEndReason[\s\S]{0,120}VALIDATION_ERROR/)
+    // DB へ送るのは検証済み endReasonValue（生の body.end_reason を直接保存しない）
+    expect(END).toContain('endReasonValue')
+    expect(END).not.toContain("end_reason: typeof body.end_reason")
+  })
+  it('5/6/7/8/9. 時間切れ主張は server duration>=MAX-tolerance を要求（未達は 4xx・finalize しない）', () => {
+    expect(END).toContain('claimsTimeLimit')
+    expect(END).toContain('MAX_INTERVIEW_SECONDS')
+    expect(END).toContain('TIME_LIMIT_TOLERANCE_SECONDS')
+    expect(END).toMatch(/claimsTimeLimit\(endReasonValue\)[\s\S]{0,160}VALIDATION_ERROR/)
+    // 検証は finalize（UPDATE）より前（return で弾く）
+    const idxCheck = END.indexOf('claimsTimeLimit(endReasonValue)')
+    const idxUpdate = END.indexOf("status', 'in_progress')")
+    expect(idxCheck).toBeGreaterThan(0)
+    expect(idxUpdate).toBeGreaterThan(idxCheck)
+  })
+  it('10. is_billable は computeIsBillable（server 算出）で確定し、client 値から代入しない', () => {
+    expect(END).toContain('const isBillable = computeIsBillable(')
+    // body.is_billable を is_billable へ代入していない（コメントでの言及は許容）
+    expect(END).not.toMatch(/is_billable\s*=\s*body\.is_billable/)
   })
 })
 

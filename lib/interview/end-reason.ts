@@ -11,6 +11,33 @@
 // end_reason は既存 CHECK 許可値のみ使用（新しい DB enum/value は増やさない）:
 //   completed/user_ended/timeout/silence/inappropriate/disconnected/browser_closed/全質問完了/時間切れ/自主終了
 
+// interviews.end_reason の正式 allow-list（実 DB CHECK `interviews_end_reason_check` と一致させること）。
+//   docs/MIGRATION_SQL.md 参照。ここに無い値は API 側で 4xx にし、DB CHECK 違反（500）を未然に防ぐ。
+//   新しい値をここに勝手に足さない（DB CHECK を先に更新すること）。
+export const ALLOWED_END_REASONS = [
+  'completed',
+  'user_ended',
+  'timeout',
+  'silence',
+  'inappropriate',
+  'disconnected',
+  'browser_closed',
+  '全質問完了',
+  '時間切れ',
+  '自主終了',
+] as const
+export type AllowedEndReason = (typeof ALLOWED_END_REASONS)[number]
+
+// end_reason が正式 allow-list に含まれるか（null/undefined は「未指定」として別扱い＝呼び出し側で許容）。
+export function isAllowedEndReason(reason: string | null | undefined): reason is AllowedEndReason {
+  return typeof reason === 'string' && (ALLOWED_END_REASONS as readonly string[]).includes(reason)
+}
+
+// time_limit（時間切れ/timeout）を主張する end_reason か（server duration での検証対象）。
+export function claimsTimeLimit(reason: string | null | undefined): boolean {
+  return reason === '時間切れ' || reason === 'timeout'
+}
+
 // session が発火する終了トリガー（表示/意味づけの単位）。
 export type EndTrigger = '全質問完了' | '時間切れ' | '自主終了' | 'disconnected'
 

@@ -5,6 +5,7 @@ import { createClientServerClient, createServiceRoleClient } from '@/lib/supabas
 import { verifySettingPassword } from '@/lib/security/setting-password'
 import { applyNextMonthLimit, jstCurrentMonthStartIso, jstFirstOfNextMonthDate } from '@/lib/companies/applyNextMonthLimit'
 import { PRICE_PER_INTERVIEW, MIN_INTERVIEW_LIMIT } from '@/types/database'
+import { billableUsageCount } from '@/lib/billing/demo-exclusion'
 
 // 翌月1日（YYYY-MM-01）を返す。
 // ※ JST基準（applyNextMonthLimit の昇格判定と同一基準）。サーバTZ(UTC)依存にすると、
@@ -24,7 +25,7 @@ export async function GET() {
     // 機微列を authenticated で読まない。phase2h 列ホワイトリスト前提）。
     const { data: company, error: compError } = await supabase
       .from('companies')
-      .select('id, monthly_interview_limit, next_month_interview_limit, next_month_limit_effective_month, price_per_interview')
+      .select('id, monthly_interview_limit, next_month_interview_limit, next_month_limit_effective_month, price_per_interview, is_demo')
       .eq('id', user.companyId)
       .single()
 
@@ -55,7 +56,8 @@ export async function GET() {
       .eq('is_billable', true)
       .gte('created_at', monthStart)
 
-    const used = monthlyCount ?? 0
+    // 正式仕様: DB 権威 is_demo=true は課金/利用量/上限消費から完全除外（当月利用=0・請求0・上限を消費しない）。
+    const used = billableUsageCount(monthlyCount, company.is_demo)
     const remaining = Math.max(0, limit - used)
 
     // 次回リセット日（翌月1日）も JST 基準で算出

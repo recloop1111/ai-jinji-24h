@@ -4,6 +4,12 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifyInterviewToken } from '@/lib/interview/capability-token'
 import { classifyTermination, computeIsBillable } from '@/lib/billing/interview-eligibility'
 import { restoreProgress } from '@/lib/interview/interview-progress'
+import { isAllowedEndReason, claimsTimeLimit } from '@/lib/interview/end-reason'
+import { MAX_INTERVIEW_SECONDS } from '@/lib/config/interview-policy'
+
+// 時間切れ（time_limit）主張の許容誤差。client の1秒タイマーと server timestamp のわずかなズレ・通信遅延を
+// 吸収する最小限の固定値（例: 59分56秒でも正常終了できる）。これ以上早い「時間切れ」主張は詐称として拒否する。
+const TIME_LIMIT_TOLERANCE_SECONDS = 5
 
 // node:crypto（token検証）を使うため Node runtime を明示
 export const runtime = 'nodejs'
@@ -37,6 +43,14 @@ export async function POST(
     if (finalStatus !== 'completed' && finalStatus !== 'cancelled') {
       return apiError('VALIDATION_ERROR', 'final_status は completed または cancelled のみ')
     }
+
+    // end_reason allow-list（正式 domain 値のみ）。未指定(null/undefined)は許容、未知値は 4xx で拒否し
+    // DB CHECK 違反（500）を未然に防ぐ。DB へ未知値を送らない。
+    const rawEndReason = body.end_reason
+    if (rawEndReason !== undefined && rawEndReason !== null && !isAllowedEndReason(rawEndReason)) {
+      return apiError('VALIDATION_ERROR', 'end_reason が不正です')
+    }
+    const endReasonValue: string | null = typeof rawEndReason === 'string' ? rawEndReason : null
 
     const supabase = createServiceRoleClient()
 
@@ -87,6 +101,14 @@ export async function POST(
       ? Math.max(0, Math.floor((new Date(endedAtIso).getTime() - startedAtMs) / 1000))
       : 0
 
+    // time_limit（時間切れ/timeout）の server 検証: client が「時間切れ」と言っただけでは time_limit にしない。
+    //   server の実 duration が「面接時間上限 - 許容誤差」に達していなければ、正常完了へ昇格させない。
+    //   偽の時間切れは applicant_exit/technical 等へ勝手に変換せず（意味が確定できない矛盾リクエスト）、
+    //   4xx で拒否し interview を finalize しない（in_progress のまま＝正規の /end を後で送れる状態を維持）。
+    if (claimsTimeLimit(endReasonValue) && durationSeconds < MAX_INTERVIEW_SECONDS - TIME_LIMIT_TOLERANCE_SECONDS) {
+      return apiError('VALIDATION_ERROR', '時間切れの条件を満たしていません')
+    }
+
     // 課金判定（正式仕様・旧「開始後10分超で課金」は廃止/superseded）: 1 interview = 最大1 billing unit。
     //   A. completed / time_limit（面接時間の上限まで提供）→ 必ず billable。
     //   B. applicant_exit（本人の途中離脱）→ duration>=180s かつ（main質問50%以上回答〔ceil〕 or duration>=480s）。
@@ -94,7 +116,7 @@ export async function POST(
     //   純ロジック = lib/billing/interview-eligibility.ts。**client の answered/total/is_billable は課金判定に使わない。**
     const category = classifyTermination({
       finalStatus,
-      endReason: typeof body.end_reason === 'string' ? body.end_reason : null,
+      endReason: endReasonValue,
     })
 
     // main質問「総数」は server 側で解決する（client body は使わない）。
@@ -142,7 +164,7 @@ export async function POST(
         // DB へも server-resolved / normalized 値のみ保存（client raw は保存しない・answered>total を作らない）。
         total_questions: serverTotalMain,
         answered_questions: serverAnsweredMain,
-        end_reason: typeof body.end_reason === 'string' ? body.end_reason : null,
+        end_reason: endReasonValue,
         is_billable: isBillable,
       })
       .eq('id', interviewId)

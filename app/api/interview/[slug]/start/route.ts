@@ -129,7 +129,9 @@ export async function POST(
       next_month_limit_effective_month: company.next_month_limit_effective_month ?? null,
     })
     const effectiveLimit = applied.monthly_interview_limit
-    if (typeof effectiveLimit === 'number' && effectiveLimit > 0) {
+    // 正式仕様: DB 権威 companies.is_demo=true は月間上限を消費しない（demo は上限判定の対象外）。
+    //   client の is_demo/query/mode ではなく DB 値のみで判定。
+    if (company.is_demo !== true && typeof effectiveLimit === 'number' && effectiveLimit > 0) {
       // 月初は JST 基準（applyNextMonthLimit の昇格と同一基準）。サーバTZ(UTC)依存にしない。
       const monthStart = jstCurrentMonthStartIso()
       // (a) 確定課金済み（is_billable=true）

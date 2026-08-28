@@ -34,7 +34,7 @@ export async function GET() {
     // 企業一覧
     const { data: companies, error: compError } = await supabase
       .from('companies')
-      .select('id, name, industry, plan, price_per_interview, monthly_interview_limit')
+      .select('id, name, industry, plan, price_per_interview, monthly_interview_limit, is_demo')
       .order('created_at', { ascending: false })
 
     if (compError) {
@@ -42,7 +42,11 @@ export async function GET() {
     }
 
     const companyList = companies ?? []
-    const companyIds = companyList.map((c: { id: string }) => c.id)
+    // 正式仕様: DB 権威 is_demo=true は課金/利用量集計から完全除外。billable カウントは非 demo のみ対象。
+    //   （demo 企業は monthlyCounts に現れず 0 件になる。）
+    const companyIds = (companyList as { id: string; is_demo?: boolean | null }[])
+      .filter((c) => c.is_demo !== true)
+      .map((c) => c.id)
 
     // 当月の billable 面接数（企業ごと）。PostgREST の1ページ上限（通常1000行）で
     // 過少集計しないよう range() で全件ページングして件数を積み上げる。

@@ -65,11 +65,12 @@ export async function POST(request: NextRequest) {
       contact_person: string | null
       plan: string | null
       price_per_interview: number | null
+      is_demo: boolean | null
     }[] = []
     for (let from = 0; ; from += PAGE_SIZE) {
       const { data: page, error: compError } = await supabase
         .from('companies')
-        .select('id, name, contact_person, plan, price_per_interview')
+        .select('id, name, contact_person, plan, price_per_interview, is_demo')
         .order('id', { ascending: true })
         .range(from, from + PAGE_SIZE - 1)
       if (compError) {
@@ -97,11 +98,18 @@ export async function POST(request: NextRequest) {
     let updated = 0
     let skippedZero = 0 // billable 0 件
     let skippedProtected = 0 // 既存が paid/failed/refunded
+    let skippedDemo = 0 // DB-authoritative is_demo=true（課金・利用量から完全除外）
     let errors = 0
     const details: DryRunCompany[] = [] // dry-run のみ使用
 
     for (const company of companies) {
       try {
+        // 正式仕様: DB 権威 companies.is_demo=true は請求対象から完全除外（billing_record を作らない）。
+        //   client の is_demo/query/mode は使わず companies.is_demo のみ。
+        if (company.is_demo === true) {
+          skippedDemo++
+          continue
+        }
         // 前月の課金対象（is_billable=true）件数
         const { count, error: countError } = await supabase
           .from('interviews')
@@ -280,19 +288,21 @@ export async function POST(request: NextRequest) {
           would_update_pending: updated,
           would_skip_protected: skippedProtected,
           would_skip_zero: skippedZero,
+          would_skip_demo: skippedDemo,
           errors,
         },
         companies: details,
       })
     }
 
-    // live: 既存レスポンス形を維持（skipped = zero + protected）。
+    // live: 既存レスポンス形を維持（skipped = zero + protected + demo）。
     return successJson({
       billing_month: billingMonth,
       processed_companies: companies.length,
       created,
       updated,
-      skipped: skippedZero + skippedProtected,
+      skipped: skippedZero + skippedProtected + skippedDemo,
+      skipped_demo: skippedDemo,
       errors,
     })
   } catch {
