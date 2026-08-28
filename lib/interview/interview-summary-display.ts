@@ -44,11 +44,12 @@ export function formatAnsweredProgress(input: {
   return `${a}問`
 }
 
-// 回答進捗データが取得できているか（未取得なら補足文を出すため）。
+// 回答進捗データが「完全に」取得できているか（answered と total の両方が numeric のときだけ true）。
+//   片方でも null なら未取得扱い（補足「回答進捗データ未取得」を出す）。null と 0 は formatAnsweredProgress で区別。
 export function isAnsweredProgressAvailable(input: { answered?: number | null; total?: number | null }): boolean {
   const aOk = typeof input.answered === 'number' && Number.isFinite(input.answered)
   const tOk = typeof input.total === 'number' && Number.isFinite(input.total)
-  return aOk || tOk
+  return aOk && tOk
 }
 
 // end_reason（DB raw）→ 企業担当者向けの自然な日本語（presentation mapping）。DB 値は変更しない。
@@ -78,10 +79,12 @@ export function endReasonLabel(endReason: string | null | undefined): string {
 }
 
 // 利用計上（月間利用件数として計上される面接か）。金額は出さない。
-//   demo 企業（DB 権威 company.is_demo=true）は billing 集計から除外されるため「対象外（デモ企業）」。
+//   demo 判定は tri-state（DB 権威 company.is_demo）。true→請求対象外（デモ企業）／unknown(null/undefined)→"—"
+//   （demo か確定できないので「1件」と誤表示しない）／false（本番企業確定）のときだけ is_billable で判定。
 //   通常企業: is_billable=true→"1件" / false→"対象外" / null→"—"。
 export function interviewBillingLabel(isBillable: boolean | null | undefined, isDemo: boolean | null | undefined): string {
   if (isDemo === true) return '対象外（デモ企業）'
+  if (isDemo !== false) return '—' // unknown（null/undefined）: demo 確定できないため誤って「1件」と出さない
   if (isBillable === true) return '1件'
   if (isBillable === false) return '対象外'
   return '—'

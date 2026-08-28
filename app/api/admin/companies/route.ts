@@ -24,6 +24,7 @@ type CompanyListRow = {
   contact_email: string | null
   contract_start_date: string | null
   created_at: string | null
+  is_demo: boolean | null
 }
 
 export async function GET(request: NextRequest) {
@@ -66,10 +67,10 @@ export async function GET(request: NextRequest) {
     // 各企業の当月面接数を取得。当月境界は billing/上限判定と同じ JST 基準に統一
     // （サーバローカルTZ=Vercel UTC だと月初 0:00〜8:59 JST で課金/上限とズレるため）。
     const monthStart = jstCurrentMonthStartIso()
-    // 正式仕様: DB 権威 is_demo=true は当月利用数（課金対象）集計から完全除外（demo 企業は 0 件表示）。
-    const companyIds = (companies ?? [])
-      .filter((c: { is_demo?: boolean | null }) => c.is_demo !== true)
-      .map((c: { id: string }) => c.id)
+    // 正式仕様: これは「各企業の当月利用数」の per-company 表示（運営が個別企業を確認する列）。demo 企業も自社の
+    //   利用件数として表示してよい（全体の課金/売上集計＝admin/billing/summary・monthly-billing batch では demo を除外）。
+    //   is_demo は行データにも含め、UI が「デモ」を識別できるようにする。
+    const companyIds = (companies ?? []).map((c: { id: string }) => c.id)
 
     const monthlyCounts: Record<string, number> = {}
     if (companyIds.length > 0) {
@@ -108,6 +109,7 @@ export async function GET(request: NextRequest) {
       // 当月の is_billable 実数を正とする。0件企業で legacy monthly_interview_count
       // （古い非0値）にフォールバックすると課金/上限と食い違うため 0 デフォルト。
       interviewsThisMonth: monthlyCounts[c.id] ?? 0,
+      is_demo: c.is_demo === true, // 運営 UI が「デモ企業」を識別できるように（全体集計とは別）
       interviewLimit: c.monthly_interview_limit || 0,
       contractStart: c.contract_start_date || '',
       contactName: c.contact_person || '',

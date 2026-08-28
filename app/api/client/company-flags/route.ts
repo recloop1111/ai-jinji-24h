@@ -14,15 +14,18 @@ export async function GET() {
     if (authError) return authError
 
     const supabase = createServiceRoleClient()
-    const { data: company } = await supabase
+    const { data: company, error } = await supabase
       .from('companies')
       .select('is_demo')
       .eq('id', user.companyId)
       .maybeSingle()
 
-    return successJson({ is_demo: company?.is_demo === true })
+    // tri-state: 取得成功 → true/false。取得失敗/企業不明 → null（unknown）。
+    //   false へ silent fallback しない（demo 企業を誤って本番利用 1件と表示させないため）。
+    if (error || !company) return successJson({ is_demo: null })
+    return successJson({ is_demo: company.is_demo === true })
   } catch {
-    // フラグ取得失敗は致命ではない（呼び出し側は demo 不明として安全側に倒す）。
-    return successJson({ is_demo: false })
+    // 取得不能は unknown（null）。呼び出し側は「利用計上：—」にする（false と決めつけない）。
+    return successJson({ is_demo: null })
   }
 }

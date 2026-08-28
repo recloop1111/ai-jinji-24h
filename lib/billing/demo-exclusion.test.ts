@@ -38,25 +38,30 @@ describe('billing/usage 集計サイトが DB is_demo で除外している（cl
     expect(F).toContain('is_demo')
     expect(F).toContain('c.is_demo !== true')
   })
-  it('admin/companies 一覧: is_demo=true を当月利用数集計から除外', () => {
-    const F = read('app/api/admin/companies/route.ts')
-    expect(F).toContain('is_demo')
-    expect(F).toContain('is_demo !== true')
-  })
-  it('admin/companies/[id]: billableUsageCount(count, is_demo) で利用数を 0 化', () => {
-    const F = read('app/api/admin/companies/[id]/route.ts')
-    expect(F).toContain('billableUsageCount')
-    expect(F).toContain('is_demo')
-  })
-  it('client/plan: billableUsageCount で当月利用/残枠/請求から demo を除外', () => {
-    const F = read('app/api/client/plan/route.ts')
-    expect(F).toContain('billableUsageCount')
-    expect(F).toContain('company.is_demo')
-  })
   it('interview/start: is_demo=true は月間上限を消費しない（DB 値で判定・client body の is_demo を使わない）', () => {
     const F = read('app/api/interview/[slug]/start/route.ts')
     expect(F).toContain('company.is_demo !== true')
-    // 4. demo 判定は DB companies.is_demo。body/query の is_demo を上限判定に使わない。
+    // 4/9. demo 判定は DB companies.is_demo。body/query の is_demo を上限判定に使わない。
     expect(F).not.toMatch(/body\.is_demo[\s\S]{0,80}(effectiveLimit|上限|limit)/i)
+  })
+})
+
+describe('company-facing usage は demo をカウントする（企業自身の利用表示・全体集計とは分離）', () => {
+  it('7/8. admin/companies 一覧: demo を当月利用数から除外しない（is_demo は行データに含める）', () => {
+    const F = read('app/api/admin/companies/route.ts')
+    // companyIds を is_demo でフィルタしない（demo の当月利用件数も表示する）
+    expect(F).not.toMatch(/companyIds[\s\S]{0,120}is_demo !== true/)
+    expect(F).toContain('is_demo: c.is_demo === true')
+  })
+  it('8. admin/companies/[id]: 個別企業の当月利用は実数（billableUsageCount で 0 化しない）', () => {
+    const F = read('app/api/admin/companies/[id]/route.ts')
+    expect(F).not.toContain('billableUsageCount')
+    expect(F).toContain('monthly_interview_count_actual: monthlyCount ?? 0')
+  })
+  it('2/7. client/plan: 当月利用は demo でもカウント（used=生件数）。請求額のみ demo=0', () => {
+    const F = read('app/api/client/plan/route.ts')
+    expect(F).not.toContain('billableUsageCount')
+    expect(F).toContain('const used = monthlyCount ?? 0')
+    expect(F).toContain('current_charge: isDemo ? 0 : used * pricePerInterview')
   })
 })

@@ -5,7 +5,6 @@ import { createClientServerClient, createServiceRoleClient } from '@/lib/supabas
 import { verifySettingPassword } from '@/lib/security/setting-password'
 import { applyNextMonthLimit, jstCurrentMonthStartIso, jstFirstOfNextMonthDate } from '@/lib/companies/applyNextMonthLimit'
 import { PRICE_PER_INTERVIEW, MIN_INTERVIEW_LIMIT } from '@/types/database'
-import { billableUsageCount } from '@/lib/billing/demo-exclusion'
 
 // 翌月1日（YYYY-MM-01）を返す。
 // ※ JST基準（applyNextMonthLimit の昇格判定と同一基準）。サーバTZ(UTC)依存にすると、
@@ -56,8 +55,12 @@ export async function GET() {
       .eq('is_billable', true)
       .gte('created_at', monthStart)
 
-    // 正式仕様: DB 権威 is_demo=true は課金/利用量/上限消費から完全除外（当月利用=0・請求0・上限を消費しない）。
-    const used = billableUsageCount(monthlyCount, company.is_demo)
+    // 正式仕様: demo 企業（DB 権威 is_demo=true）の「企業自身の管理画面」では利用件数を本番同様に表示する
+    //   （デモとして「面接すると利用件数が増える」挙動を確認できる方が望ましい）。よって used は demo でもカウント。
+    //   ただし請求額（current_charge）は demo では 0（実請求ではない）。運営側の売上/請求集計は別途 demo を除外する
+    //   （admin/billing/summary・monthly-billing batch）。
+    const isDemo = company.is_demo === true
+    const used = monthlyCount ?? 0
     const remaining = Math.max(0, limit - used)
 
     // 次回リセット日（翌月1日）も JST 基準で算出
@@ -70,7 +73,9 @@ export async function GET() {
       monthly_interview_limit: limit,
       monthly_count: used,
       remaining,
-      current_charge: used * pricePerInterview,
+      is_demo: isDemo, // 企業側 UI が「デモ利用（請求対象外）」を明示できるように返す
+      // demo は実請求ではないため見込み請求は 0（利用件数自体はデモ確認用に表示する）。
+      current_charge: isDemo ? 0 : used * pricePerInterview,
       max_charge: limit * pricePerInterview,
       next_month_interview_limit: nextMonthLimit,
       next_month_limit_effective_month: nextMonthEffectiveMonth,

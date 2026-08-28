@@ -158,8 +158,8 @@ export default function ApplicantDetailPage() {
   const [interviewResult, setInterviewResult] = useState<InterviewResultRow | null>(null)
   const [loading, setLoading] = useState(true)
   // 利用計上表示用の demo 判定（DB 権威 companies.is_demo）。service-role API 経由（自社のみ・鍵は server）。
-  //   取得不能/未取得は false（安全側）。client の is_demo/query/mode は使わない。
-  const [isDemoCompany, setIsDemoCompany] = useState(false)
+  //   tri-state: null=未取得/判定不能（→「利用計上：—」・false へ決めつけない）。client の is_demo/query/mode は使わない。
+  const [isDemoCompany, setIsDemoCompany] = useState<boolean | null>(null)
   // P3: 会話ログ（Transcript）。この応募者の最新 interview を browser Supabase(RLS) で取得。
   //   4状態（ready/empty/schema_pending/error）を区別。missing-schema のみ safe empty へ縮退。
   const [transcriptState, setTranscriptState] = useState<TranscriptFetchState>({ status: 'empty', items: [] })
@@ -232,9 +232,10 @@ export default function ApplicantDetailPage() {
       try {
         const res = await fetch('/api/client/company-flags')
         const json = await res.json().catch(() => null)
-        if (!cancelled && res.ok && json) setIsDemoCompany(json.is_demo === true)
+        // tri-state: boolean のときだけ確定。それ以外（null/失敗）は unknown のまま（利用計上：—）。
+        if (!cancelled && res.ok && json && typeof json.is_demo === 'boolean') setIsDemoCompany(json.is_demo)
       } catch {
-        /* noop: demo 不明として false（利用計上は通常表示） */
+        /* noop: demo 判定不能は null のまま（利用計上：—・false へ決めつけない） */
       }
     })()
     return () => {

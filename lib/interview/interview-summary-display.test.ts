@@ -56,9 +56,11 @@ describe('formatAnsweredProgress（null と 0 を必ず区別・null を 0 に�
     expect(formatAnsweredProgress({ answered: null, total: 10 })).not.toContain('0 /')
     expect(formatAnsweredProgress({ answered: null, total: null })).not.toContain('0')
   })
-  it('isAnsweredProgressAvailable: どちらか取得できれば true / 両方 null は false', () => {
+  it('isAnsweredProgressAvailable: answered と total 両方 numeric のときだけ true（片方 null は未取得）', () => {
     expect(isAnsweredProgressAvailable({ answered: 3, total: 10 })).toBe(true)
-    expect(isAnsweredProgressAvailable({ answered: null, total: 10 })).toBe(true)
+    expect(isAnsweredProgressAvailable({ answered: 0, total: 10 })).toBe(true)
+    expect(isAnsweredProgressAvailable({ answered: null, total: 10 })).toBe(false) // 片方 null → 未取得
+    expect(isAnsweredProgressAvailable({ answered: 5, total: null })).toBe(false)
     expect(isAnsweredProgressAvailable({ answered: null, total: null })).toBe(false)
   })
 })
@@ -97,12 +99,17 @@ describe('interviewBillingLabel（利用計上・金額は出さない・demo �
   it('13. is_billable=false → 対象外', () => {
     expect(interviewBillingLabel(false, false)).toBe('対象外')
   })
-  it('is_billable=null → —', () => {
+  it('is_billable=null（非demo確定）→ —', () => {
     expect(interviewBillingLabel(null, false)).toBe('—')
   })
   it('demo は is_billable に関わらず「対象外（デモ企業）」（1件にしない）', () => {
     expect(interviewBillingLabel(true, true)).toBe('対象外（デモ企業）')
     expect(interviewBillingLabel(true, true)).not.toContain('1件')
+  })
+  it('10. demo 判定 unknown（null/undefined）→「—」（誤って 1件と出さない）', () => {
+    expect(interviewBillingLabel(true, null)).toBe('—')
+    expect(interviewBillingLabel(true, undefined)).toBe('—')
+    expect(interviewBillingLabel(true, null)).not.toContain('1件')
   })
   it('金額（円）を含まない', () => {
     for (const v of [interviewBillingLabel(true, false), interviewBillingLabel(false, false), interviewBillingLabel(true, true)]) {
