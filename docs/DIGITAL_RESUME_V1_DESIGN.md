@@ -123,7 +123,7 @@ applicant_licenses(
   | **日本郵便 公式「郵便番号・デジタルアドレス API」** | 無料（標準用途） | **要登録**（client_id/secret→token） | 可 | JSON | 公式・信頼性高。**登録 env が必要**。rate/仕様は登録時規約で確認 |
   | **zipcloud**（zipcloud.ibsnet.co.jp/api/search） | 無料 | 不要 | 可（利用規約範囲） | JSON（prefecture/city/town） | 非公式・3rd party・keyレスで即使える。rate 明記弱め |
   | KEN_ALL 静的同梱 | 無料 | 不要 | 可（公共データ） | 自前 index | 外部依存ゼロだが ~12MB・bundle 負荷大 |
-- **推奨**: proxy route を **env で切替**可能に。`JAPANPOST_API_*` があれば公式 API、無ければ **zipcloud にフォールバック**（v1 の zero-setup 動作用）。将来 source 差し替えでも client 不変。**有料契約はしない**（両者無料）。
+- **provider は Phase C で確定（未確定）**: 「公式日本郵便 API → zipcloud 自動 fallback」は **候補であって正式実装決定ではない**。Phase B では外部 API を呼ばず、`normalizePostalCode` と postal lookup の **response contract** のみ用意。実 provider・env・接続は Phase C で改めてユーザー確認のうえ決定（有料契約はしない）。proxy route は env で source 差し替え可能な形にする方針は維持。
 - **失敗時**: route は 404/空を返し、フォームは **block せず手入力可**（「住所を自動取得できませんでした。手入力してください」）。都道府県/市区町村/町域は自動入力後も手修正可。
 - ※ 公式 API の現行正式仕様・rate・商用条件は**登録前にユーザー確認が必要**（本 Phase では登録・契約しない）。
 
@@ -256,3 +256,40 @@ applicant_licenses(
 - **F**（任意・最後）: 証明写真（bucket/signed URL/validation/preview）。
 - **G**: tests / QA（Preview）・既存 flow regression 確認。
 - 各サブフェーズでユーザー確認を挟む（特に B の migration 適用と E の PDF、F の写真）。
+
+---
+
+## Phase B 実装結果（2026-08・main `aaeffe0` 基点・branch feature/digital-resume-v1）
+
+**実装物**（実装のみ・Production 未適用）:
+- SQL: `supabase/rls/p9_applicant_resume.sql`（+ `_ROLLBACK.sql`）— additive 列 + 子3テーブル + index + CHECK + RLS + atomic RPC。**Production 未適用（承認後手動）**。
+- 統合テスト: `supabase/local/p9_applicant_resume_test.sql`（素の postgres:16-alpine で TEST1–8 全 PASS を確認）。
+- domain/helpers: `lib/resume/types.ts`・`normalize.ts`・`validate.ts` + `resume.test.ts`（vitest 30）。
+
+**確定 RPC signature**:
+```
+public.create_applicant_with_resume(
+  p_company_id uuid,            -- server が slug から解決した権威 company_id（request body の値ではない）
+  p_applicant jsonb,            -- normalizer 通過後の applicant フィールド
+  p_educations jsonb = '[]',    -- 配列
+  p_work_experiences jsonb = '[]',
+  p_licenses jsonb = '[]'
+) RETURNS uuid   -- 生成された applicant id
+LANGUAGE plpgsql SECURITY INVOKER SET search_path=public
+-- EXECUTE は service_role のみ（anon/authenticated から REVOKE）
+```
+- **company authority**: RPC は `p_company_id` を権威に使い、`p_applicant->>'id'`（client applicant_id）は無視して DB 生成。`job_id` は `p_company_id` 所属の求人のみ許可（別会社 job を弾く）。子行の applicant_id は内部生成 id を使用。sort_order は配列 ordinality で 0..N-1 に再採番。
+- **security mode**: **SECURITY INVOKER**（`prosecdef=false` を local 実証）。service_role が呼ぶ＝RLS/権限 bypass で atomic insert 成立。**SECURITY DEFINER は不使用**。
+
+**validation 上限（server domain＝SoT・DB varchar にしない）**: 氏名/フリガナ各50・学校名/学部/会社名/部署/役職/資格名/番地/建物 各100・市区町村50・町域100・雇用形態50・郵便7桁・年月`YYYY-MM`・description/motivation/self_pr 各2000・personal_requests 1000・配列上限 education20/work30/license30（`RESUME_LIMITS`）。
+
+**DB constraints/index**:
+- CHECK: `school_type`/`graduation_status` enum、年月 `^\d{4}-(0[1-9]|1[0-2])$`、`work_current_no_left`（is_current なら left_year_month NULL）。joined>left・entered>graduated の逆転は **domain validation** 側（`validate.ts`）。
+- index: 各子テーブル `(applicant_id, sort_order)`。
+- FK: `applicant_id → applicants(id) ON DELETE CASCADE`。
+
+**RLS**: 子3テーブル ENABLE。`company_select_*`（自社 applicant の子のみ・既存 transcript と同型 join）+ `admin_select_*`。**write ポリシー無し**＝公開 write は service-role のみ。
+
+**local 統合テスト結果（TEST1–8 全 PASS）**: ①RPC atomic 作成+生成id+sort再採番 ②不正子→full rollback（orphan なし）③別会社 job 拒否 ④RLS tenant（自社可・他社不可視）⑤admin 全社可 ⑥anon/authenticated の insert 不可・RPC 実行不可 ⑦cascade 削除・is_current+left CHECK・年月 CHECK ⑧SECURITY INVOKER 確認。
+
+**Phase B の非対象（据え置き）**: applicant form UI / 外部 postal API 実接続（provider 未確定）/ company resume tab / PDF / photo storage bucket（列 `resume_photo_path` のみ・bucket は Phase F）/ 既存 `/applicant` API の RPC 移行（Phase C で結線）/ Production DB 適用（承認後）。
