@@ -20,6 +20,7 @@ import { shouldShowAnswerCompleteFallback } from '@/lib/interview/session-answer
 import { buildInterviewSummary, serializeSummary, summaryStorageKey } from '@/lib/interview/completeSummary'
 import { classifyEndResponse } from '@/lib/interview/end-finalize'
 import { resolveEndOutcome, type EndTrigger } from '@/lib/interview/end-reason'
+import { canUseSyntheticMock } from '@/lib/interview/synthetic-mock'
 import {
   isGetUserMediaSupported,
   stopStream,
@@ -93,7 +94,11 @@ export default function SessionPage() {
   // ※ 直接 setModeState を呼ばず、必ず下の setMode ラッパ経由にする（modeRef を同期更新するため）。
   const [mode, setModeState] = useState<SessionMode>('connecting')
   // カメラ/マイク取得が失敗（マイク拒否等）したら Realtime 不可 → モックへ落とすためのフラグ。
-  const [mediaFailed, setMediaFailed] = useState(false)
+  // 正式仕様: camera/mic は必須。取得失敗は mock/completed へ進めず blocking+retry（demo/非demo 共通）。
+  const [mediaBlocked, setMediaBlocked] = useState(false)
+  const [mediaRetryNonce, setMediaRetryNonce] = useState(0)
+  // 本番企業（非demo）で Realtime が使えない場合の blocking（mock 禁止）。retry で再接続。
+  const [connectBlocked, setConnectBlocked] = useState(false)
   // Phase I-5: マイク=必須 / カメラ=任意。取得できた種別・ミュート/OFF・切断・音声自動再生ブロックを管理。
   const [hasVideoTrack, setHasVideoTrack] = useState(false) // カメラトラックを取得できたか（任意）
   const [micMuted, setMicMuted] = useState(false) // マイクミュート（track.enabled で制御・取り直さない）
@@ -126,6 +131,11 @@ export default function SessionPage() {
   }, [])
   const realtimeRef = useRef<{ close: () => void } | null>(null)
   const realtimeAttemptedRef = useRef(false)
+  // isDemo を async の fallback 判定から陳腐化なしで参照する（mock 可否は DB is_demo のみが SoT）。
+  const isDemoRef = useRef(false)
+  isDemoRef.current = isDemo
+  // media が一度でも取得できたか（未取得のまま離脱＝technical failure＝非課金の判定に使う）。
+  const mediaAcquiredRef = useRef(false)
   // 追加P1（Codex）: AI が一度でも応答（transcript）したか。初回 response.create が失敗すると AI が話し始めず
   // 無音のまま放置され得るため、realtime 確立後の「初回応答」ウォッチドッグで使う（one-shot）。
   // ※ 後続ターンごとの無音検知（response lifecycle ベース）は follow-up Issue #21 に切り出し。
@@ -259,15 +269,16 @@ export default function SessionPage() {
 
   // カメラ/マイク取得（start 成功＝interviewId 確定後のみ。403/失敗時は起動しない）。
   // 正式仕様: カメラ・マイクともに必須。{video,audio} を要求し、失敗時は audio-only で「カメラ無し継続」しない。
-  //            取得失敗（カメラ or マイク不可）は mediaFailed（Realtime 不可 → モックへ／ブロッキング）。
+  //            取得失敗（カメラ or マイク不可）は mediaBlocked（mock/completed へ進めず blocking+retry）。
   useEffect(() => {
     if (!interviewId) return
     // ブロッキングエラーが既に出ているならカメラを起動しない
     if (blockingErrorRef.current) return
     let disposed = false
     async function setupCamera() {
+      // 正式仕様: camera/mic 取得失敗は mock/completed へ進めず blocking+retry（mediaBlocked）にする。demo も同様。
       if (!isGetUserMediaSupported()) {
-        setMediaFailed(true)
+        if (!disposed && !blockingErrorRef.current) setMediaBlocked(true)
         return
       }
       let stream: MediaStream | null = null
@@ -277,8 +288,8 @@ export default function SessionPage() {
       } catch {
         // Codex P2: 破棄後（離脱）/blockingError（開始・質問失敗）後は失敗確定もしない（cleanup 意図を尊重）。
         if (disposed || blockingErrorRef.current) return
-        // カメラ無しで audio-only 継続はしない（正式仕様）。取得失敗として扱う。
-        setMediaFailed(true)
+        // カメラ無しで audio-only 継続はしない（正式仕様）。取得失敗＝blocking+retry。
+        setMediaBlocked(true)
         return
       }
       // 取得が blockingError/破棄後に解決した場合（権限プロンプト遅延等）は即停止して保持しない
@@ -291,10 +302,12 @@ export default function SessionPage() {
       if (!hasVideo) {
         stopStream(stream)
         if (disposed || blockingErrorRef.current) return
-        setMediaFailed(true)
+        setMediaBlocked(true)
         return
       }
       streamRef.current = stream
+      mediaAcquiredRef.current = true
+      setMediaBlocked(false)
       setHasVideoTrack(true)
       setCameraOn(true)
       setCameraLost(false)
@@ -318,7 +331,8 @@ export default function SessionPage() {
       md?.removeEventListener?.('devicechange', onDeviceChange)
       stopStream(streamRef.current)
     }
-  }, [interviewId, attachTrackListeners, handleMicLost])
+    // mediaRetryNonce の変化で再取得（media blocking からの「再試行」）。
+  }, [interviewId, attachTrackListeners, handleMicLost, mediaRetryNonce])
 
   // Phase I-5: マイクのミュート/解除。track.enabled のみ変更しストリームは取り直さない
   //（同一トラックを保持＝将来 Realtime へ送出中の audio track も維持。ミュート中は無音が送られる）。
@@ -630,8 +644,9 @@ export default function SessionPage() {
     if (mode !== 'connecting') return
     if (!interviewId || questionList.length === 0) return
     if (realtimeAttemptedRef.current) return
-    // メディア取得が未解決（権限プロンプト応答待ち）なら待つ。成功(hasStream) or 失敗(mediaFailed)で前進。
-    if (!hasStream && !mediaFailed) return
+    // 正式仕様: camera/mic 必須。media 未取得（!hasStream）では接続も mock も開始しない（media blocking を表示）。
+    //   media 取得成功後のみ mode を決定する。
+    if (!hasStream) return
     realtimeAttemptedRef.current = true
 
     const token = sessionStorage.getItem(`interview_${slug}_token`)
@@ -646,12 +661,12 @@ export default function SessionPage() {
     // 古い試行が SDP proxy へ POST（＝ロック取得/有料呼び出し）に進むのを止める（並行二重接続防止）。
     const attemptController = new AbortController()
     ;(async () => {
-      // メディア失敗（カメラ/マイク拒否）or 前提欠落 → 既存モックへ（詰まり防止）。
+      // 前提欠落（token/applicant/stream 無し）は開始不能＝blocking（mock へは落とさない）。
       // setMode は async 内で呼び、effect 本体での同期 setState（cascading render）を避ける。
-      if (mediaFailed || !hasStream || !token || !applicant_id || !stream) {
+      if (!hasStream || !token || !applicant_id || !stream) {
         if (!cancelled) {
           settled = true
-          setMode('mock')
+          setBlockingError('面接を開始できませんでした。お手数ですが最初からやり直してください。')
         }
         return
       }
@@ -737,8 +752,9 @@ export default function SessionPage() {
         // realtime を確立すると無音のまま応募者の声が届かない。その場合は realtime にせず閉じて mock へ落とす
         //（mock 側の handleMicLost が再接続案内を出す）。恒久的な track 張り替え（replaceTrack）は #21。
         if (streamRef.current !== stream || !hasLiveTrack(stream, 'audio')) {
+          // マイク track が死んでいる＝media 問題 → media blocking（mock へは落とさない・retry で再取得）。
           result.close()
-          setMode('mock')
+          setMediaBlocked(true)
         } else {
           realtimeRef.current = result
           setMode('realtime')
@@ -746,7 +762,13 @@ export default function SessionPage() {
       } else if (result.reason === 'blocking') {
         setBlockingError('AI音声面接を開始できませんでした。お手数ですが最初からやり直してください。')
       } else {
-        setMode('mock') // 503/403/409/5xx/接続失敗 → 既存モックへフォールバック
+        // 503/403/409/5xx/接続失敗。demo のみ mock フォールバック可。本番企業（非demo/未確定）は
+        // mock を作らず honest blocking（synthetic completed を生成しない）。
+        if (canUseSyntheticMock({ isDemo: isDemoRef.current })) {
+          setMode('mock')
+        } else {
+          setConnectBlocked(true)
+        }
       }
     })()
     return () => {
@@ -762,21 +784,10 @@ export default function SessionPage() {
     }
     // handleEndInterview は他 effect 同様 deps に含めない（ref で二重起動防止済み）
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, interviewId, questionList, hasStream, mediaFailed, slug, totalQuestions])
+  }, [mode, interviewId, questionList, hasStream, slug, totalQuestions])
 
-  // 安全網: メディア取得が解決しない（権限プロンプト放置等）まま connecting が続いても
-  // 面接が詰まらないよう、一定時間で必ずモックへ落とす（Realtime 試行が始まっていれば何もしない）。
-  useEffect(() => {
-    if (mode !== 'connecting') return
-    if (!interviewId || questionList.length === 0) return
-    const t = setTimeout(() => {
-      if (!realtimeAttemptedRef.current) {
-        realtimeAttemptedRef.current = true
-        setMode('mock')
-      }
-    }, 10000)
-    return () => clearTimeout(t)
-  }, [mode, interviewId, questionList, setMode])
+  // ※ 旧「10秒で必ず mock へ落とす安全網」は撤去した（media 必須化＋非demo mock 禁止の正式仕様に反するため）。
+  //   media は getUserMedia で必ず解決（成功→hasStream / 失敗→mediaBlocked）し、接続試行も必ず settle する。
 
   // 追加P1（Codex）: realtime 確立後「初回 AI 応答」ウォッチドッグ（one-shot）。初回 response.create が
   // recoverable error で失敗する等で AI が話し始めないと無音のまま 60分放置され得るため、一定時間で AI 応答が
@@ -789,9 +800,15 @@ export default function SessionPage() {
     if (mode !== 'realtime') return
     const t = setTimeout(() => {
       if (!aiRespondedRef.current) {
+        // 初回 AI 応答が来ない＝technical failure。realtime を閉じる。realtime mode に到達するのは非demo
+        //   （demo は realtime actual を使わない）ため、mock へは落とさず blocking（synthetic completed を作らない）。
         realtimeRef.current?.close()
         realtimeRef.current = null
-        setMode('mock')
+        if (canUseSyntheticMock({ isDemo: isDemoRef.current })) {
+          setMode('mock')
+        } else {
+          setConnectBlocked(true)
+        }
       }
     }, REALTIME_RESPONSE_TIMEOUT_MS)
     return () => clearTimeout(t)
@@ -845,6 +862,9 @@ export default function SessionPage() {
     if (!interviewId) return
     // ブロッキングエラー中はタイマー（自動終了＝end 送信経路）を作動させない
     if (blockingError) return
+    // 正式仕様: media 未取得 / media・接続 blocking の間はタイマーを動かさない（面接は開始していない）。
+    //   これで media/接続失敗時に時間切れ→completed（課金）を作らない。
+    if (!hasStream || mediaBlocked || connectBlocked) return
     if (elapsedSeconds >= MAX_INTERVIEW_SECONDS && !isEnding) {
       setCurrentQuestionText('お時間となりましたので、面接を終了いたします。結果は後日、お知らせいたします。本日はありがとうございました。')
       const endTimer = setTimeout(() => {
@@ -860,7 +880,7 @@ export default function SessionPage() {
       setElapsedSeconds((prev) => prev + 1)
     }, 1000)
     return () => clearInterval(timer)
-  }, [interviewId, blockingError, elapsedSeconds, isEnding, totalQuestions, answeredQuestions, showTimeWarning])
+  }, [interviewId, blockingError, hasStream, mediaBlocked, connectBlocked, elapsedSeconds, isEnding, totalQuestions, answeredQuestions, showTimeWarning])
 
   // ブラウザ離脱時の処理
   useEffect(() => {
@@ -885,12 +905,15 @@ export default function SessionPage() {
         const token = sessionStorage.getItem(`interview_${slug}_token`)
         if (!token) return
         // タブ閉じ等の離脱は途中終了＝cancelled。token付きで end API へ sendBeacon（service-roleで確定）。
+        // media を一度も取得できていない（面接が実質開始していない）離脱は本人の途中離脱ではなく technical failure
+        //   相当＝'disconnected'（非課金）。media 取得済みの通常離脱は '自主終了'（applicant_exit）。
+        const endReason = mediaAcquiredRef.current ? '自主終了' : 'disconnected'
         const payload = JSON.stringify({
           token,
           applicant_id: applicantId,
           interview_id: interviewId,
           final_status: 'cancelled',
-          end_reason: '自主終了',
+          end_reason: endReason,
           duration_seconds: elapsedSeconds,
           total_questions: totalQuestions,
           answered_questions: answeredQuestions,
@@ -1082,6 +1105,54 @@ export default function SessionPage() {
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
           <p className="text-sm text-gray-300">面接を準備しています…</p>
+        </div>
+      </div>
+    )
+  }
+
+  // 正式仕様: camera/mic 取得失敗は面接を開始せず blocking+retry（mock/completed を作らない）。demo/非demo 共通。
+  if (mediaBlocked) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center px-6">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center space-y-4">
+          <div className="mx-auto w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center">
+            <svg className="w-6 h-6 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <h2 className="text-lg font-bold text-gray-800">カメラ・マイクを使用できません</h2>
+          <p className="text-sm text-gray-600">カメラとマイクのアクセスを許可して、再試行してください。</p>
+          <button
+            type="button"
+            onClick={() => { setMediaBlocked(false); setHasStream(false); setMediaRetryNonce((n) => n + 1) }}
+            className="mt-2 inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+          >
+            再試行
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // 正式仕様: 本番企業（非demo）で AI 面接に接続できない場合は mock へ落とさず blocking+retry（synthetic completed を作らない）。
+  if (connectBlocked) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center px-6">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center space-y-4">
+          <div className="mx-auto w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center">
+            <svg className="w-6 h-6 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3.75h.008M10.34 3.94l-7.5 12.99A1.5 1.5 0 004.14 19.5h15.72a1.5 1.5 0 001.3-2.25l-7.5-12.99a1.5 1.5 0 00-2.6 0z" />
+            </svg>
+          </div>
+          <h2 className="text-lg font-bold text-gray-800">AI面接に接続できませんでした</h2>
+          <p className="text-sm text-gray-600">時間をおいて再度お試しください。</p>
+          <button
+            type="button"
+            onClick={() => { setConnectBlocked(false); realtimeAttemptedRef.current = false; setMode('connecting') }}
+            className="mt-2 inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+          >
+            再試行
+          </button>
         </div>
       </div>
     )
