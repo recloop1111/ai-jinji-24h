@@ -24,13 +24,23 @@ export async function GET() {
     // 機微列を authenticated で読まない。phase2h 列ホワイトリスト前提）。
     const { data: company, error: compError } = await supabase
       .from('companies')
-      .select('id, monthly_interview_limit, next_month_interview_limit, next_month_limit_effective_month, price_per_interview, is_demo')
+      .select('id, monthly_interview_limit, next_month_interview_limit, next_month_limit_effective_month, price_per_interview')
       .eq('id', user.companyId)
       .single()
 
     if (compError || !company) {
       return apiError('NOT_FOUND', '企業情報が見つかりません')
     }
+
+    // is_demo は phase2h 列ホワイトリスト外（authenticated から直読み不可＝select に含めると company 取得ごと失敗する）。
+    //   service-role で自社1社のみ読み取る（鍵は server 内・DB 権威）。取得不能は非 demo 扱い（false）。
+    const svc = createServiceRoleClient()
+    const { data: demoRow } = await svc
+      .from('companies')
+      .select('is_demo')
+      .eq('id', user.companyId)
+      .maybeSingle()
+    const isDemo = demoRow?.is_demo === true
 
     // 翌月上限予約の月初昇格（適用月到来時に monthly_interview_limit へ反映）
     const applied = await applyNextMonthLimit({
@@ -58,8 +68,7 @@ export async function GET() {
     // 正式仕様: demo 企業（DB 権威 is_demo=true）の「企業自身の管理画面」では利用件数を本番同様に表示する
     //   （デモとして「面接すると利用件数が増える」挙動を確認できる方が望ましい）。よって used は demo でもカウント。
     //   ただし請求額（current_charge）は demo では 0（実請求ではない）。運営側の売上/請求集計は別途 demo を除外する
-    //   （admin/billing/summary・monthly-billing batch）。
-    const isDemo = company.is_demo === true
+    //   （admin/billing/summary・monthly-billing batch）。demo 判定は上の service-role 読み取り（isDemo）。
     const used = monthlyCount ?? 0
     const remaining = Math.max(0, limit - used)
 

@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { hasDemoCookie } from '@/lib/config/demo'
 import PasswordInput from '@/components/shared/PasswordInput'
 import { normalizeDigits } from '@/lib/utils/normalizeDigits'
 
@@ -20,6 +19,7 @@ type PlanData = {
   next_month_max_charge: number
   next_reset_date: string
   min_interview_limit: number
+  is_demo?: boolean // DB 権威（server /api/client/plan が service-role で解決）。client cookie/query では判定しない。
 }
 
 function getProgressBarColor(percent: number) {
@@ -47,7 +47,7 @@ export default function PlanPage() {
   const router = useRouter()
 
   const [loading, setLoading] = useState(true)
-  const [isDemo, setIsDemo] = useState(false)
+  const [loadError, setLoadError] = useState(false)
   const [plan, setPlan] = useState<PlanData | null>(null)
   const [settingPwConfigured, setSettingPwConfigured] = useState<boolean | null>(null)
 
@@ -64,34 +64,13 @@ export default function PlanPage() {
     setTimeout(() => setToast(null), 3000)
   }
 
+  // デモ判定は DB companies.is_demo（server /api/client/plan が service-role で解決）。client cookie/query は使わない。
+  const [reloadNonce, setReloadNonce] = useState(0)
   useEffect(() => {
     let cancelled = false
     async function load() {
-      // デモ判定はサーバ判別可能な cookie（dev のみ・本番無効）。sessionStorage は使わない。
-      const demo = hasDemoCookie()
-
-      if (demo) {
-        if (cancelled) return
-        setIsDemo(true)
-        setPlan({
-          contract_type_label: '従量課金',
-          price_per_interview: 4000,
-          monthly_interview_limit: 10,
-          monthly_count: 3,
-          remaining: 7,
-          current_charge: 12000,
-          max_charge: 40000,
-          next_month_interview_limit: null,
-          next_month_limit_effective_month: null,
-          next_month_max_charge: 40000,
-          next_reset_date: firstOfNextMonth(),
-          min_interview_limit: 5,
-        })
-        setSettingPwConfigured(true)
-        setLoading(false)
-        return
-      }
-
+      setLoading(true)
+      setLoadError(false)
       try {
         const res = await fetch('/api/client/plan')
         if (cancelled) return
@@ -100,6 +79,8 @@ export default function PlanPage() {
           return
         }
         if (!res.ok) {
+          // API 失敗はローディングで隠さず error state を出す（永久「読み込み中」を防ぐ）。
+          setLoadError(true)
           setLoading(false)
           return
         }
@@ -114,14 +95,17 @@ export default function PlanPage() {
         setSettingPwConfigured(pwRes.ok ? !!pwJson.configured : false)
         setLoading(false)
       } catch {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoadError(true)
+          setLoading(false)
+        }
       }
     }
     load()
     return () => { cancelled = true }
-  }, [router])
+  }, [router, reloadNonce])
 
-  if (loading || !plan) {
+  if (loading) {
     return (
       <div className="space-y-6">
         <h1 className="text-xl font-bold text-slate-900">料金・利用状況</h1>
@@ -131,6 +115,27 @@ export default function PlanPage() {
       </div>
     )
   }
+
+  if (loadError || !plan) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-xl font-bold text-slate-900">料金・利用状況</h1>
+        <div className="bg-white rounded-xl border border-slate-200 p-8 shadow-sm text-center">
+          <p className="text-slate-700 font-medium">料金・利用状況の取得に失敗しました</p>
+          <p className="text-sm text-slate-500 mt-1">通信状況をご確認のうえ、もう一度お試しください。</p>
+          <button
+            type="button"
+            onClick={() => setReloadNonce((n) => n + 1)}
+            className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+          >
+            再読み込み
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const isDemo = plan.is_demo === true
 
   const price = plan.price_per_interview
   const limit = plan.monthly_interview_limit
@@ -167,7 +172,6 @@ export default function PlanPage() {
         body: JSON.stringify({
           next_month_interview_limit: parsedNewLimit,
           settingPassword,
-          ...(isDemo ? { demo: true } : {}),
         }),
       })
       const json = await res.json().catch(() => ({}))
@@ -212,7 +216,7 @@ export default function PlanPage() {
           </div>
         </div>
         <div className="space-y-1.5 text-sm text-slate-600 mt-4 pt-4 border-t border-slate-100">
-          <p>面接時間が10分未満の場合は課金対象外です</p>
+          <p>請求対象となった面接件数 × ご契約単価で算出されます</p>
           <p>請求は月末締めとなります</p>
         </div>
       </div>
@@ -241,10 +245,16 @@ export default function PlanPage() {
         </div>
         <p className={`text-xs font-medium ${getProgressTextColor(usagePercent)}`}>{usagePercent}% 使用中</p>
 
-        {isAtLimit && (
+        {/* demo 企業は月間上限で受付停止しない（虚偽表示を避ける） */}
+        {isAtLimit && !isDemo && (
           <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
             <p className="text-sm font-medium text-red-800">月間上限に達しました。現在、新規面接の受付を自動停止しています。</p>
             <p className="text-xs text-red-600 mt-1">今月の上限の変更をご希望の場合は、運営担当者へお問い合わせください。</p>
+          </div>
+        )}
+        {isDemo && (
+          <div className="mt-4 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+            <p className="text-xs text-slate-500">デモ企業では上限による受付停止は行われません。</p>
           </div>
         )}
       </div>
@@ -252,18 +262,25 @@ export default function PlanPage() {
       {/* 今月の請求見込み */}
       <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-5">今月の請求見込み</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        {isDemo ? (
           <div>
-            <p className="text-xs font-medium text-slate-500 mb-1">現在の請求見込み</p>
-            <p className="text-2xl font-bold text-slate-900">{yen(plan.current_charge)}<span className="text-sm font-normal text-slate-500 ml-1">（税別）</span></p>
-            <p className="text-xs text-slate-400 mt-1">{used}人 × {yen(price)}</p>
+            <p className="text-2xl font-bold text-slate-900">{yen(0)}<span className="text-sm font-normal text-slate-500 ml-1">（税別）</span></p>
+            <p className="text-xs text-slate-500 mt-1">デモ企業のため請求は発生しません（利用件数は確認用に表示しています）。</p>
           </div>
-          <div>
-            <p className="text-xs font-medium text-slate-500 mb-1">今月の最大請求目安（上限到達時）</p>
-            <p className="text-2xl font-bold text-slate-900">{yen(plan.max_charge)}<span className="text-sm font-normal text-slate-500 ml-1">（税別）</span></p>
-            <p className="text-xs text-slate-400 mt-1">{limit}人 × {yen(price)}</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div>
+              <p className="text-xs font-medium text-slate-500 mb-1">現在の請求見込み</p>
+              <p className="text-2xl font-bold text-slate-900">{yen(plan.current_charge)}<span className="text-sm font-normal text-slate-500 ml-1">（税別）</span></p>
+              <p className="text-xs text-slate-400 mt-1">{used}人 × {yen(price)}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-slate-500 mb-1">今月の最大請求目安（上限到達時）</p>
+              <p className="text-2xl font-bold text-slate-900">{yen(plan.max_charge)}<span className="text-sm font-normal text-slate-500 ml-1">（税別）</span></p>
+              <p className="text-xs text-slate-400 mt-1">{limit}人 × {yen(price)}</p>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* 翌月の上限予約 */}
@@ -285,8 +302,17 @@ export default function PlanPage() {
           </div>
           <div>
             <p className="text-xs font-medium text-slate-500 mb-1">翌月の最大請求目安</p>
-            <p className="text-2xl font-bold text-slate-900">{yen(plan.next_month_max_charge)}<span className="text-sm font-normal text-slate-500 ml-1">（税別）</span></p>
-            <p className="text-xs text-slate-400 mt-1">{plan.next_month_interview_limit ?? limit}人 × {yen(price)}</p>
+            {isDemo ? (
+              <>
+                <p className="text-2xl font-bold text-slate-900">{yen(0)}<span className="text-sm font-normal text-slate-500 ml-1">（税別）</span></p>
+                <p className="text-xs text-slate-500 mt-1">デモ企業のため請求は発生しません</p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-slate-900">{yen(plan.next_month_max_charge)}<span className="text-sm font-normal text-slate-500 ml-1">（税別）</span></p>
+                <p className="text-xs text-slate-400 mt-1">{plan.next_month_interview_limit ?? limit}人 × {yen(price)}</p>
+              </>
+            )}
           </div>
         </div>
 
@@ -320,7 +346,9 @@ export default function PlanPage() {
                   <span className="text-sm text-slate-500">人 / 月</span>
                 </div>
                 {isValidNewLimit && (
-                  <p className="text-xs text-slate-500 mt-1">翌月の最大請求目安: {yen(previewMaxCharge)}（税別）/ 月</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    翌月の最大請求目安: {isDemo ? `${yen(0)}（デモ企業のため請求は発生しません）` : `${yen(previewMaxCharge)}（税別）/ 月`}
+                  </p>
                 )}
               </div>
               <div>
@@ -352,10 +380,14 @@ export default function PlanPage() {
       <div className="bg-slate-50 rounded-xl border border-slate-200 p-5">
         <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">ご利用にあたって</h2>
         <ul className="space-y-1.5 text-xs text-slate-500">
-          <li>・ 課金対象は10分以上実施された有効な面接のみです</li>
+          <li>・ 請求は「請求対象となった面接件数 × ご契約単価」で算出されます</li>
           <li>・ 利用人数は毎月1日にリセットされます</li>
           <li>・ 翌月上限の変更は翌月1日から適用され、今月の上限には影響しません</li>
-          <li>・ 上限到達時は新規面接の受付が自動停止されます</li>
+          {isDemo ? (
+            <li>・ デモ企業では上限による受付停止は行われません</li>
+          ) : (
+            <li>・ 上限到達時は新規面接の受付が自動停止されます</li>
+          )}
           <li>・ 請求は月末締めとなります</li>
         </ul>
       </div>
@@ -367,7 +399,7 @@ export default function PlanPage() {
           <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-slate-900 mb-3">翌月上限の予約確認</h3>
             <p className="text-sm text-slate-700 leading-relaxed mb-6">
-              翌月の月間上限を <span className="font-bold">{parsedNewLimit}人</span> に変更します。翌月の最大請求目安は <span className="font-bold">{yen(previewMaxCharge)}（税別）</span> です。今月の上限には影響しません。よろしいですか？
+              翌月の月間上限を <span className="font-bold">{parsedNewLimit}人</span> に変更します。翌月の最大請求目安は <span className="font-bold">{isDemo ? `${yen(0)}（デモ企業のため請求は発生しません）` : `${yen(previewMaxCharge)}（税別）`}</span> です。今月の上限には影響しません。よろしいですか？
             </p>
             <div className="flex gap-3">
               <button
