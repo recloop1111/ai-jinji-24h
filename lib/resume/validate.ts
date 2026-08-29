@@ -87,10 +87,16 @@ export function validateResumeAddress(a: ResumeAddressInput): ResumeValidationEr
   return errs
 }
 
-// 空の education/work/license（必須が空）を「未入力カード」として除外する判定。
-const isEmptyEducation = (e: ResumeEducationInput) => !trimToNull(e.schoolName ?? null) && !isSchoolType(e.schoolType)
-const isEmptyWork = (w: ResumeWorkExperienceInput) => !trimToNull(w.companyName ?? null)
-const isEmptyLicense = (l: ResumeLicenseInput) => !trimToNull(l.name ?? null)
+// 「完全に空のカード」判定＝全フィールドが空のときだけ除外する。
+//   （必須の学校名/会社名/資格名だけ空で他は入力済み、というカードは除外せず validate に載せ、
+//     必須未入力エラーとして返す＝入力済みデータを黙って捨てない）。
+const allBlank = (...vals: (string | null | undefined)[]) => vals.every((v) => trimToNull(v ?? null) === null)
+const isEmptyEducation = (e: ResumeEducationInput) =>
+  allBlank(e.schoolType, e.schoolName, e.facultyDepartment, e.enteredYearMonth, e.graduatedYearMonth, e.graduationStatus)
+const isEmptyWork = (w: ResumeWorkExperienceInput) =>
+  w.isCurrent !== true &&
+  allBlank(w.companyName, w.department, w.position, w.employmentType, w.joinedYearMonth, w.leftYearMonth, w.description)
+const isEmptyLicense = (l: ResumeLicenseInput) => allBlank(l.name, l.acquiredYearMonth)
 
 const clampText = (s: string | null | undefined, max: number): string | null => {
   const t = trimToNull(s ?? null)

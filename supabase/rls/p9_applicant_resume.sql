@@ -10,6 +10,31 @@
 BEGIN;
 
 -- ----------------------------------------------------------------------------
+-- 0) rollback 安全化のための preflight 記録
+--   この script が「新規に追加した列」だけを ROLLBACK が落とせるよう、適用“前”の存在状況を記録する。
+--   （万一これらの列名が別経緯で既存だった場合、ROLLBACK が既存列とデータを誤って落とすのを防ぐ）。
+--   meta table は移行内部用（列名のみ・PII なし）。default privilege に依存せず RLS 有効＋GRANT 無し＝
+--   anon/authenticated からは到達不可（service-role / superuser のみ）。
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public._p9_resume_migration_meta (
+  object_name text PRIMARY KEY,
+  preexisted  boolean NOT NULL,
+  recorded_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public._p9_resume_migration_meta ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public._p9_resume_migration_meta FROM PUBLIC, anon, authenticated;
+
+INSERT INTO public._p9_resume_migration_meta (object_name, preexisted)
+SELECT c.col,
+       EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'applicants' AND column_name = c.col)
+FROM (VALUES
+  ('postal_code'),('city'),('town'),('address_line'),('building'),
+  ('motivation'),('self_pr'),('personal_requests'),('resume_photo_path'),('resume_updated_at')
+) AS c(col)
+ON CONFLICT (object_name) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
 -- 1) applicants への additive 列（すべて NULL 許容・既存応募者を壊さない）
 -- ----------------------------------------------------------------------------
 ALTER TABLE public.applicants
@@ -139,6 +164,23 @@ CREATE POLICY admin_select_applicant_licenses ON public.applicant_licenses
   USING (auth.uid() IN (SELECT p.id FROM public.profiles p WHERE p.role IN ('admin','super_admin')));
 
 -- ----------------------------------------------------------------------------
+-- 6b) 明示的 table privilege（ambient / default privilege に依存しない＝fresh Supabase へ移植可能）
+--   Supabase の default privilege は環境により new table へ SELECT/DML を自動付与しない場合があり、
+--   その場合 RLS policy が正しくても authenticated は「permission denied」、SECURITY INVOKER RPC を呼ぶ
+--   service-role も INSERT 不可になる。よって既存 interview_transcripts と同じく REVOKE ALL + 明示 GRANT で確定する
+--   （行の isolation は上の RLS policy が担い、authenticated は SELECT のみ・書き込みは service_role のみ）。
+-- ----------------------------------------------------------------------------
+REVOKE ALL ON public.applicant_educations       FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON public.applicant_work_experiences FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON public.applicant_licenses         FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.applicant_educations       TO authenticated;
+GRANT SELECT ON public.applicant_work_experiences TO authenticated;
+GRANT SELECT ON public.applicant_licenses         TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.applicant_educations       TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.applicant_work_experiences TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.applicant_licenses         TO service_role;
+
+-- ----------------------------------------------------------------------------
 -- 7) Atomic RPC: applicant + children を1トランザクションで作成
 --     SECURITY INVOKER（＝呼び出しロールで実行）。service-role が呼ぶ想定で、service-role は RLS/権限を bypass するため
 --     子テーブルへの INSERT が成立する。危険な SECURITY DEFINER は使わない。
@@ -192,7 +234,9 @@ BEGIN
     p_applicant->>'last_name', p_applicant->>'first_name', p_applicant->>'last_name_kana', p_applicant->>'first_name_kana',
     NULLIF(p_applicant->>'birth_date','')::date,
     NULLIF(p_applicant->>'age','')::int,
-    p_applicant->>'gender', p_applicant->>'phone_number', p_applicant->>'email',
+    -- gender は任意入力。未入力(NULL/空)は既存 CHECK が許す 'no_answer' に寄せる（NOT NULL 制約でアトミック失敗させない）。
+    COALESCE(NULLIF(p_applicant->>'gender',''), 'no_answer'),
+    p_applicant->>'phone_number', p_applicant->>'email',
     p_applicant->>'postal_code', p_applicant->>'prefecture', p_applicant->>'city', p_applicant->>'town',
     p_applicant->>'address_line', p_applicant->>'building',
     p_applicant->>'education', p_applicant->>'work_history', p_applicant->>'qualifications',

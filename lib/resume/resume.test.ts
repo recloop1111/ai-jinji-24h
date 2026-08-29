@@ -141,6 +141,32 @@ describe('normalizeResumeInput（sort_order 再採番 / 空カード除外 / 限
     expect(normalized.work_experiences.length).toBe(1)
     expect(normalized.licenses.length).toBe(1)
   })
+  it('部分入力カード（必須のみ空）は除外せず必須エラーを返す（データを黙って捨てない）', () => {
+    const { normalized, errors } = normalizeResumeInput({
+      // company 名は空だが入社年月は入力済み → 空カード扱いにしない
+      workExperiences: [{ joinedYearMonth: '2020-04' }],
+      // 学校名は空だが学校区分は選択済み
+      educations: [{ schoolType: 'university' }],
+      // 資格名は空だが取得年月は入力済み
+      licenses: [{ acquiredYearMonth: '2024-06' }],
+    })
+    expect(normalized.work_experiences.length).toBe(1)
+    expect(normalized.educations.length).toBe(1)
+    expect(normalized.licenses.length).toBe(1)
+    expect(errors.some((e) => e.field === 'workExperiences[0].companyName')).toBe(true)
+    expect(errors.some((e) => e.field === 'educations[0].schoolName')).toBe(true)
+    expect(errors.some((e) => e.field === 'licenses[0].name')).toBe(true)
+  })
+  it('完全に空のカードのみ除外（在職中フラグは content 扱い）', () => {
+    const { normalized } = normalizeResumeInput({
+      workExperiences: [{}, { isCurrent: true, companyName: 'X社' }],
+      educations: [{}],
+      licenses: [{}],
+    })
+    expect(normalized.work_experiences.length).toBe(1)
+    expect(normalized.educations.length).toBe(0)
+    expect(normalized.licenses.length).toBe(0)
+  })
   it('在職中は left_year_month を強制 null に正規化', () => {
     const { normalized } = normalizeResumeInput({ workExperiences: [{ companyName: 'X社', isCurrent: true, leftYearMonth: '2023-03' }] })
     expect(normalized.work_experiences[0].is_current).toBe(true)

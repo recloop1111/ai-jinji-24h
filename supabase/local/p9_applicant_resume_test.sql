@@ -3,8 +3,11 @@
 --   ※ LOCAL 専用・Production では実行しない。Supabase 非依存の素の Postgres で実行可能
 --     （Supabase ロール anon/authenticated/service_role・auth.uid() を stub 化）。
 --   実行順: この上半分(base stub) → supabase/rls/p9_applicant_resume.sql → この下半分(assertions)。
---   検証済み(2026-08 / postgres:16-alpine): TEST1..8 全 PASS。RPC は SECURITY INVOKER(prosecdef=false)で
---     service_role から atomic insert 成立・非demo/他社の子行不可視・anon/authenticated write不可・cascade。
+--   検証済み(2026-08 / postgres:16-alpine): TEST1..9 全 PASS。RPC は SECURITY INVOKER(prosecdef=false)で
+--     service_role から atomic insert 成立・他社の子行不可視・anon/authenticated write不可・cascade。
+--     子3テーブルの GRANT は forward(p9) 内の明示 GRANT を検証（この test では masking GRANT を付けない）。
+--     gender 省略→no_answer（TEST1）/ rollback preflight meta（TEST9）も検証。
+--     別途 rollback collision（既存 city 列温存）を runner で実証済み。
 -- ============================================================================
 
 -- ===== [base stub] （Supabase 相当の最小環境） =====
@@ -28,7 +31,9 @@ CREATE TABLE public.applicants (
   company_id uuid not null references public.companies(id),
   selection_status text, status text, result text, duplicate_flag boolean default false, inappropriate_flag boolean default false,
   last_name text, first_name text, last_name_kana text, first_name_kana text,
-  birth_date date, age int, gender text, phone_number text, email text,
+  birth_date date, age int,
+  gender text NOT NULL CHECK (gender IN ('male','female','other','no_answer')),  -- 実DBと同じ NOT NULL + CHECK（gender 省略時 fix を検証）
+  phone_number text, email text,
   prefecture text, education text, work_history text, qualifications text,
   employment_type text, industry_experience text, job_id uuid,
   created_at timestamptz default now(), updated_at timestamptz default now()
@@ -39,11 +44,10 @@ CREATE TABLE public.applicants (
 -- \i supabase/rls/p9_applicant_resume.sql
 
 -- ===== [assertions] =====
--- grants (real Supabase gives service_role ALL; authenticated SELECT for RLS subqueries)
+-- grants for the *base* tables only（real Supabase では既存＝ここで付与）。
+--   ※ 新規子3テーブルの GRANT は敢えて付けない：forward script(p9) 内の明示 GRANT が正しく効くことを検証するため。
 GRANT SELECT ON public.profiles, public.applicants, public.jobs, public.companies TO authenticated;
-GRANT SELECT ON public.applicant_educations, public.applicant_work_experiences, public.applicant_licenses TO authenticated;
 GRANT ALL ON public.companies, public.jobs, public.profiles, public.applicants TO service_role;
-GRANT ALL ON public.applicant_educations, public.applicant_work_experiences, public.applicant_licenses TO service_role;
 
 -- seed companies/jobs/profiles/users
 INSERT INTO public.companies (id, name) VALUES
@@ -74,7 +78,9 @@ BEGIN
   IF (SELECT count(*) FROM applicant_work_experiences WHERE applicant_id=v) <> 1 THEN RAISE EXCEPTION 'FAIL: work count'; END IF;
   IF (SELECT count(*) FROM applicant_licenses WHERE applicant_id=v) <> 1 THEN RAISE EXCEPTION 'FAIL: license count'; END IF;
   IF (SELECT sort_order FROM applicant_educations WHERE applicant_id=v) <> 0 THEN RAISE EXCEPTION 'FAIL: sort_order not re-numbered'; END IF;
-  RAISE NOTICE 'TEST1 PASS: atomic create + generated id + sort re-number';
+  -- gender 省略（jsonb に gender キー無し）→ NOT NULL CHECK を 'no_answer' で満たす（P1 fix）
+  IF (SELECT gender FROM applicants WHERE id=v) <> 'no_answer' THEN RAISE EXCEPTION 'FAIL: omitted gender not mapped to no_answer'; END IF;
+  RAISE NOTICE 'TEST1 PASS: atomic create + generated id + sort re-number + gender fallback';
 END $$;
 
 -- ===== TEST 2: invalid child -> full rollback (no orphan applicant) =====
@@ -209,6 +215,19 @@ BEGIN
   SELECT prosecdef INTO secdef FROM pg_proc WHERE proname='create_applicant_with_resume';
   IF secdef THEN RAISE EXCEPTION 'FAIL: RPC is SECURITY DEFINER (must be INVOKER)'; END IF;
   RAISE NOTICE 'TEST8 PASS: RPC is SECURITY INVOKER (prosecdef=false)';
+END $$;
+
+-- ===== TEST 9: rollback preflight meta recorded new columns (preexisted=false) =====
+DO $$
+DECLARE recorded int; wrong int;
+BEGIN
+  IF to_regclass('public._p9_resume_migration_meta') IS NULL THEN RAISE EXCEPTION 'FAIL: meta table missing'; END IF;
+  SELECT count(*) INTO recorded FROM public._p9_resume_migration_meta;
+  IF recorded <> 10 THEN RAISE EXCEPTION 'FAIL: meta should record 10 columns (got %)', recorded; END IF;
+  -- base applicants にこれら列は無かった → 全て preexisted=false であるべき
+  SELECT count(*) INTO wrong FROM public._p9_resume_migration_meta WHERE preexisted <> false;
+  IF wrong <> 0 THEN RAISE EXCEPTION 'FAIL: % columns wrongly flagged preexisted=true', wrong; END IF;
+  RAISE NOTICE 'TEST9 PASS: rollback meta recorded 10 new columns (preexisted=false)';
 END $$;
 
 SELECT 'ALL_TESTS_DONE' AS result;

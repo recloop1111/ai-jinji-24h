@@ -290,6 +290,12 @@ LANGUAGE plpgsql SECURITY INVOKER SET search_path=public
 
 **RLS**: 子3テーブル ENABLE。`company_select_*`（自社 applicant の子のみ・既存 transcript と同型 join）+ `admin_select_*`。**write ポリシー無し**＝公開 write は service-role のみ。
 
-**local 統合テスト結果（TEST1–8 全 PASS）**: ①RPC atomic 作成+生成id+sort再採番 ②不正子→full rollback（orphan なし）③別会社 job 拒否 ④RLS tenant（自社可・他社不可視）⑤admin 全社可 ⑥anon/authenticated の insert 不可・RPC 実行不可 ⑦cascade 削除・is_current+left CHECK・年月 CHECK ⑧SECURITY INVOKER 確認。
+**local 統合テスト結果（TEST1–9 全 PASS）**: ①RPC atomic 作成+生成id+sort再採番+gender省略→no_answer ②不正子→full rollback（orphan なし）③別会社 job 拒否 ④RLS tenant（自社可・他社不可視）⑤admin 全社可 ⑥anon/authenticated の insert 不可・RPC 実行不可 ⑦cascade 削除・is_current+left CHECK・年月 CHECK ⑧SECURITY INVOKER 確認 ⑨rollback preflight meta 記録（新規列のみ）。加えて **rollback collision scenario**（既存 `city` 列＋データがある DB に forward→rollback しても既存列・データを温存し、本 script が新規追加した列/テーブル/RPC のみ除去）を素の postgres で実証。
+
+**Codex review 対応（Phase C ゲート・4件修正済み）**:
+- **P1 gender**: gender 任意入力。RPC で未入力時に `COALESCE(NULLIF(...,''),'no_answer')` へマップ（既存 `NOT NULL` CHECK でアトミック失敗させない）。
+- **P1 GRANT**: 子3テーブルに **REVOKE ALL + 明示 GRANT**（`authenticated`=SELECT のみ / `service_role`=DML）を forward script 内に追加（Supabase default privilege 非依存＝既存 `interview_transcripts` と同型）。local test の masking GRANT は撤去し、forward の GRANT が実効することを TEST6 で検証。
+- **P2 partial card**: 「必須のみ空・他は入力済み」のカードを空扱いで黙って捨てず、**全フィールド空のときだけ除外**（`validate.ts`）＋必須未入力エラーを返す。vitest 追加。
+- **P2 rollback**: forward で `_p9_resume_migration_meta` に**新規追加列のみ**（preexisted=false）を記録し、rollback は記録された列だけを DROP＝既存同名列・データを温存。
 
 **Phase B の非対象（据え置き）**: applicant form UI / 外部 postal API 実接続（provider 未確定）/ company resume tab / PDF / photo storage bucket（列 `resume_photo_path` のみ・bucket は Phase F）/ 既存 `/applicant` API の RPC 移行（Phase C で結線）/ Production DB 適用（承認後）。
