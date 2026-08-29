@@ -33,10 +33,11 @@ describe('billing/usage 集計サイトが DB is_demo で除外している（cl
     expect(F).toMatch(/company\.is_demo === true[\s\S]{0,80}(skippedDemo|continue)/)
     expect(F).toContain('skippedDemo')
   })
-  it('admin/billing/summary: is_demo=true を billable 集計 companyIds から除外', () => {
+  it('admin/billing/summary: demo を売上/請求集計から除外（表示 usage は全企業・詳細は admin-billing-demo.test）', () => {
     const F = read('app/api/admin/billing/summary/route.ts')
     expect(F).toContain('is_demo')
-    expect(F).toContain('c.is_demo !== true')
+    // 売上/未請求集計は非 demo のみ加算（旧: companyIds を is_demo で filter → 廃止）。
+    expect(F).toMatch(/if \(!isDemo\)[\s\S]{0,200}monthlyRevenue \+=/)
   })
   it('interview/start: is_demo=true は月間上限を消費しない（DB 値で判定・client body の is_demo を使わない）', () => {
     const F = read('app/api/interview/[slug]/start/route.ts')

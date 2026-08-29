@@ -42,22 +42,22 @@ export async function GET() {
     }
 
     const companyList = companies ?? []
-    // 正式仕様: DB 権威 is_demo=true は課金/利用量集計から完全除外。billable カウントは非 demo のみ対象。
-    //   （demo 企業は monthlyCounts に現れず 0 件になる。）
-    const companyIds = (companyList as { id: string; is_demo?: boolean | null }[])
-      .filter((c) => c.is_demo !== true)
-      .map((c) => c.id)
+    // 正式仕様: 「表示用 usage」と「実請求/売上集計」を分離する。
+    //   - 当月 billable 面接数（monthlyUsageCounts）は **全企業**（demo 含む）を集計 → 企業別一覧の
+    //     interviews_used に使う（demo も自社利用として実数表示）。
+    //   - 売上/請求集計（monthlyRevenue / unbilled 等）は demo を除外（下の rows map で is_demo 判定）。
+    const allCompanyIds = (companyList as { id: string }[]).map((c) => c.id)
 
-    // 当月の billable 面接数（企業ごと）。PostgREST の1ページ上限（通常1000行）で
+    // 当月の billable 面接数（企業ごと・demo 含む）。PostgREST の1ページ上限（通常1000行）で
     // 過少集計しないよう range() で全件ページングして件数を積み上げる。
-    const monthlyCounts: Record<string, number> = {}
-    if (companyIds.length > 0) {
+    const monthlyUsageCounts: Record<string, number> = {}
+    if (allCompanyIds.length > 0) {
       const PAGE_SIZE = 1000
       for (let from = 0; ; from += PAGE_SIZE) {
         const { data: interviewData, error: countError } = await supabase
           .from('interviews')
           .select('company_id')
-          .in('company_id', companyIds)
+          .in('company_id', allCompanyIds)
           .eq('is_billable', true)
           .gte('created_at', monthStartIso)
           .order('id', { ascending: true })
@@ -67,7 +67,7 @@ export async function GET() {
         }
         if (!interviewData || interviewData.length === 0) break
         for (const row of interviewData as { company_id: string }[]) {
-          monthlyCounts[row.company_id] = (monthlyCounts[row.company_id] ?? 0) + 1
+          monthlyUsageCounts[row.company_id] = (monthlyUsageCounts[row.company_id] ?? 0) + 1
         }
         if (interviewData.length < PAGE_SIZE) break
       }
@@ -139,16 +139,22 @@ export async function GET() {
       plan: string | null
       price_per_interview: number | null
       monthly_interview_limit: number | null
+      is_demo?: boolean | null
     }) => {
+      const isDemo = c.is_demo === true
       const price = c.price_per_interview ?? PRICE_PER_INTERVIEW
-      const used = monthlyCounts[c.id] ?? 0
-      const currentAmount = used * price
-      const status = currentStatusByCompany[c.id] ?? 'unbilled'
+      // 表示用: demo も自社利用として実数を出す（usage は全企業集計）。
+      const used = monthlyUsageCounts[c.id] ?? 0
+      // 請求: demo は実請求 0・売上/未請求集計に加算しない。
+      const currentAmount = isDemo ? 0 : used * price
+      const status = isDemo ? 'demo_excluded' : (currentStatusByCompany[c.id] ?? 'unbilled')
 
-      monthlyRevenue += currentAmount
-      if (status === 'unbilled' && used > 0) {
-        unbilledAmount += currentAmount
-        unbilledCount += 1
+      if (!isDemo) {
+        monthlyRevenue += currentAmount
+        if (status === 'unbilled' && used > 0) {
+          unbilledAmount += currentAmount
+          unbilledCount += 1
+        }
       }
 
       return {
@@ -161,7 +167,9 @@ export async function GET() {
         monthly_interview_limit: c.monthly_interview_limit ?? 0,
         current_amount: currentAmount,
         status,
-        next_billing_date: nextBillingDate,
+        is_demo: isDemo,
+        // demo は請求サイクル対象外＝次回請求日なし（null）。
+        next_billing_date: isDemo ? null : nextBillingDate,
       }
     })
 
