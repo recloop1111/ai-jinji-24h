@@ -184,8 +184,10 @@ export async function PATCH(
         .eq('is_billable', true)
         .gte('created_at', monthStart)
 
-      if (newLimit < (monthlyCount ?? 0)) {
-        return apiError('VALIDATION_ERROR', `当月利用人数（${monthlyCount}件）未満には設定できません`)
+      // 個別企業の当月利用人数（demo 企業も自社利用として実数で扱う。全体課金集計とは別）。
+      const usage = monthlyCount ?? 0
+      if (newLimit < usage) {
+        return apiError('VALIDATION_ERROR', `当月利用人数（${usage}件）未満には設定できません`)
       }
     }
 

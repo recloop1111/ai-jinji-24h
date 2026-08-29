@@ -33,8 +33,11 @@ describe('#1 form: 企業名を public-config から再利用して InterviewLay
     expect(FORM).toContain('setCompanyLogo(company.logo_url')
     expect(FORM).toContain('/api/interview/${slug}/public-config') // /interview/[slug] と同じ情報源
   })
-  it('InterviewLayout に companyName を渡している（AIMEN24 直書きでない）', () => {
-    expect(FORM).toContain('<InterviewLayout companyName={companyName}')
+  it('ヘッダーに companyName を表示（AIMEN24 直書きでない）', () => {
+    // UI 刷新で InterviewLayout 依存を撤去し、開始画面と統一のインラインヘッダーで会社名を表示する。
+    //（会社名を最優先で表示する＝AIMEN24 を company 位置に直書きしない・企業名ハードコードもしない、という intent は不変）
+    expect(FORM).toContain('{companyName}</span>')
+    expect(FORM).not.toContain('AIMEN24')
   })
   it('企業名をハードコードしていない（テスト株式会社を直書きしない）', () => {
     expect(FORM).not.toContain('テスト株式会社')

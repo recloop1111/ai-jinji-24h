@@ -81,7 +81,7 @@ company/job の**登録済み情報の範囲でのみ**回答。無い情報は*
 
 ## Tool / complete guard（Task 14・現状）
 - `complete_interview` は「シグナル」。**完了の権威はサーバ `/end`**（`in_progress` 条件付き UPDATE＝冪等・二重確定防止）。
-- クライアント/LLM が勝手に確定できない（`/end` が唯一の状態確定経路・課金は duration>600s のサーバ算出）。
+- クライアント/LLM が勝手に確定できない（`/end` が唯一の状態確定経路）。課金は server-side 純ロジック `lib/billing/interview-eligibility.ts`（completed必須／applicant_exit条件付き／旧「duration>600s」は廃止・superseded）。duration は server 算出（started_at 由来）。
 - **既知の制約（P2・Realtime OFF のため非露出）**: SDP-proxy 方式では接続後 `session.update` を client が改変可能
   （`lib/openai/realtime.ts` の信頼境界コメント参照）。恒久対策 = server relay（Option B）。本番 Realtime 有効化の blocker。
 - **既知のギャップ（将来）**: realtime 中の「質問到達 index」をサーバが追跡していない（`questionProgress` は realtime で

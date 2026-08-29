@@ -45,13 +45,13 @@
 - 月初昇格：適用月（翌月1日）到来後の最初のアクセス時に `next_month_interview_limit` を `monthly_interview_limit` へ反映し、予約2項目を null にクリア（二重反映なし）
 
 ### 2-5. 課金カウント基準
-- 面接開始後**10分超**で1件カウント
+- **課金対象1件のカウント（正式仕様・旧「10分超」は廃止/superseded）**: 正常完了（completed）は必ず1件課金。応募者本人の途中離脱（applicant_exit）は `duration>=180s` かつ（main質問の50%以上回答〔ceil〕 or `duration>=480s`）で1件課金。technical/system/forced/本人 /end 未達（孤児）は非課金。判定は server-side（`lib/billing/interview-eligibility.ts`）
 - 10分未満は0件
 - ネットワーク切断・サーバー接続エラーによる中断は0件
 - 不適切行為による強制終了は面接時間に関わらず0件
 - 面接開始＝AIが最初の音声を出力した時点のサーバータイムスタンプ
 - 面接終了＝面接終了イベントのサーバータイムスタンプ
-- **実装（Phase 2-a）**: `interviews.is_billable` は **end API（service-role）側で確定**（`duration_seconds > 600` ＝10分超で `true`、10分以下は `false`）。当月見込みは `is_billable=true` の件数 × 単価でリアルタイム算出。**確定請求（Stripe・billing_records writer / BATCH-001）は未実装**で、外部課金は最後にまとめて確認する。
+- **実装**: `interviews.is_billable` は **end API（service-role）側で確定**（純ロジック `lib/billing/interview-eligibility.ts`）。**正式仕様（旧 `duration_seconds > 600`＝10分超は廃止・superseded）**: completed は必ず `true`／applicant_exit は `duration>=180s` かつ(main質問50%以上 or `duration>=480s`)で `true`／technical/system/forced/孤児は `false`。duration は server 権威（started_at 由来）。当月見込みは `is_billable=true` の件数 × 単価でリアルタイム算出。**確定請求（Stripe・billing_records writer / BATCH-001）は未実装**で、外部課金は最後にまとめて確認する。
 
 ### 2-6. 課金サイクル
 - 月次・**月末締め**。日割りなし

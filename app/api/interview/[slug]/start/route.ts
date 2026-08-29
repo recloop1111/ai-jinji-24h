@@ -98,9 +98,9 @@ export async function POST(
     }
 
     // 再入場/リロードの in_progress 孤児を finalize（cancelled）する。最新の1件だけ in_progress に保つ。
-    // ※ 上限カウントより前に実行する: 10分超の旧セッション（billable）をここで is_billable=true に確定しておくと、
-    //   直後の当月上限カウントに正しく反映され、リロード時に上限を1件超過するのを防げる。
-    //   /end が非 in_progress を冪等スキップするため、ここで課金を確定しないと未課金・上限未カウントで取り残される。
+    // ※ 孤児は「応募者本人の正規な終了（/end）が届かなかった行」＝本人利用の確証が無い（network/crash/離脱不明）。
+    //   正式仕様（旧「10分超で課金」廃止）では確証の無い離脱は非課金のため is_billable=false で確定する。
+    //   課金は本人の /end（applicant_exit）または completed でのみ確定させる。
     const cancelNowIso = new Date().toISOString()
     const { data: orphanInterviews } = await supabase
       .from('interviews')
@@ -114,7 +114,7 @@ export async function POST(
         : 0
       await supabase
         .from('interviews')
-        .update({ status: 'cancelled', ended_at: cancelNowIso, duration_seconds: dur, is_billable: dur > 600 })
+        .update({ status: 'cancelled', ended_at: cancelNowIso, duration_seconds: dur, is_billable: false })
         .eq('id', orphan.id)
         .eq('status', 'in_progress')
     }
@@ -129,7 +129,9 @@ export async function POST(
       next_month_limit_effective_month: company.next_month_limit_effective_month ?? null,
     })
     const effectiveLimit = applied.monthly_interview_limit
-    if (typeof effectiveLimit === 'number' && effectiveLimit > 0) {
+    // 正式仕様: DB 権威 companies.is_demo=true は月間上限を消費しない（demo は上限判定の対象外）。
+    //   client の is_demo/query/mode ではなく DB 値のみで判定。
+    if (company.is_demo !== true && typeof effectiveLimit === 'number' && effectiveLimit > 0) {
       // 月初は JST 基準（applyNextMonthLimit の昇格と同一基準）。サーバTZ(UTC)依存にしない。
       const monthStart = jstCurrentMonthStartIso()
       // (a) 確定課金済み（is_billable=true）

@@ -2,6 +2,14 @@ import { type NextRequest } from 'next/server'
 import { successJson, apiError } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { verifyInterviewToken } from '@/lib/interview/capability-token'
+import { classifyTermination, computeIsBillable } from '@/lib/billing/interview-eligibility'
+import { restoreProgress } from '@/lib/interview/interview-progress'
+import { isAllowedEndReason, claimsTimeLimit } from '@/lib/interview/end-reason'
+import { MAX_INTERVIEW_SECONDS } from '@/lib/config/interview-policy'
+
+// 時間切れ（time_limit）主張の許容誤差。client の1秒タイマーと server timestamp のわずかなズレ・通信遅延を
+// 吸収する最小限の固定値（例: 59分56秒でも正常終了できる）。これ以上早い「時間切れ」主張は詐称として拒否する。
+const TIME_LIMIT_TOLERANCE_SECONDS = 5
 
 // node:crypto（token検証）を使うため Node runtime を明示
 export const runtime = 'nodejs'
@@ -36,6 +44,14 @@ export async function POST(
       return apiError('VALIDATION_ERROR', 'final_status は completed または cancelled のみ')
     }
 
+    // end_reason allow-list（正式 domain 値のみ）。未指定(null/undefined)は許容、未知値は 4xx で拒否し
+    // DB CHECK 違反（500）を未然に防ぐ。DB へ未知値を送らない。
+    const rawEndReason = body.end_reason
+    if (rawEndReason !== undefined && rawEndReason !== null && !isAllowedEndReason(rawEndReason)) {
+      return apiError('VALIDATION_ERROR', 'end_reason が不正です')
+    }
+    const endReasonValue: string | null = typeof rawEndReason === 'string' ? rawEndReason : null
+
     const supabase = createServiceRoleClient()
 
     // slug → 企業特定。
@@ -58,10 +74,10 @@ export async function POST(
     if (appError || !applicant) return apiError('NOT_FOUND', '応募者が見つかりません')
     if (applicant.company_id !== company.id) return apiError('FORBIDDEN', '不正なリクエストです')
 
-    // interview 実在＆applicant 一致（現在の status / 課金算出用の started_at も取得）
+    // interview 実在＆applicant 一致（status / duration 算出用 started_at / 質問数 server 解決用 questions_snapshot）
     const { data: interview, error: ivError } = await supabase
       .from('interviews')
-      .select('id, applicant_id, status, started_at')
+      .select('id, applicant_id, status, started_at, questions_snapshot')
       .eq('id', interviewId)
       .single()
     if (ivError || !interview) return apiError('NOT_FOUND', '面接が見つかりません')
@@ -77,15 +93,66 @@ export async function POST(
       })
     }
 
-    // 課金は応募者制御の入力（body.duration_seconds）を信用しない。
-    // サーバ保存の started_at とサーバ終了時刻の差分で算出する（10分超の面接後に 0 を送る等の過少申告で課金回避させない）。
+    // 課金は応募者制御の入力（body.duration_seconds / body.is_billable）を信用しない。
+    // duration はサーバ保存の started_at とサーバ終了時刻の差分で算出する（過少/過大申告で課金操作させない）。
     const endedAtIso = new Date().toISOString()
     const startedAtMs = interview.started_at ? new Date(interview.started_at).getTime() : NaN
     const durationSeconds = Number.isFinite(startedAtMs)
       ? Math.max(0, Math.floor((new Date(endedAtIso).getTime() - startedAtMs) / 1000))
       : 0
-    // 課金判定（INT-009）: 10分超の利用は途中離脱でも従量課金対象（サーバ算出値で判定）
-    const isBillable = durationSeconds > 600
+
+    // time_limit（時間切れ/timeout）の server 検証: client が「時間切れ」と言っただけでは time_limit にしない。
+    //   server の実 duration が「面接時間上限 - 許容誤差」に達していなければ、正常完了へ昇格させない。
+    //   偽の時間切れは applicant_exit/technical 等へ勝手に変換せず（意味が確定できない矛盾リクエスト）、
+    //   4xx で拒否し interview を finalize しない（in_progress のまま＝正規の /end を後で送れる状態を維持）。
+    if (claimsTimeLimit(endReasonValue) && durationSeconds < MAX_INTERVIEW_SECONDS - TIME_LIMIT_TOLERANCE_SECONDS) {
+      return apiError('VALIDATION_ERROR', '時間切れの条件を満たしていません')
+    }
+
+    // 課金判定（正式仕様・旧「開始後10分超で課金」は廃止/superseded）: 1 interview = 最大1 billing unit。
+    //   A. completed / time_limit（面接時間の上限まで提供）→ 必ず billable。
+    //   B. applicant_exit（本人の途中離脱）→ duration>=180s かつ（main質問50%以上回答〔ceil〕 or duration>=480s）。
+    //   C. technical/system/forced/未確定 → 非課金。
+    //   純ロジック = lib/billing/interview-eligibility.ts。**client の answered/total/is_billable は課金判定に使わない。**
+    const category = classifyTermination({
+      finalStatus,
+      endReason: endReasonValue,
+    })
+
+    // main質問「総数」は server 側で解決する（client body は使わない）。
+    //   SoT: interviews.questions_snapshot（面接中に server 保存された「実際に提示した main 質問」）の件数。
+    //   AI 深掘り/follow-up/turn は含まない（snapshot は main 質問のみ）。取得不能は null（50%ルール不適用）。
+    const snapshot = (interview as { questions_snapshot?: unknown }).questions_snapshot
+    const serverTotalMain = Array.isArray(snapshot) && snapshot.length > 0 ? snapshot.length : null
+
+    // main質問「回答数」は server-authoritative progress（interviews.interview_progress.completedCount）から取得する。
+    //   ※ 列は P7.1/R1-A・**Prod 未適用**かつ Realtime reducer 未結線のため現状 null になり得る（best-effort）。
+    //     列非存在の select は error になるため、失敗は握って null（＝取得不能）扱いにする。client 値へは fallback しない。
+    let serverAnsweredMain: number | null = null
+    try {
+      const { data: progRow, error: progErr } = await supabase
+        .from('interviews')
+        .select('interview_progress')
+        .eq('id', interviewId)
+        .maybeSingle()
+      if (!progErr && progRow) {
+        const state = restoreProgress((progRow as Record<string, unknown>).interview_progress)
+        if (state && state.interviewId === interviewId && Number.isFinite(state.completedCount)) {
+          serverAnsweredMain = Math.max(0, Math.min(Math.floor(state.completedCount), serverTotalMain ?? state.completedCount))
+        }
+      }
+    } catch {
+      serverAnsweredMain = null // 列未適用/取得失敗 → 取得不能（safe fallback: duration>=480s のみ課金）
+    }
+
+    // 課金は server 権威の duration ＋ server 解決の answered/total で判定（server progress 取得不能時は
+    // 50%ルールを使わず duration>=480s の applicant_exit のみ課金＝computeIsBillable の null 挙動）。
+    const isBillable = computeIsBillable({
+      category,
+      durationSeconds,
+      answeredMainQuestions: serverAnsweredMain,
+      totalMainQuestions: serverTotalMain,
+    })
 
     // 対象 interview を確定（status='in_progress' 条件付きUPDATEで競合時の二重確定も防ぐ）
     const { data: updatedRows, error: updError } = await supabase
@@ -94,9 +161,10 @@ export async function POST(
         status: finalStatus,
         ended_at: endedAtIso,
         duration_seconds: durationSeconds,
-        total_questions: typeof body.total_questions === 'number' ? body.total_questions : null,
-        answered_questions: typeof body.answered_questions === 'number' ? body.answered_questions : null,
-        end_reason: typeof body.end_reason === 'string' ? body.end_reason : null,
+        // DB へも server-resolved / normalized 値のみ保存（client raw は保存しない・answered>total を作らない）。
+        total_questions: serverTotalMain,
+        answered_questions: serverAnsweredMain,
+        end_reason: endReasonValue,
         is_billable: isBillable,
       })
       .eq('id', interviewId)
@@ -139,13 +207,15 @@ export async function POST(
       .maybeSingle()
 
     if (!newerInProgress) {
-      // applicants.status をサーバ確定（anon では更新できないためここで確定する）
+      // applicants.status をサーバ確定（anon では更新できないためここで確定する）。
+      //   ※ 途中離脱は「面接状態」であって企業の選考結果（result='不採用'）ではない。正式仕様として
+      //     cancelled/applicant_exit 時に result を自動で '不採用' にしない（企業が部分回答を見て後から判断できる余地を残す）。
+      //     applicants.result CHECK = ('未対応','検討中','二次通過','不採用')・DEFAULT '未対応'。既存 result は上書きしない。
       const applicantStatus = finalStatus === 'completed' ? '完了' : '途中離脱'
       const applicantUpdate: Record<string, unknown> = {
         status: applicantStatus,
         updated_at: new Date().toISOString(),
       }
-      if (applicantStatus === '途中離脱') applicantUpdate.result = '不採用'
       await supabase.from('applicants').update(applicantUpdate).eq('id', applicantId)
     }
 
@@ -153,7 +223,8 @@ export async function POST(
     // ※ ブランケット更新だと、リロード等で並行する /start が挿入した「後から始まった新しい in_progress」まで
     //   巻き込み、ended_at < started_at / duration_seconds=null の不整合行を生む（新セッションを即殺してしまう）。
     //   started_at で「この面接以前」に限定し、後発の新面接は触らない。
-    //   巻き込む正当な孤児は started_at からサーバ算出した duration で is_billable を確定する（/start の孤児finalizeと同方式）。
+    //   孤児は「応募者本人の正規な終了（/end）が届かなかった行」＝本人利用の確証が無い（network/crash/離脱不明）。
+    //   正式仕様では確証の無い離脱は非課金のため is_billable=false で確定する（旧 dur>600 は廃止）。
     const cleanupNowIso = new Date().toISOString()
     const { data: olderOrphans } = await supabase
       .from('interviews')
@@ -169,7 +240,7 @@ export async function POST(
         : 0
       await supabase
         .from('interviews')
-        .update({ status: 'cancelled', ended_at: cleanupNowIso, duration_seconds: dur, is_billable: dur > 600 })
+        .update({ status: 'cancelled', ended_at: cleanupNowIso, duration_seconds: dur, is_billable: false })
         .eq('id', orphan.id)
         .eq('status', 'in_progress')
     }

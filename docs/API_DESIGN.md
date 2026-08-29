@@ -300,8 +300,8 @@ POST /api/interview/[slug]/end
 
 **検証/処理:**
 - token（slug/applicant_id）・company（停止中403）・applicant（company一致）・interview（applicant一致）。
-- 対象 interview を `status=final_status`・`ended_at`・`duration_seconds`・`total_questions`・`answered_questions`・`end_reason`・**`is_billable`（INT-009：`duration_seconds > 600`＝10分超）** で確定。
-- **applicants.status をサーバ確定**: `completed`→`'完了'`／`cancelled`→`'途中離脱'`（＋`result='不採用'`）。
+- 対象 interview を `status=final_status`・`ended_at`・`duration_seconds`・`total_questions`・`answered_questions`・`end_reason`・**`is_billable`（正式仕様・旧 INT-009「`duration_seconds > 600`＝10分超」は廃止/superseded）** で確定。is_billable は server-side 純ロジック `lib/billing/interview-eligibility.ts`：completed は必ず課金／applicant_exit は `duration>=180s` かつ(main質問50%以上〔ceil〕 or `duration>=480s`)／technical・system・forced・孤児は非課金。duration は server 算出（started_at 由来・client 値/`is_billable` は信用しない）。
+- **applicants.status をサーバ確定**: `completed`→`'完了'`／`cancelled`→`'途中離脱'`。**`result` は自動設定しない**（途中離脱は面接状態であり選考結果ではない。`result` CHECK=`('未対応','検討中','二次通過','不採用')`・既存値を上書きしない。企業が部分回答を見て後から判断）。
 - 同一 applicant の他の `in_progress` interview を **`cancelled`** 化。
 
 **レスポンス（200）:**
@@ -341,7 +341,7 @@ POST /api/interview/[slug]/snapshot
 #### 応募者ステータス仕様（表示導出）
 - DBの **`applicants.status` は CHECK 制約で `準備中` / `完了` / `途中離脱` の3値のみ**。「面接中」は**DBに保存しない**。
 - 表示は **最新 `interviews.status` から導出**（`lib/applicants/displayStatus.ts`）: `in_progress`→面接中／`completed`→完了／`cancelled`→途中離脱／interview無→準備中。**`applicants.status='完了'/'途中離脱'` を最優先**。最新は `created_at` 降順先頭（古い in_progress 孤児に引っ張られない）。
-- `interviews.status` 運用 = `in_progress` / `completed` / `cancelled`。`completed`＝正常完了、`cancelled`＝途中離脱。is_billable は10分超（INT-008）。
+- `interviews.status` 運用 = `in_progress` / `completed` / `cancelled`。`completed`＝正常完了、`cancelled`＝途中離脱。is_billable は正式課金仕様（completed必須／applicant_exit条件付き／旧「10分超」は廃止・superseded。`lib/billing/interview-eligibility.ts`）。
 
 ---
 
@@ -1776,7 +1776,7 @@ POST /api/internal/batch/monthly-billing
 **実行タイミング:** 毎月1日 00:00 JST
 
 **処理:**
-1. 全企業の前月面接件数を集計（10分超のみカウント）
+1. 全企業の前月面接件数を集計（`interviews.is_billable=true` のみカウント。旧「10分超で課金」は廃止/superseded。demo 専用企業 `companies.is_demo=true`〔現在はテスト株式会社のみ〕は実請求・運営売上集計から除外）
 2. プラン料金を算出
 3. Stripe Invoice作成・自動発行
 4. **`billing_records` に記録**（旧記述の `invoices` テーブルは実DBに存在しない）

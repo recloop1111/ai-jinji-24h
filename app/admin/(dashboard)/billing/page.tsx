@@ -36,7 +36,8 @@ type BillingRow = {
   monthly_interview_limit: number
   current_amount: number
   status: string
-  next_billing_date: string
+  next_billing_date: string | null
+  is_demo?: boolean
 }
 
 type BillingSummary = {
@@ -97,6 +98,7 @@ function getBillingStatusConfig(status: string): { dotClass: string; textClass: 
     billed: { dotClass: 'bg-emerald-400', textClass: 'text-emerald-400', label: '請求済み' },
     unbilled: { dotClass: 'bg-amber-400', textClass: 'text-amber-400', label: '未請求' },
     overdue: { dotClass: 'bg-red-400', textClass: 'text-red-400', label: '支払い遅延' },
+    demo_excluded: { dotClass: 'bg-gray-500', textClass: 'text-gray-400', label: '対象外（デモ）' },
   }
   return map[status] ?? { dotClass: 'bg-gray-500', textClass: 'text-gray-500', label: status }
 }
@@ -504,7 +506,7 @@ export default function BillingPage() {
                             <span className="text-sm">{statusConfig.label}</span>
                           </div>
                         </td>
-                        <td className="py-4 px-5 text-sm text-gray-400">{row.next_billing_date}</td>
+                        <td className="py-4 px-5 text-sm text-gray-400">{row.is_demo ? '—' : (row.next_billing_date ?? '—')}</td>
                         <td className="py-4 px-5">
                           <button
                             type="button"
@@ -513,13 +515,16 @@ export default function BillingPage() {
                           >
                             詳細
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => showToast('請求書発行機能は今後実装予定です')}
-                            className="text-xs text-blue-400 hover:text-blue-300"
-                          >
-                            請求書発行
-                          </button>
+                          {/* demo 企業は請求対象外のため請求書発行を出さない（誤発行防止） */}
+                          {!row.is_demo && (
+                            <button
+                              type="button"
+                              onClick={() => showToast('請求書発行機能は今後実装予定です')}
+                              className="text-xs text-blue-400 hover:text-blue-300"
+                            >
+                              請求書発行
+                            </button>
+                          )}
                         </td>
                       </tr>
                     )
@@ -600,7 +605,7 @@ export default function BillingPage() {
                       <span className={`w-2 h-2 rounded-full ${statusConfig.dotClass}`} />
                       <span className="text-xs">{statusConfig.label}</span>
                     </div>
-                    <p className="text-xs text-gray-500">次回請求: {row.next_billing_date}</p>
+                    <p className="text-xs text-gray-500">次回請求: {row.is_demo ? '—' : (row.next_billing_date ?? '—')}</p>
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -610,13 +615,16 @@ export default function BillingPage() {
                     >
                       詳細
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => showToast('請求書発行機能は今後実装予定です')}
-                      className="text-xs text-blue-400 hover:text-blue-300"
-                    >
-                      請求書発行
-                    </button>
+                    {/* demo 企業は請求対象外のため請求書発行を出さない（誤発行防止） */}
+                    {!row.is_demo && (
+                      <button
+                        type="button"
+                        onClick={() => showToast('請求書発行機能は今後実装予定です')}
+                        className="text-xs text-blue-400 hover:text-blue-300"
+                      >
+                        請求書発行
+                      </button>
+                    )}
                   </div>
                 </div>
               )

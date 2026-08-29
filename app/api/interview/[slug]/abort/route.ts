@@ -7,9 +7,9 @@ import { verifyInterviewToken } from '@/lib/interview/capability-token'
 export const runtime = 'nodejs'
 
 // 公開面接フロー: 質問取得失敗時の中断確定（service-role）。
-// /questions が失敗して質問が一度も提示されないまま in_progress が残ると、後続の孤児finalizeで
-// duration_seconds = (finalize時刻 - started_at) > 600 のとき is_billable=true になり、質問未提示でも
-// 課金・上限カウントされ得る（P2 #2）。これを防ぐため、当該 in_progress を「非課金で確定」する。
+// /questions が失敗して質問が一度も提示されないまま in_progress が残るのは technical_failure（system/設定起因）。
+// 正式課金仕様では technical/system 失敗は非課金のため、当該 in_progress を「非課金で確定」する
+// （applicant 本人の利用の確証が無い・質問未提示のため課金しない）。
 // /end と異なり applicants.status / result は変更しない（サーバ/設定起因の失敗で応募者を不採用にしない）。
 export async function POST(
   request: NextRequest,
