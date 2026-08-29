@@ -93,14 +93,49 @@ describe('デジタル履歴書 v1: 6ステップ＋履歴書送信の骨格', (
   })
 })
 
-describe('性別: 任意（未回答可）＝ no_answer を含む選択肢', () => {
-  // Phase C: gender は任意入力。male/female/other/no_answer を選べ、未選択（空）も許容。
-  it('GENDER_OPTIONS に male/female/other/no_answer がある', () => {
-    expect(FORM).toContain("{ value: 'male', label: '男性' }")
-    expect(FORM).toContain("{ value: 'female', label: '女性' }")
-    expect(FORM).toContain("{ value: 'no_answer', label: '回答しない' }")
+describe('性別: 必須・男性/女性のみ（Human QA 反映）', () => {
+  // Human QA: gender は必須の radio。male/female のみ。other/no_answer/選択しない は新フォームから撤去。
+  it('GENDER_OPTIONS は male/female のみ（other/no_answer 撤去）', () => {
+    // GENDER_OPTIONS 定義ブロックだけを抽出（SCHOOL_TYPE_OPTIONS の その他 と混同しない）。
+    const start = FORM.indexOf('const GENDER_OPTIONS = [')
+    const genderBlock = FORM.slice(start, FORM.indexOf(']', start))
+    expect(start).toBeGreaterThan(0)
+    expect(genderBlock).toContain("{ value: 'male', label: '男性' }")
+    expect(genderBlock).toContain("{ value: 'female', label: '女性' }")
+    expect(genderBlock).not.toContain("no_answer")
+    expect(genderBlock).not.toContain("その他")
+    expect(genderBlock).not.toContain("回答しない")
   })
-  it('性別ラベルは任意表記（必須にしない）', () => {
-    expect(FORM).toContain('label="性別（任意）"')
+  it('性別は必須・radio（select ではない）', () => {
+    expect(FORM).toContain('<InputField label="性別" required error={errors.gender}>')
+    expect(FORM).toContain('<RadioGroup value={gender} onChange={setGender} options={GENDER_OPTIONS} />')
+  })
+  it('性別未選択（male/female 以外）は step1 で reject', () => {
+    expect(FORM).toContain("if (gender !== 'male' && gender !== 'female') e.gender = '性別を選択してください'")
+  })
+})
+
+describe('Human QA 反映: draft 通知 / 学歴 visibility / 職歴なし / 任意 PR', () => {
+  it('draft 復元通知は新文言・初回のみ・3.5s 自動消滅', () => {
+    expect(FORM).toContain('前回の入力内容を引き継ぎました')
+    expect(FORM).not.toContain('入力途中の内容を復元しました') // 旧文言は撤去
+    expect(FORM).toContain('setTimeout(() => setDraftRestored(false), 3500)')
+  })
+  it('学歴は school_type で 入学年月/学部学科 を出し分け', () => {
+    expect(FORM).toContain('vis.showEnteredYearMonth')
+    expect(FORM).toContain('vis.showFacultyDepartment')
+  })
+  it('職歴は「職歴あり/職歴なし」を明示選択（radio）', () => {
+    expect(FORM).toContain("options={[{ value: 'has', label: '職歴あり' }, { value: 'none', label: '職歴なし（新卒・未就業）' }]}")
+  })
+  it('確認画面: 職歴なしは「職歴なし」表示・資格/PR 空は「未入力」', () => {
+    expect(FORM).toContain('value="職歴なし"')
+    expect(FORM).toContain('<PreviewRow label="資格・自己PR" value="未入力" />')
+  })
+  it('資格・自己PR step に「すべて任意」の明示がある', () => {
+    expect(FORM).toContain('すべて任意です。入力せず次へ進むこともできます。')
+  })
+  it('住所自動取得失敗の文言が自然（エラー感を弱める）', () => {
+    expect(FORM).toContain('住所を自動取得できなかったため、続けて住所をご入力ください。')
   })
 })

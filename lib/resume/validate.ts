@@ -14,10 +14,23 @@ const isSchoolType = (v: unknown): v is SchoolType => typeof v === 'string' && (
 const isGraduationStatus = (v: unknown): v is GraduationStatus =>
   typeof v === 'string' && (GRADUATION_STATUSES as readonly string[]).includes(v)
 
-// 学校区分ごとの項目出し分け（学部・学科の表示可否）。中学/高校/その他は非表示。
-export function educationFieldVisibility(schoolType: string | null | undefined): { showFacultyDepartment: boolean } {
-  const show = schoolType === 'vocational' || schoolType === 'junior_college' || schoolType === 'university' || schoolType === 'graduate_school'
-  return { showFacultyDepartment: show }
+// 学校区分ごとの項目出し分け。
+//   - showFacultyDepartment（学部・学科）: 専門/短大/大学/大学院 のみ（中学/高校/その他は非表示）。
+//   - showEnteredYearMonth（入学年月）: 中学校は卒業情報中心のため非表示。それ以外は表示（任意）。
+export function educationFieldVisibility(
+  schoolType: string | null | undefined,
+): { showFacultyDepartment: boolean; showEnteredYearMonth: boolean } {
+  const showFacultyDepartment =
+    schoolType === 'vocational' || schoolType === 'junior_college' || schoolType === 'university' || schoolType === 'graduate_school'
+  const showEnteredYearMonth = schoolType !== 'junior_high'
+  return { showFacultyDepartment, showEnteredYearMonth }
+}
+
+// 新 resume フォームの性別は male/female 必須（空/other/no_answer は reject）。
+//   ※ legacy applicant（other/no_answer 既存データ）や DB CHECK は破壊しない＝本検証は新フォーム経路専用。
+export function validateResumeGender(gender: string | null | undefined): ResumeValidationError | null {
+  if (gender === 'male' || gender === 'female') return null
+  return { field: 'gender', message: '性別を選択してください' }
 }
 
 // 在職中なら退職年月は不要（disable/hide）。

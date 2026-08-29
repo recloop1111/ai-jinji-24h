@@ -4,7 +4,7 @@ import { isValidUUID } from '@/lib/api/validation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { signInterviewToken } from '@/lib/interview/capability-token'
 import { verifyTurnstileToken } from '@/lib/auth/turnstile'
-import { normalizeResumeInput } from '@/lib/resume/validate'
+import { normalizeResumeInput, validateResumeGender } from '@/lib/resume/validate'
 import { computeAge } from '@/lib/resume/normalize'
 import type { ResumeInput } from '@/lib/resume/types'
 
@@ -77,9 +77,12 @@ export async function POST(
     //   legacy（resume 無し）は従来の直接 insert を維持（既存テスト/Demo/SMS を壊さない）。
     if (body.resume != null && typeof body.resume === 'object') {
       const { normalized, errors } = normalizeResumeInput(body.resume as ResumeInput)
-      if (errors.length > 0) {
+      // 新フォームの性別は male/female 必須（空/other/no_answer は reject）。legacy 経路は非対象。
+      const genderErr = validateResumeGender(str(body.gender))
+      const allErrors = genderErr ? [...errors, genderErr] : errors
+      if (allErrors.length > 0) {
         // フォーム側で最終送信前に検証済みだが、server も SoT として拒否（PII はログに出さない）
-        return apiError('VALIDATION_ERROR', '入力内容を確認してください', { fields: errors })
+        return apiError('VALIDATION_ERROR', '入力内容を確認してください', { fields: allErrors })
       }
 
       const birthDate = str(body.birth_date)

@@ -333,3 +333,19 @@ LANGUAGE plpgsql SECURITY INVOKER SET search_path=public
 **テスト/品質**: vitest 1070 all pass（resume 32 / postal 11 / form guard 更新）・tsc 0・build OK・変更ファイル lint clean。docker postgres で TEST1–9＋rollback collision PASS。
 
 **本 phase 非対象**: company resume tab 本実装 / PDF 出力 / 証明写真アップロード。
+
+---
+
+## Phase C Human QA 反映（2026-08・branch feature/digital-resume-v1）
+
+Human QA で見つかった UX を修正（DB schema 変更なし・legacy 互換維持・Phase D/E 非着手）:
+1. **性別**: select→**必須 radio**、選択肢は **male/female のみ**（other/no_answer/選択しない は新フォームから撤去）。空/other/no_answer は step1＋server(`validateResumeGender`) で reject。**DB gender CHECK・legacy applicant(other/no_answer) は非破壊**（新フォーム送信値のみ限定）。
+2. **draft 復元通知**: 文言「前回の入力内容を引き継ぎました」、**初回復元時のみ**の小さな fixed toast、**3.5s 自動消滅**、step 移動で再表示しない。sessionStorage draft 機能自体は維持。
+3. **学歴**: `educationFieldVisibility` を拡張（`showFacultyDepartment` + `showEnteredYearMonth`）。junior_high=入学年月/学部学科を非表示（卒業情報中心）、high_school=学部学科非表示、専門/短大/大学/大学院=学部学科表示。入学年月は非必須のまま。
+4. **職歴**: 冒頭で **「職歴あり／職歴なし」radio**。なし→card 非表示で「次へ」だけで完了（新卒が空 card を触らない）。あり→1件目 card＋「＋職歴を追加」。確認画面は「職歴なし」を明示。
+5. **資格・自己PR**: 「すべて任意です。入力せず次へ進むこともできます。」を明示。未入力で validation error を出さない。確認画面は資格/PR 全空なら「未入力」1行（不自然な空 card を出さない）。
+6. **確認画面**: 住所は郵便番号（あれば〒付き1行）＋住所1行で自然に。性別は男性/女性のみ。
+7. **postal 文言**: 「住所を自動取得できなかったため、続けて住所をご入力ください。」へ（**外部 fallback 追加なし**・honest 挙動維持）。
+8. **Turnstile**: widget に `onError` を追加し、読込/接続失敗時に「セキュリティ認証を読み込めませんでした…再読み込み」を表示（**bypass しない・secret/検証は不変**）。Preview の "接続できません" は Cloudflare 側の hostname allowlist 起因（後述の運用対応が必要）。
+
+tests: vitest **1082 pass**（gender accept/reject・education visibility・source-level guards 追加）・tsc 0・build OK・changed-file lint clean。

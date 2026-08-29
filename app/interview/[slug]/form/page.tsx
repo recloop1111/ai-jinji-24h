@@ -54,11 +54,11 @@ const PREFECTURES = [
   '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県',
 ]
 
+// 新 resume フォームの性別は male/female のみ・必須（other/no_answer/選択しない は撤去）。
+//   ※ 既存 DB gender CHECK（other/no_answer 含む）は破壊しない＝新フォーム送信値のみ male/female に限定。
 const GENDER_OPTIONS = [
   { value: 'male', label: '男性' },
   { value: 'female', label: '女性' },
-  { value: 'other', label: 'その他' },
-  { value: 'no_answer', label: '回答しない' },
 ]
 
 const SCHOOL_TYPE_OPTIONS = [
@@ -155,6 +155,7 @@ export default function FormPage() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [captchaToken, setCaptchaToken] = useState('')
+  const [captchaError, setCaptchaError] = useState(false)
   const [draftRestored, setDraftRestored] = useState(false)
   const turnstileRef = useRef<TurnstileHandle>(null)
   const hydratedRef = useRef(false)
@@ -170,6 +171,13 @@ export default function FormPage() {
       if (saved) setSelectedLanguage(saved)
     } catch { /* noop */ }
   }, [slug])
+
+  // draft 復元通知は「初回復元時のみ」小さく出し、3.5 秒で自動的に消す（step 移動では再表示しない）。
+  useEffect(() => {
+    if (!draftRestored) return
+    const t = setTimeout(() => setDraftRestored(false), 3500)
+    return () => clearTimeout(t)
+  }, [draftRestored])
 
   // ── draft の復元（PII は sessionStorage のみ・localStorage には保存しない） ──
   const restoreDraft = useCallback((): boolean => {
@@ -243,7 +251,7 @@ export default function FormPage() {
       if (company.is_demo && !restored) {
         setLastName('テスト'); setFirstName('太郎')
         setLastNameKana('テスト'); setFirstNameKana('タロウ')
-        setBirthDate('1998-04-01'); setGender('no_answer')
+        setBirthDate('1998-04-01'); setGender('male')
         setPhone('09012345678'); setEmail('debug@test.com')
         setAddrPrefecture('東京都'); setCity('千代田区'); setTown('千代田'); setAddressLine('1-1')
         setEducations([{ ...emptyEdu(), schoolType: 'university', schoolName: 'テスト大学', facultyDepartment: '工学部', enteredYearMonth: '2017-04', graduatedYearMonth: '2021-03', graduationStatus: 'graduated' }])
@@ -292,10 +300,10 @@ export default function FormPage() {
         }
       } else {
         // unconfigured / not_found / upstream_error いずれも手動入力を継続できる（応募をブロックしない）。
-        setPostalNote('自動取得できませんでした。お手数ですが住所を直接ご入力ください。')
+        setPostalNote('住所を自動取得できなかったため、続けて住所をご入力ください。')
       }
     } catch {
-      setPostalNote('自動取得できませんでした。お手数ですが住所を直接ご入力ください。')
+      setPostalNote('住所を自動取得できなかったため、続けて住所をご入力ください。')
     } finally {
       setPostalSearching(false)
     }
@@ -347,6 +355,7 @@ export default function FormPage() {
         const age = computeAge(birthDate)
         if (age == null || age < 15 || age > 100) e.birthDate = '生年月日をご確認ください'
       }
+      if (gender !== 'male' && gender !== 'female') e.gender = '性別を選択してください'
       if (!phone.trim()) e.phone = '電話番号を入力してください'
       if (!email.trim()) e.email = 'メールアドレスを入力してください'
       else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = 'メールアドレスの形式が正しくありません'
@@ -435,7 +444,7 @@ export default function FormPage() {
         last_name_kana: lastNameKana.trim(),
         first_name_kana: firstNameKana.trim(),
         birth_date: birthDate, // YYYY-MM-DD。age は server が birth_date から計算
-        gender: gender || null, // 未回答は server 側で no_answer に寄せる
+        gender, // male/female 必須（step1 で検証・server も validateResumeGender で再検証）
         phone_number: normalizeDigits(phone),
         email: email.trim(),
         job_id: jobId || null,
@@ -528,19 +537,20 @@ export default function FormPage() {
   return (
     <div className="min-h-screen bg-slate-100">
       {header}
+      {/* draft 復元通知（小さなトースト・初回のみ・3.5s 自動消滅・フォーム領域を圧迫しない） */}
+      {draftRestored && (
+        <div className="pointer-events-none fixed inset-x-0 top-3 z-50 flex justify-center px-4">
+          <div role="status" className="pointer-events-auto flex items-center gap-2 rounded-full border border-blue-200 bg-white px-4 py-2 text-xs font-medium text-blue-700 shadow-lg">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500" />
+            前回の入力内容を引き継ぎました
+          </div>
+        </div>
+      )}
       <main className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-10">
         <div className="rounded-[28px] border border-slate-200/80 bg-white p-5 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.25)] sm:p-9">
           <div className="mb-7">
             <StepIndicator currentStep={2} totalSteps={5} labels={STEP_LABELS} />
           </div>
-
-          {/* draft 復元トースト */}
-          {draftRestored && (
-            <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-700">
-              <span>入力途中の内容を復元しました</span>
-              <button onClick={() => setDraftRestored(false)} className="text-xs font-medium text-blue-600 hover:text-blue-800">閉じる</button>
-            </div>
-          )}
 
           {/* サブステップ進捗 */}
           <div className="mb-6">
@@ -578,8 +588,8 @@ export default function FormPage() {
                       {currentAge != null && currentAge >= 0 && (<p className="mt-1 text-xs text-slate-500">現在 {currentAge} 歳</p>)}
                     </div>
                   </InputField>
-                  <InputField label="性別（任意）" error={errors.gender}>
-                    <SelectField value={gender} onChange={setGender} options={GENDER_OPTIONS} placeholder="選択しない" />
+                  <InputField label="性別" required error={errors.gender}>
+                    <RadioGroup value={gender} onChange={setGender} options={GENDER_OPTIONS} />
                   </InputField>
 
                   <InputField label="電話番号" required error={errors.phone}>
@@ -683,9 +693,11 @@ export default function FormPage() {
                               <TextInput value={c.facultyDepartment ?? ''} onChange={(v) => setEducations((a) => a.map((x) => x._k === c._k ? { ...x, facultyDepartment: v } : x))} placeholder="○○学部○○学科" />
                             </InputField>
                           )}
-                          <InputField label="入学年月（任意）" error={errors[`edu_${i}_enteredYearMonth`]}>
-                            <MonthInput value={c.enteredYearMonth ?? ''} onChange={(v) => setEducations((a) => a.map((x) => x._k === c._k ? { ...x, enteredYearMonth: v } : x))} />
-                          </InputField>
+                          {vis.showEnteredYearMonth && (
+                            <InputField label="入学年月（任意）" error={errors[`edu_${i}_enteredYearMonth`]}>
+                              <MonthInput value={c.enteredYearMonth ?? ''} onChange={(v) => setEducations((a) => a.map((x) => x._k === c._k ? { ...x, enteredYearMonth: v } : x))} />
+                            </InputField>
+                          )}
                           <InputField label="卒業年月（任意）" error={errors[`edu_${i}_graduatedYearMonth`]}>
                             <MonthInput value={c.graduatedYearMonth ?? ''} onChange={(v) => setEducations((a) => a.map((x) => x._k === c._k ? { ...x, graduatedYearMonth: v } : x))} />
                           </InputField>
@@ -704,9 +716,13 @@ export default function FormPage() {
             {/* ── STEP 4: 職歴 ── */}
             {subStep === 4 && (
               <section>
-                <StepHeader title="職歴" note="新しい職歴から順にご入力ください。職歴がない場合は「職歴なし」をお選びください。" minutes="約3分" />
-                <div className="mb-4">
-                  <Checkbox checked={noWork} onChange={setNoWork} label="職歴なし（新卒・未就業）" />
+                <StepHeader title="職歴" note="はじめに職歴の有無をお選びください。" minutes="約3分" />
+                <div className="mb-5">
+                  <RadioGroup
+                    value={noWork ? 'none' : 'has'}
+                    onChange={(v) => setNoWork(v === 'none')}
+                    options={[{ value: 'has', label: '職歴あり' }, { value: 'none', label: '職歴なし（新卒・未就業）' }]}
+                  />
                 </div>
                 {!noWork && (
                   <>
@@ -754,7 +770,10 @@ export default function FormPage() {
             {/* ── STEP 5: 資格・自己PR ── */}
             {subStep === 5 && (
               <section>
-                <StepHeader title="資格・自己PR" note="保有資格・志望動機・自己PRをご入力ください（任意）。" minutes="約3分" />
+                <StepHeader title="資格・自己PR" note="保有資格・志望動機・自己PRなど。" minutes="約3分" />
+                <div className="-mt-3 mb-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-500">
+                  すべて任意です。入力せず次へ進むこともできます。
+                </div>
                 <datalist id="license-suggestions">
                   {COMMON_LICENSES.map((n) => (<option key={n} value={n} />))}
                 </datalist>
@@ -806,7 +825,7 @@ export default function FormPage() {
                   </PreviewSection>
 
                   <PreviewSection title="住所" onEdit={() => editStep(2)}>
-                    <PreviewRow label="郵便番号" value={postalCode || '—'} />
+                    {postalCode && <PreviewRow label="郵便番号" value={`〒${postalCode}`} />}
                     <PreviewRow label="住所" value={`${addrPrefecture}${city}${town}${addressLine}${building ? ` ${building}` : ''}`} />
                   </PreviewSection>
 
@@ -825,18 +844,40 @@ export default function FormPage() {
                   </PreviewSection>
 
                   <PreviewSection title="資格・自己PR" onEdit={() => editStep(5)}>
-                    {licenses.filter((c) => (c.name ?? '').trim()).map((c, i) => (
-                      <PreviewRow key={i} label="資格" value={`${c.name}${c.acquiredYearMonth ? `（${c.acquiredYearMonth}）` : ''}`} />
-                    ))}
-                    {motivation && <PreviewRow label="志望動機" value={motivation} />}
-                    {selfPr && <PreviewRow label="自己PR" value={selfPr} />}
-                    {personalRequests && <PreviewRow label="本人希望欄" value={personalRequests} />}
+                    {(() => {
+                      const licRows = licenses.filter((c) => (c.name ?? '').trim())
+                      const anyPr = motivation.trim() || selfPr.trim() || personalRequests.trim()
+                      if (licRows.length === 0 && !anyPr) return <PreviewRow label="資格・自己PR" value="未入力" />
+                      return (
+                        <>
+                          {licRows.map((c, i) => (
+                            <PreviewRow key={i} label="資格" value={`${c.name}${c.acquiredYearMonth ? `（${c.acquiredYearMonth}）` : ''}`} />
+                          ))}
+                          {motivation.trim() && <PreviewRow label="志望動機" value={motivation} />}
+                          {selfPr.trim() && <PreviewRow label="自己PR" value={selfPr} />}
+                          {personalRequests.trim() && <PreviewRow label="本人希望欄" value={personalRequests} />}
+                        </>
+                      )
+                    })()}
                   </PreviewSection>
                 </div>
 
                 {TURNSTILE_SITE_KEY && (
-                  <div className="mt-6 flex justify-center">
-                    <TurnstileWidget ref={turnstileRef} siteKey={TURNSTILE_SITE_KEY} action="interview_applicant" theme="light" onVerify={setCaptchaToken} onExpire={() => setCaptchaToken('')} />
+                  <div className="mt-6 flex flex-col items-center">
+                    <TurnstileWidget
+                      ref={turnstileRef}
+                      siteKey={TURNSTILE_SITE_KEY}
+                      action="interview_applicant"
+                      theme="light"
+                      onVerify={(t) => { setCaptchaToken(t); setCaptchaError(false) }}
+                      onExpire={() => setCaptchaToken('')}
+                      onError={() => setCaptchaError(true)}
+                    />
+                    {captchaError && (
+                      <p className="mt-3 text-center text-xs text-amber-600">
+                        セキュリティ認証を読み込めませんでした。ネットワーク環境をご確認のうえ、ページを再読み込みしてお試しください。
+                      </p>
+                    )}
                   </div>
                 )}
                 <p className="mt-6 flex items-center justify-center gap-1.5 text-xs text-slate-400">

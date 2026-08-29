@@ -3,7 +3,7 @@ import { normalizePostalCode, normalizeYearMonth, isValidYearMonth, computeAge, 
 import {
   educationFieldVisibility, workRequiresLeftDate,
   validateResumeEducation, validateResumeWorkExperience, validateResumeLicense, validateResumeAddress,
-  normalizeResumeInput,
+  validateResumeGender, normalizeResumeInput,
 } from './validate'
 import { RESUME_LIMITS } from './types'
 
@@ -68,14 +68,37 @@ describe('field visibility / current', () => {
     expect(educationFieldVisibility('university').showFacultyDepartment).toBe(true)
     expect(educationFieldVisibility('graduate_school').showFacultyDepartment).toBe(true)
     expect(educationFieldVisibility('vocational').showFacultyDepartment).toBe(true)
+    expect(educationFieldVisibility('junior_college').showFacultyDepartment).toBe(true)
     expect(educationFieldVisibility('junior_high').showFacultyDepartment).toBe(false)
     expect(educationFieldVisibility('high_school').showFacultyDepartment).toBe(false)
     expect(educationFieldVisibility('other').showFacultyDepartment).toBe(false)
+  })
+  it('入学年月は中学校のみ非表示（他は表示）', () => {
+    expect(educationFieldVisibility('junior_high').showEnteredYearMonth).toBe(false)
+    expect(educationFieldVisibility('high_school').showEnteredYearMonth).toBe(true)
+    expect(educationFieldVisibility('university').showEnteredYearMonth).toBe(true)
+    expect(educationFieldVisibility('vocational').showEnteredYearMonth).toBe(true)
+    expect(educationFieldVisibility('other').showEnteredYearMonth).toBe(true)
   })
   it('在職中は退職年月不要', () => {
     expect(workRequiresLeftDate(true)).toBe(false)
     expect(workRequiresLeftDate(false)).toBe(true)
     expect(workRequiresLeftDate(null)).toBe(true)
+  })
+})
+
+describe('validateResumeGender（新フォームは male/female 必須）', () => {
+  it('male / female は OK', () => {
+    expect(validateResumeGender('male')).toBeNull()
+    expect(validateResumeGender('female')).toBeNull()
+  })
+  it('空 / other / no_answer / 不明 は reject', () => {
+    expect(validateResumeGender('')?.field).toBe('gender')
+    expect(validateResumeGender(null)?.field).toBe('gender')
+    expect(validateResumeGender(undefined)?.field).toBe('gender')
+    expect(validateResumeGender('other')?.field).toBe('gender')
+    expect(validateResumeGender('no_answer')?.field).toBe('gender')
+    expect(validateResumeGender('x')?.field).toBe('gender')
   })
 })
 
