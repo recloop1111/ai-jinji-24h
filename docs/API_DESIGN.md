@@ -1776,7 +1776,7 @@ POST /api/internal/batch/monthly-billing
 **実行タイミング:** 毎月1日 00:00 JST
 
 **処理:**
-1. 全企業の前月面接件数を集計（10分超のみカウント）
+1. 全企業の前月面接件数を集計（`interviews.is_billable=true` のみカウント。旧「10分超で課金」は廃止/superseded。demo 専用企業 `companies.is_demo=true`〔現在はテスト株式会社のみ〕は実請求・運営売上集計から除外）
 2. プラン料金を算出
 3. Stripe Invoice作成・自動発行
 4. **`billing_records` に記録**（旧記述の `invoices` テーブルは実DBに存在しない）
