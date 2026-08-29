@@ -27,17 +27,20 @@ describe('#1 InterviewLayout: 上部は company 名（AIMEN24 は fallback の�
   })
 })
 
-describe('#1 form: 企業名を public-config から再利用して InterviewLayout に渡す', () => {
-  it('company.name / logo_url を state にセット（新規解決ロジックを作らない=同じ public-config を使用）', () => {
+describe('#1 form: 企業名を public-config から再利用（デジタル履歴書 v1 で 6ステップ化）', () => {
+  it('company.name を state にセット（同じ public-config を情報源に使用）', () => {
     expect(FORM).toContain('setCompanyName(company.name')
-    expect(FORM).toContain('setCompanyLogo(company.logo_url')
     expect(FORM).toContain('/api/interview/${slug}/public-config') // /interview/[slug] と同じ情報源
   })
   it('ヘッダーに companyName を表示（AIMEN24 直書きでない）', () => {
-    // UI 刷新で InterviewLayout 依存を撤去し、開始画面と統一のインラインヘッダーで会社名を表示する。
-    //（会社名を最優先で表示する＝AIMEN24 を company 位置に直書きしない・企業名ハードコードもしない、という intent は不変）
     expect(FORM).toContain('{companyName}</span>')
     expect(FORM).not.toContain('AIMEN24')
+  })
+  it('応募者画面に企業ロゴを出さない（会社名テキストのみ・ロゴ描画は撤去）', () => {
+    // Phase C: applicant-facing 画面では企業ロゴを描画しない（会社名テキストは可）。
+    expect(FORM).not.toContain('setCompanyLogo')
+    expect(FORM).not.toContain('company.logo_url')
+    expect(FORM).not.toContain('companyLogo')
   })
   it('企業名をハードコードしていない（テスト株式会社を直書きしない）', () => {
     expect(FORM).not.toContain('テスト株式会社')
@@ -45,42 +48,59 @@ describe('#1 form: 企業名を public-config から再利用して InterviewLay
   })
 })
 
-describe('#2 form: 「次へ進む」が silent に失敗しない', () => {
+describe('#2 form: 「次へ進む」「応募する」が silent に失敗しない', () => {
   it('companyId 無しの silent early-return を撤去し honest error を出す', () => {
-    // 旧: `if (!companyId) return`（silent no-op）が残っていない。
     expect(FORM).not.toMatch(/if \(!companyId\) return\s*$/m)
     expect(FORM).toContain('企業情報を取得できませんでした')
   })
-  it('validation 失敗時にボタン付近へ要約メッセージを出す（不足理由が分かる）', () => {
+  it('validation 失敗時に要約メッセージを出す（不足理由が分かる）', () => {
     expect(FORM).toContain('未入力またはエラーの項目があります')
-    // handleSubmit の validate 失敗分岐で submit 要約をセットしている。
-    expect(FORM).toMatch(/if \(!validate\(\)\) \{[\s\S]*submit: prev\.submit \|\|/)
   })
   it('API 失敗時の honest error（保存失敗）と /verify への遷移は維持', () => {
-    expect(FORM).toContain('情報の保存に失敗しました')
+    expect(FORM).toContain('応募情報を保存できませんでした')
     expect(FORM).toContain('/interview/${slug}/verify')
   })
   it('二重 submit 防止（submitting）と captcha 検証は維持（無効化しない）', () => {
     expect(FORM).toContain('setSubmitting(true)')
     expect(FORM).toContain('TURNSTILE_SITE_KEY && !captchaToken') // captcha を弱めない
   })
-  it('API のエラーメッセージを honest に表示（captcha 失敗を「保存失敗」で覆い隠さない）', () => {
-    // json.error.message を優先表示し、無い場合のみ汎用文言に fallback。
-    expect(FORM).toContain("json?.error?.message || '情報の保存に失敗しました")
+  it('API のエラーメッセージを honest に表示（原因を汎用文言で覆い隠さない）', () => {
+    expect(FORM).toContain("json?.error?.message || '応募情報を保存できませんでした")
   })
 })
 
-describe('性別: 男性 / 女性 の 2 択（その他 は撤去）', () => {
-  // 性別 InputField ブロックだけを抜き出して検証（EDUCATION_OPTIONS の その他 と混同しない）。
-  const start = FORM.indexOf('label="性別"')
-  const genderBlock = FORM.slice(start, FORM.indexOf('</InputField>', start))
-  it('男性・女性 の選択肢がある', () => {
-    expect(start).toBeGreaterThan(0)
-    expect(genderBlock).toContain("{ value: 'male', label: '男性' }")
-    expect(genderBlock).toContain("{ value: 'female', label: '女性' }")
+describe('デジタル履歴書 v1: 6ステップ＋履歴書送信の骨格', () => {
+  it('6サブステップ（基本情報/住所/学歴/職歴/資格・自己PR/確認）を持つ', () => {
+    expect(FORM).toContain("const SUB_STEPS = ['基本情報', '住所', '学歴', '職歴', '資格・自己PR', '確認']")
   })
-  it('その他（other）は性別の選択肢から撤去されている', () => {
-    expect(genderBlock).not.toContain("value: 'other'")
-    expect(genderBlock).not.toContain('その他')
+  it('年齢の手入力欄を撤去し birth_date から age を算出（client age を送らない）', () => {
+    expect(FORM).toContain('computeAge(birthDate)')
+    expect(FORM).toContain('birth_date: birthDate')
+    // 旧: 年齢テキスト入力（age state）は撤去
+    expect(FORM).not.toContain("label=\"年齢\"")
+  })
+  it('resume payload を /applicant に送る（子テーブルへ atomic 保存）', () => {
+    expect(FORM).toContain('resume: buildResumeInput()')
+    expect(FORM).toContain('normalizeResumeInput(buildResumeInput())')
+  })
+  it('郵便番号検索は専用 route 経由（client が日本郵便を直接叩かない）', () => {
+    expect(FORM).toContain('/api/postal/lookup?zip=')
+  })
+  it('下書きは sessionStorage のみ（localStorage に PII を置かない）', () => {
+    expect(FORM).toContain('interview_${slug}_resume_draft')
+    // localStorage への実アクセス（get/set/removeItem）が無い（コメントでの言及は可）。
+    expect(FORM).not.toMatch(/localStorage\s*\.\s*(get|set|remove)Item/)
+  })
+})
+
+describe('性別: 任意（未回答可）＝ no_answer を含む選択肢', () => {
+  // Phase C: gender は任意入力。male/female/other/no_answer を選べ、未選択（空）も許容。
+  it('GENDER_OPTIONS に male/female/other/no_answer がある', () => {
+    expect(FORM).toContain("{ value: 'male', label: '男性' }")
+    expect(FORM).toContain("{ value: 'female', label: '女性' }")
+    expect(FORM).toContain("{ value: 'no_answer', label: '回答しない' }")
+  })
+  it('性別ラベルは任意表記（必須にしない）', () => {
+    expect(FORM).toContain('label="性別（任意）"')
   })
 })

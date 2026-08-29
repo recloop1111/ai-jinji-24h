@@ -299,3 +299,37 @@ LANGUAGE plpgsql SECURITY INVOKER SET search_path=public
 - **P2 rollback**: forward で `_p9_resume_migration_meta` に**新規追加列のみ**（preexisted=false）を記録し、rollback は記録された列だけを DROP＝既存同名列・データを温存。
 
 **Phase B の非対象（据え置き）**: applicant form UI / 外部 postal API 実接続（provider 未確定）/ company resume tab / PDF / photo storage bucket（列 `resume_photo_path` のみ・bucket は Phase F）/ 既存 `/applicant` API の RPC 移行（Phase C で結線）/ Production DB 適用（承認後）。
+
+---
+
+## Phase C 実装結果（2026-08・branch feature/digital-resume-v1）
+
+**応募フォームを 6 サブステップ化**（外枠フロー 同意→情報入力→SMS→環境確認→面接 は不変。「情報入力」内を分割）:
+1. 基本情報（氏名/フリガナ/生年月日/性別(任意)/連絡先/応募職種）— **年齢の手入力を撤去**し `birth_date`（native date）から `computeAge` を表示。送信も age は client 値を使わず server が `birth_date` から算出。
+2. 住所（〒→都道府県/市区町村/町名を自動入力・複数候補は選択 UI・番地/建物は手入力・手動フォールバック可）
+3. 学歴（card 式・学校区分で学部学科の出し分け・native month・追加/削除）
+4. 職歴（card 式・在職中で退職年月 disable・「職歴なし」明示・追加/削除）
+5. 資格・自己PR（資格 card＋datalist 補助・志望動機/自己PR/本人希望欄 textarea＋文字カウンタ）
+6. 確認（read-only プレビュー＋各セクション「修正」＋CTA「この内容で応募する」）
+
+- **下書き**: `interview_{slug}_resume_draft`（sessionStorage・debounce 保存・復元トースト・localStorage 不使用・成功/キャンセルで破棄）。
+- **企業ロゴ撤去**: applicant-facing 画面から企業ロゴ描画を削除（会社名テキストのみ）。
+- client-side validation は `lib/resume/validate.ts`（server と同一 SoT）を再利用。step 移動時のみ検証、最終送信で `normalizeResumeInput` 再検証。
+
+**API 結線**: `POST /api/interview/[slug]/applicant` を拡張。`body.resume` がある場合のみ RPC 経路：
+- `normalizeResumeInput` → errors あれば 4xx（`{ fields }`）。age は `computeAge(birth_date)` で server 計算。gender 空は RPC 側で `no_answer`。
+- `supabase.rpc('create_applicant_with_resume', { p_company_id(server解決), p_applicant, p_educations, p_work_experiences, p_licenses })`。atomic＝失敗時 orphan なし・honest error。
+- **legacy 互換**: `resume` 無しの従来 payload は従来の直接 insert 経路を維持（既存テスト/Demo/SMS を壊さない）。Turnstile/slug-company 権威/job 検証/capability token は不変。
+- `resume_updated_at` は RPC(DB)側で `now()`。
+
+**郵便番号 API（正式方針＝日本郵便「郵便番号・デジタルアドレスAPI」を SoT）**:
+- `GET /api/postal/lookup?zip=`（Node runtime）。client は日本郵便を直接叩かない。
+- 認証情報は **server env のみ**（`JAPANPOST_API_CLIENT_ID` / `JAPANPOST_API_CLIENT_SECRET` / 任意 `JAPANPOST_API_BASE_URL`）。**未設定なら外部へ出ず `{available:false, reason:'unconfigured'}` を 200 で返す**（500 にしない・フォームは手動入力継続）。zipcloud 等の本番フォールバックは**使わない**。
+- OAuth トークンは有効期限つき server-side キャッシュ（instance 単位＝唯一の真実にしない・miss/期限切れで再取得）。認証情報/トークンはログ・応答に出さない。
+- 純ロジック `lib/postal/japanpost.ts`（parse/normalize）＋ HTTP `lib/postal/client.ts`。テストは fetch mock（実外部呼び出し 0・トークン漏洩なしを検証）。
+
+**Production DB 適用（P9 migration）= 本 phase では未適用**: 実行環境に DB 直結情報（`SUPABASE_DB_URL`/service-role/CLI/linked project）が無く、DDL を適用できないため未実施。`supabase/rls/p9_applicant_resume.sql` を **Supabase Dashboard SQL Editor（project `shbqbsropivbivklxuek`）で手動適用**が必要（適用まで resume 経路は 500 系 honest error になる）。
+
+**テスト/品質**: vitest 1070 all pass（resume 32 / postal 11 / form guard 更新）・tsc 0・build OK・変更ファイル lint clean。docker postgres で TEST1–9＋rollback collision PASS。
+
+**本 phase 非対象**: company resume tab 本実装 / PDF 出力 / 証明写真アップロード。

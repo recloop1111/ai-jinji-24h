@@ -4,6 +4,9 @@ import { isValidUUID } from '@/lib/api/validation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { signInterviewToken } from '@/lib/interview/capability-token'
 import { verifyTurnstileToken } from '@/lib/auth/turnstile'
+import { normalizeResumeInput } from '@/lib/resume/validate'
+import { computeAge } from '@/lib/resume/normalize'
+import type { ResumeInput } from '@/lib/resume/types'
 
 // node:crypto を使うため Node runtime を明示（Edge にしない）
 export const runtime = 'nodejs'
@@ -68,6 +71,60 @@ export async function POST(
         .maybeSingle()
       if (!job) return apiError('VALIDATION_ERROR', '指定された求人が見つかりません')
       jobId = body.job_id
+    }
+
+    // ── デジタル履歴書 v1: resume payload がある場合は atomic RPC 経由（子テーブルへ）─────────────
+    //   legacy（resume 無し）は従来の直接 insert を維持（既存テスト/Demo/SMS を壊さない）。
+    if (body.resume != null && typeof body.resume === 'object') {
+      const { normalized, errors } = normalizeResumeInput(body.resume as ResumeInput)
+      if (errors.length > 0) {
+        // フォーム側で最終送信前に検証済みだが、server も SoT として拒否（PII はログに出さない）
+        return apiError('VALIDATION_ERROR', '入力内容を確認してください', { fields: errors })
+      }
+
+      const birthDate = str(body.birth_date)
+      // age は client 値を信用せず birth_date から server 計算（未入力なら null）。
+      const serverAge = computeAge(birthDate)
+
+      const pApplicant: Record<string, unknown> = {
+        last_name: lastName,
+        first_name: firstName,
+        last_name_kana: str(body.last_name_kana) ?? '',
+        first_name_kana: str(body.first_name_kana) ?? '',
+        birth_date: birthDate,
+        age: serverAge,
+        gender: str(body.gender), // 未入力は RPC 側で 'no_answer' に寄せる
+        phone_number: phone,
+        email,
+        // 住所（正規化済み）
+        postal_code: normalized.address.postal_code,
+        prefecture: normalized.address.prefecture,
+        city: normalized.address.city,
+        town: normalized.address.town,
+        address_line: normalized.address.address_line,
+        building: normalized.address.building,
+        employment_type: str(body.employment_type),
+        industry_experience: str(body.industry_experience),
+        job_id: jobId, // company 所属は RPC 側でも再検証
+        motivation: normalized.motivation,
+        self_pr: normalized.self_pr,
+        personal_requests: normalized.personal_requests,
+      }
+
+      const { data: rpcId, error: rpcErr } = await supabase.rpc('create_applicant_with_resume', {
+        p_company_id: company.id,
+        p_applicant: pApplicant,
+        p_educations: normalized.educations,
+        p_work_experiences: normalized.work_experiences,
+        p_licenses: normalized.licenses,
+      })
+      // RPC は atomic（失敗時は子行含め rollback＝orphan なし）。PII はログに残さない。
+      if (rpcErr || !rpcId || typeof rpcId !== 'string') {
+        return apiError('INTERNAL_ERROR', '応募情報を保存できませんでした。もう一度お試しください。')
+      }
+
+      const token = signInterviewToken({ slug, applicant_id: rpcId })
+      return successJson({ applicant_id: rpcId, company_id: company.id, token })
     }
 
     const ageNum =
