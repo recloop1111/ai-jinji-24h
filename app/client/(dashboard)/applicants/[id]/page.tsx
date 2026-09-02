@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, type ReactNode } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClientBrowserClient } from '@/lib/supabase/client'
@@ -28,6 +28,11 @@ import {
   interviewBillingLabel,
   aiEvaluationAbsenceMessage,
 } from '@/lib/interview/interview-summary-display'
+import {
+  genderLabel, employmentTypeLabel, industryExperienceLabel, schoolTypeLabel, graduationStatusLabel,
+  formatYearMonth, formatBirthDate, formatPostalCode, joinResumeAddress, resumeSectionMode,
+  type ResumeEducationView, type ResumeWorkView, type ResumeLicenseView, type ResumeChildStatus,
+} from '@/lib/resume/resume-view'
 import { ChevronLeft as ChevronLeftIcon, ChevronDown as ChevronDownIcon, Download, Mail, LinkIcon, Copy, Check } from 'lucide-react'
 
 
@@ -67,6 +72,17 @@ type ApplicantRow = {
   company_id?: string | null
   result?: string | null
   jobs?: { title?: string } | null
+  // デジタル履歴書 v1 の追加列（applicants への additive・SELECT * で取得済み）
+  birth_date?: string | null
+  postal_code?: string | null
+  city?: string | null
+  town?: string | null
+  address_line?: string | null
+  building?: string | null
+  motivation?: string | null
+  self_pr?: string | null
+  personal_requests?: string | null
+  resume_updated_at?: string | null
 }
 
 type InterviewRow = {
@@ -118,6 +134,42 @@ const GRADE_STYLES: Record<string, string> = {
   D: 'bg-rose-500 text-white shadow-md shadow-rose-500/25',
 }
 
+// ── デジタル履歴書タブの表示用小コンポーネント ──
+function ResumeSectionCard({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
+      <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-5">{title}</h3>
+      {children}
+    </div>
+  )
+}
+function KV({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs font-medium text-slate-500 mb-1">{label}</dt>
+      <dd className="text-sm text-slate-900 whitespace-pre-wrap break-words">{value.trim() ? value : '未入力'}</dd>
+    </div>
+  )
+}
+function LongTextBlock({ value }: { value: string | null | undefined }) {
+  const v = value ?? ''
+  return (
+    <dd className="text-sm text-slate-900 bg-slate-50 rounded-xl p-4 border border-slate-200/80 whitespace-pre-wrap break-words">
+      {v.trim() ? v : '未入力'}
+    </dd>
+  )
+}
+function ResumeErrorNotice() {
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+      履歴書情報を取得できませんでした。時間をおいて再度お試しください。
+    </div>
+  )
+}
+function ResumeMuted({ text }: { text: string }) {
+  return <p className="text-sm text-slate-400">{text}</p>
+}
+
 function RecommendLegend() {
   return (
     <div className="mt-5 rounded-2xl bg-slate-50 border border-slate-200/90 px-5 py-4 shadow-sm">
@@ -164,6 +216,11 @@ export default function ApplicantDetailPage() {
   //   4状態（ready/empty/schema_pending/error）を区別。missing-schema のみ safe empty へ縮退。
   const [transcriptState, setTranscriptState] = useState<TranscriptFetchState>({ status: 'empty', items: [] })
   const [transcriptLoading, setTranscriptLoading] = useState(false)
+  // デジタル履歴書 v1: 構造化子テーブル（RLS で自社のみ）。error≠「0件（未入力）」を区別する。
+  const [resumeEducations, setResumeEducations] = useState<ResumeEducationView[]>([])
+  const [resumeWork, setResumeWork] = useState<ResumeWorkView[]>([])
+  const [resumeLicenses, setResumeLicenses] = useState<ResumeLicenseView[]>([])
+  const [resumeChildStatus, setResumeChildStatus] = useState<ResumeChildStatus>('loading')
 
   // Supabaseから応募者データと面接データを取得
   useEffect(() => {
@@ -174,7 +231,9 @@ export default function ApplicantDetailPage() {
       }
       
       setLoading(true)
-      
+      // 履歴書子テーブルの状態を id 切替ごとにリセット（前応募者の残像を出さない）。
+      setResumeChildStatus('loading'); setResumeEducations([]); setResumeWork([]); setResumeLicenses([])
+
       try {
         // 応募者データを取得
         const { data: applicantData, error: applicantError } = await supabase
@@ -186,9 +245,36 @@ export default function ApplicantDetailPage() {
 
         if (applicantError) {
           setApplicant(null)
+          setResumeChildStatus('error') // 応募者本体が取れない＝履歴書も取得不可（未入力と偽装しない）
         } else if (applicantData) {
           setApplicant(applicantData)
           setSelectedStatus(applicantData.result === '未対応' ? null : applicantData.result === '検討中' ? 'considering' : applicantData.result === '二次通過' ? 'second_pass' : applicantData.result === '不採用' ? 'rejected' : null)
+
+          // デジタル履歴書 v1: 学歴/職歴/資格の子3テーブルを並列取得（自社のみ RLS・明示列・sort_order ASC）。
+          //   取得エラーは 0件（未入力）と偽装せず 'error' として区別（画面に安全なエラー表示）。
+          try {
+            const [eduRes, workRes, licRes] = await Promise.all([
+              supabase.from('applicant_educations')
+                .select('school_type, school_name, faculty_department, entered_year_month, graduated_year_month, graduation_status, sort_order')
+                .eq('applicant_id', id).order('sort_order', { ascending: true }),
+              supabase.from('applicant_work_experiences')
+                .select('company_name, department, position, employment_type, joined_year_month, left_year_month, is_current, description, sort_order')
+                .eq('applicant_id', id).order('sort_order', { ascending: true }),
+              supabase.from('applicant_licenses')
+                .select('name, acquired_year_month, sort_order')
+                .eq('applicant_id', id).order('sort_order', { ascending: true }),
+            ])
+            if (eduRes.error || workRes.error || licRes.error) {
+              setResumeChildStatus('error')
+            } else {
+              setResumeEducations((eduRes.data ?? []) as ResumeEducationView[])
+              setResumeWork((workRes.data ?? []) as ResumeWorkView[])
+              setResumeLicenses((licRes.data ?? []) as ResumeLicenseView[])
+              setResumeChildStatus('ready')
+            }
+          } catch {
+            setResumeChildStatus('error')
+          }
 
           // interview_resultsを取得
           const { data: irData } = await supabase
@@ -216,9 +302,11 @@ export default function ApplicantDetailPage() {
           }
         } else {
           setApplicant(null)
+          setResumeChildStatus('error')
         }
       } catch {
         setApplicant(null)
+        setResumeChildStatus('error')
       }
       setLoading(false)
     }
@@ -567,70 +655,149 @@ export default function ApplicantDetailPage() {
             </nav>
           </div>
 
-      {/* 履歴書タブ */}
-      {activeTab === 'resume' && (
+      {/* 履歴書タブ（デジタル履歴書 v1・実データ表示） */}
+      {activeTab === 'resume' && (() => {
+        const fullName = `${applicant?.last_name || ''} ${applicant?.first_name || ''}`.trim()
+        const fullKana = `${applicant?.last_name_kana || ''} ${applicant?.first_name_kana || ''}`.trim()
+        const birthJp = formatBirthDate(applicant?.birth_date)
+        const address = joinResumeAddress({
+          prefecture: applicant?.prefecture, city: applicant?.city, town: applicant?.town,
+          address_line: applicant?.address_line, building: applicant?.building,
+        })
+        const postal = formatPostalCode(applicant?.postal_code)
+        const hasLegacyEdu = !!(applicant?.education && applicant.education.trim())
+        const hasLegacyWork = !!(applicant?.work_history && applicant.work_history.trim())
+        const hasLegacyLic = !!(applicant?.qualifications && applicant.qualifications.trim())
+        const eduMode = resumeSectionMode(resumeChildStatus, resumeEducations.length, hasLegacyEdu)
+        const workMode = resumeSectionMode(resumeChildStatus, resumeWork.length, hasLegacyWork)
+        const licMode = resumeSectionMode(resumeChildStatus, resumeLicenses.length, hasLegacyLic)
+        return (
         <div className="space-y-6">
-          <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
-            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-6">履歴書情報</h2>
+          {/* 1. 基本情報 */}
+          <ResumeSectionCard title="基本情報">
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
-              <div>
-                <dt className="text-xs font-medium text-slate-500 mb-1">氏名</dt>
-                <dd className="text-sm text-slate-900">{applicant?.last_name || applicant?.first_name ? `${applicant.last_name || ''} ${applicant.first_name || ''}`.trim() : '未入力'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-slate-500 mb-1">フリガナ</dt>
-                <dd className="text-sm text-slate-900">{applicant?.last_name_kana || applicant?.first_name_kana ? `${applicant.last_name_kana || ''} ${applicant.first_name_kana || ''}`.trim() : '未入力'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-slate-500 mb-1">年齢</dt>
-                <dd className="text-sm text-slate-900">{applicant?.age != null ? `${applicant.age}歳` : '未入力'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-slate-500 mb-1">性別</dt>
-                <dd className="text-sm text-slate-900">{applicant?.gender || '未入力'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-slate-500 mb-1">電話番号</dt>
-                <dd className="text-sm text-slate-900">{applicant?.phone_number || '未入力'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-slate-500 mb-1">メールアドレス</dt>
-                <dd className="text-sm text-slate-900">{applicant?.email || '未入力'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-slate-500 mb-1">居住都道府県</dt>
-                <dd className="text-sm text-slate-900">{applicant?.prefecture || '未入力'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-slate-500 mb-1">最終学歴</dt>
-                <dd className="text-sm text-slate-900">{applicant?.education || '未入力'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-slate-500 mb-1">応募職種</dt>
-                <dd className="text-sm text-slate-900">{applicant?.jobs?.title || '未入力'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-slate-500 mb-1">就業形態</dt>
-                <dd className="text-sm text-slate-900">{applicant?.employment_type || '未入力'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-slate-500 mb-1">業界経験</dt>
-                <dd className="text-sm text-slate-900">{applicant?.industry_experience || '未入力'}</dd>
+              <KV label="氏名" value={fullName} />
+              <KV label="フリガナ" value={fullKana} />
+              <KV label="生年月日" value={birthJp} />
+              <KV label="年齢" value={applicant?.age != null ? `${applicant.age}歳` : ''} />
+              <KV label="性別" value={genderLabel(applicant?.gender)} />
+              <KV label="応募職種" value={applicant?.jobs?.title || ''} />
+              <KV label="就業形態" value={employmentTypeLabel(applicant?.employment_type)} />
+              <KV label="業界経験" value={industryExperienceLabel(applicant?.industry_experience)} />
+            </dl>
+          </ResumeSectionCard>
+
+          {/* 2. 連絡先・住所 */}
+          <ResumeSectionCard title="連絡先・住所">
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
+              <KV label="電話番号" value={applicant?.phone_number || ''} />
+              <KV label="メールアドレス" value={applicant?.email || ''} />
+              <KV label="郵便番号" value={postal} />
+              <div className="min-w-0 sm:col-span-2">
+                <dt className="text-xs font-medium text-slate-500 mb-1">住所</dt>
+                <dd className="text-sm text-slate-900 whitespace-pre-wrap break-words">{address || '未入力'}</dd>
               </div>
             </dl>
-            <div className="mt-6 space-y-5">
-              <div>
-                <dt className="text-xs font-medium text-slate-500 mb-1">職歴・業種</dt>
-                <dd className="text-sm text-slate-900 bg-slate-50 rounded-xl p-4 border border-slate-200/80 whitespace-pre-wrap">{applicant?.work_history || '未入力'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-slate-500 mb-1">保有資格</dt>
-                <dd className="text-sm text-slate-900 bg-slate-50 rounded-xl p-4 border border-slate-200/80 whitespace-pre-wrap">{applicant?.qualifications || '未入力'}</dd>
-              </div>
-            </div>
-          </div>
+          </ResumeSectionCard>
+
+          {/* 3. 学歴 */}
+          <ResumeSectionCard title="学歴">
+            {eduMode === 'loading' && <ResumeMuted text="読み込み中…" />}
+            {eduMode === 'error' && <ResumeErrorNotice />}
+            {eduMode === 'empty' && <ResumeMuted text="未入力" />}
+            {eduMode === 'legacy' && (
+              <p className="text-sm text-slate-900">{applicant?.education ? (EDUCATION_LABELS[applicant.education] ?? applicant.education) : '未入力'}</p>
+            )}
+            {eduMode === 'structured' && (
+              <ul className="space-y-4">
+                {resumeEducations.map((e, i) => {
+                  const period = [formatYearMonth(e.entered_year_month), formatYearMonth(e.graduated_year_month)].filter((x) => x).join(' 〜 ')
+                  const status = graduationStatusLabel(e.graduation_status)
+                  return (
+                    <li key={i} className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-4">
+                      <p className="text-sm font-semibold text-slate-900 break-words">
+                        {[schoolTypeLabel(e.school_type), (e.school_name || '').trim()].filter((x) => x).join('　') || '未入力'}
+                      </p>
+                      {e.faculty_department && e.faculty_department.trim() && (
+                        <p className="mt-1 text-sm text-slate-700 break-words">{e.faculty_department}</p>
+                      )}
+                      {(period || status) && (
+                        <p className="mt-1 text-xs text-slate-500">{period}{status ? `（${status}）` : ''}</p>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </ResumeSectionCard>
+
+          {/* 4. 職歴 */}
+          <ResumeSectionCard title="職歴">
+            {workMode === 'loading' && <ResumeMuted text="読み込み中…" />}
+            {workMode === 'error' && <ResumeErrorNotice />}
+            {workMode === 'empty' && <ResumeMuted text="未入力" />}
+            {workMode === 'legacy' && (
+              <dd className="text-sm text-slate-900 bg-slate-50 rounded-xl p-4 border border-slate-200/80 whitespace-pre-wrap break-words">{applicant?.work_history || '未入力'}</dd>
+            )}
+            {workMode === 'structured' && (
+              <ul className="space-y-4">
+                {resumeWork.map((w, i) => {
+                  const period = [formatYearMonth(w.joined_year_month), w.is_current ? '現在' : formatYearMonth(w.left_year_month)].filter((x) => x).join(' 〜 ')
+                  const sub = [(w.department || '').trim(), (w.position || '').trim(), (w.employment_type || '').trim()].filter((x) => x).join('・')
+                  return (
+                    <li key={i} className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-slate-900 break-words">{(w.company_name || '').trim() || '未入力'}</p>
+                        {w.is_current && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-200">在職中</span>}
+                      </div>
+                      {sub && <p className="mt-1 text-sm text-slate-700 break-words">{sub}</p>}
+                      {period && <p className="mt-1 text-xs text-slate-500">{period}</p>}
+                      {w.description && w.description.trim() && (
+                        <p className="mt-2 text-sm text-slate-800 whitespace-pre-wrap break-words">{w.description}</p>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </ResumeSectionCard>
+
+          {/* 5. 資格・免許 */}
+          <ResumeSectionCard title="資格・免許">
+            {licMode === 'loading' && <ResumeMuted text="読み込み中…" />}
+            {licMode === 'error' && <ResumeErrorNotice />}
+            {licMode === 'empty' && <ResumeMuted text="未入力" />}
+            {licMode === 'legacy' && (
+              <dd className="text-sm text-slate-900 bg-slate-50 rounded-xl p-4 border border-slate-200/80 whitespace-pre-wrap break-words">{applicant?.qualifications || '未入力'}</dd>
+            )}
+            {licMode === 'structured' && (
+              <ul className="space-y-2">
+                {resumeLicenses.map((l, i) => {
+                  const acquired = formatYearMonth(l.acquired_year_month)
+                  return (
+                    <li key={i} className="flex flex-wrap items-baseline gap-x-3 text-sm text-slate-900">
+                      <span className="font-medium break-words">{(l.name || '').trim() || '未入力'}</span>
+                      {acquired && <span className="text-xs text-slate-500">取得: {acquired}</span>}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </ResumeSectionCard>
+
+          {/* 6. 志望動機 / 7. 自己PR / 8. 本人希望欄 */}
+          <ResumeSectionCard title="志望動機">
+            <LongTextBlock value={applicant?.motivation} />
+          </ResumeSectionCard>
+          <ResumeSectionCard title="自己PR">
+            <LongTextBlock value={applicant?.self_pr} />
+          </ResumeSectionCard>
+          <ResumeSectionCard title="本人希望欄">
+            <LongTextBlock value={applicant?.personal_requests} />
+          </ResumeSectionCard>
         </div>
-      )}
+        )
+      })()}
 
       {/* タブ1: 概要 */}
       {activeTab === 'summary' && (
