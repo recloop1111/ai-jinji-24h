@@ -221,6 +221,9 @@ export default function ApplicantDetailPage() {
   const [resumeWork, setResumeWork] = useState<ResumeWorkView[]>([])
   const [resumeLicenses, setResumeLicenses] = useState<ResumeLicenseView[]>([])
   const [resumeChildStatus, setResumeChildStatus] = useState<ResumeChildStatus>('loading')
+  // 履歴書PDF ダウンロード（都度生成・二重クリック防止・失敗時は簡潔なエラー表示）
+  const [resumePdfLoading, setResumePdfLoading] = useState(false)
+  const [resumePdfError, setResumePdfError] = useState(false)
 
   // Supabaseから応募者データと面接データを取得
   useEffect(() => {
@@ -383,6 +386,31 @@ export default function ApplicantDetailPage() {
     { key: 'recording', label: '録画再生' },
     { key: 'share', label: '共有' },
   ]
+
+  // 履歴書PDF を都度生成してダウンロード（server が最新 DB から生成）。PII は blob 経由で扱い URL に載せない。
+  async function downloadResumePdf() {
+    if (resumePdfLoading) return
+    setResumePdfLoading(true)
+    setResumePdfError(false)
+    try {
+      const res = await fetch(`/api/client/applicants/${id}/resume-pdf`)
+      if (!res.ok) throw new Error('failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `resume_${id.slice(0, 8)}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      setResumePdfError(true)
+      setTimeout(() => setResumePdfError(false), 4000)
+    } finally {
+      setResumePdfLoading(false)
+    }
+  }
 
   // 基本情報は applicants の実データのみ（取得できない場合は空状態）
   const displayName = applicant ? `${applicant.last_name || ''} ${applicant.first_name || ''}`.trim() || '名前未設定' : '—'
@@ -678,7 +706,20 @@ export default function ApplicantDetailPage() {
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-base font-bold text-slate-900">履歴書</h2>
             {/* PDF 出力ボタン設置スロット（Phase E）。現時点ではボタンは表示しない。 */}
-            <div data-slot="resume-pdf-action" className="shrink-0" />
+            <div data-slot="resume-pdf-action" className="flex shrink-0 flex-col items-end gap-1">
+              <button
+                type="button"
+                onClick={downloadResumePdf}
+                disabled={resumePdfLoading || !applicant}
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Download className="h-4 w-4" />
+                {resumePdfLoading ? 'PDFを生成中…' : '履歴書PDFをダウンロード'}
+              </button>
+              {resumePdfError && (
+                <span className="text-xs text-red-600">PDFの生成に失敗しました。時間をおいて再度お試しください。</span>
+              )}
+            </div>
           </div>
 
           {/* 1. 基本情報 */}

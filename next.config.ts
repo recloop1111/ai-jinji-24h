@@ -22,6 +22,8 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     '/api/client/billing/[billing_record_id]/invoice': ['./assets/fonts/IPAexGothic.ttf'],
     '/api/admin/billing/records/[billing_record_id]/invoice': ['./assets/fonts/IPAexGothic.ttf'],
+    // 履歴書PDF（デジタル履歴書 v1）も同じ日本語フォントを serverless へ同梱する。
+    '/api/client/applicants/[id]/resume-pdf': ['./assets/fonts/IPAexGothic.ttf'],
   },
   async headers() {
     return [
