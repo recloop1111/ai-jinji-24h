@@ -7,6 +7,7 @@
 --     service_role から atomic insert 成立・他社の子行不可視・anon/authenticated write不可・cascade。
 --     子3テーブルの GRANT は forward(p9) 内の明示 GRANT を検証（この test では masking GRANT を付けない）。
 --     gender 省略→no_answer（TEST1）/ rollback preflight meta（TEST9）も検証。
+--     legacy education NOT NULL 回帰（TEST10: 省略→23502 / 付与→成功）。applicants.education は実DB同様 NOT NULL。
 --     別途 rollback collision（既存 city 列温存）を runner で実証済み。
 -- ============================================================================
 
@@ -34,7 +35,9 @@ CREATE TABLE public.applicants (
   birth_date date, age int,
   gender text NOT NULL CHECK (gender IN ('male','female','other','no_answer')),  -- 実DBと同じ NOT NULL + CHECK（gender 省略時 fix を検証）
   phone_number text, email text,
-  prefecture text, education text, work_history text, qualifications text,
+  prefecture text,
+  education text NOT NULL,  -- ★実DBと同じ NOT NULL（legacy 列）。RPC が education を渡さないと 23502 で atomic rollback する回帰の再現用
+  work_history text, qualifications text,  -- work_history/qualifications は実DB nullable のまま
   employment_type text, industry_experience text, job_id uuid,
   created_at timestamptz default now(), updated_at timestamptz default now()
 );
@@ -68,7 +71,7 @@ DECLARE v uuid;
 BEGIN
   v := public.create_applicant_with_resume(
     '11111111-1111-1111-1111-111111111111',
-    jsonb_build_object('id','99999999-9999-9999-9999-999999999999','last_name','山田','first_name','太郎','email','a@example.com','phone_number','09000000000','birth_date','2000-06-15','job_id','aaaa1111-1111-1111-1111-111111111111','postal_code','2200012','prefecture','神奈川県'),
+    jsonb_build_object('id','99999999-9999-9999-9999-999999999999','last_name','山田','first_name','太郎','email','a@example.com','phone_number','09000000000','birth_date','2000-06-15','job_id','aaaa1111-1111-1111-1111-111111111111','postal_code','2200012','prefecture','神奈川県','education','university'),
     jsonb_build_array(jsonb_build_object('school_type','university','school_name','A大学','faculty_department','工学部','entered_year_month','2018-04','graduated_year_month','2022-03','graduation_status','graduated','sort_order',99)),
     jsonb_build_array(jsonb_build_object('company_name','X社','joined_year_month','2022-04','is_current',true)),
     jsonb_build_array(jsonb_build_object('name','TOEIC','acquired_year_month','2024-06'))
@@ -91,7 +94,7 @@ BEGIN
   BEGIN
     PERFORM public.create_applicant_with_resume(
       '11111111-1111-1111-1111-111111111111',
-      jsonb_build_object('last_name','B','first_name','B','email','b@x.com','phone_number','090'),
+      jsonb_build_object('last_name','B','first_name','B','email','b@x.com','phone_number','090','education','university'),
       jsonb_build_array(jsonb_build_object('school_type','INVALID_TYPE','school_name','Z')),  -- CHECK violation
       '[]'::jsonb, '[]'::jsonb);
     RAISE EXCEPTION 'FAIL: expected rollback but succeeded';
@@ -133,7 +136,7 @@ RESET ROLE;
 -- add a CompanyB applicant+education (as service_role) then verify userA can't see it
 SET ROLE service_role;
 DO $$ BEGIN PERFORM public.create_applicant_with_resume('22222222-2222-2222-2222-222222222222',
-  jsonb_build_object('last_name','D','first_name','D','email','d@x.com','phone_number','090'),
+  jsonb_build_object('last_name','D','first_name','D','email','d@x.com','phone_number','090','education','high_school'),
   jsonb_build_array(jsonb_build_object('school_type','high_school','school_name','B高校')),'[]'::jsonb,'[]'::jsonb); END $$;
 RESET ROLE;
 SELECT set_config('request.jwt.claims', '{"sub":"a0000000-0000-0000-0000-0000000000a1"}', false);
@@ -188,7 +191,7 @@ DO $$
 DECLARE v uuid; child_after int;
 BEGIN
   v := public.create_applicant_with_resume('11111111-1111-1111-1111-111111111111',
-        jsonb_build_object('last_name','E','first_name','E','email','e@x.com','phone_number','090'),
+        jsonb_build_object('last_name','E','first_name','E','email','e@x.com','phone_number','090','education','university'),
         jsonb_build_array(jsonb_build_object('school_type','university','school_name','U')),'[]','[]');
   DELETE FROM applicants WHERE id=v;
   SELECT count(*) INTO child_after FROM applicant_educations WHERE applicant_id=v;
@@ -229,5 +232,28 @@ BEGIN
   IF wrong <> 0 THEN RAISE EXCEPTION 'FAIL: % columns wrongly flagged preexisted=true', wrong; END IF;
   RAISE NOTICE 'TEST9 PASS: rollback meta recorded 10 new columns (preexisted=false)';
 END $$;
+
+-- ===== TEST 10: legacy education NOT NULL 回帰（Prod と同等制約）=====
+--   education を渡さない RPC は 23502 で失敗（＝実障害の再現）。渡せば成功（＝route 修正後の経路）。
+SET ROLE service_role;
+DO $$
+DECLARE v uuid;
+BEGIN
+  -- (a) education 省略 → not_null_violation（バグ再現）
+  BEGIN
+    PERFORM public.create_applicant_with_resume('11111111-1111-1111-1111-111111111111',
+      jsonb_build_object('last_name','F','first_name','F','email','f@x.com','phone_number','090'),
+      '[]','[]','[]');
+    RAISE EXCEPTION 'FAIL: education 省略でも INSERT が通ってしまった（NOT NULL 未再現）';
+  EXCEPTION WHEN not_null_violation THEN RAISE NOTICE 'TEST10a PASS: education 省略は not_null_violation（実障害を再現）';
+  END;
+  -- (b) education を渡す（route 修正後 deriveLegacyEducation 相当）→ 成功
+  v := public.create_applicant_with_resume('11111111-1111-1111-1111-111111111111',
+    jsonb_build_object('last_name','F','first_name','F','email','f@x.com','phone_number','090','education','university'),
+    '[]','[]','[]');
+  IF (SELECT education FROM applicants WHERE id=v) <> 'university' THEN RAISE EXCEPTION 'FAIL: education が保存されていない'; END IF;
+  RAISE NOTICE 'TEST10b PASS: education を渡すと保存成功（route 修正後の経路）';
+END $$;
+RESET ROLE;
 
 SELECT 'ALL_TESTS_DONE' AS result;

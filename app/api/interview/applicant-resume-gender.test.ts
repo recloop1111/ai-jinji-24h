@@ -20,3 +20,14 @@ describe('applicant route: 新 resume 経路の gender は male/female 必須', 
     expect(ROUTE).toContain('gender: str(body.gender),')
   })
 })
+
+describe('applicant route: legacy education NOT NULL 対策（Prod blocker fix）', () => {
+  it('resume 経路の pApplicant は education を deriveLegacyEducation で生成して渡す', () => {
+    // Production の applicants.education は NOT NULL。RPC は p_applicant->>education を INSERT するため必須。
+    expect(ROUTE).toContain('education: deriveLegacyEducation(normalized.educations)')
+    expect(ROUTE).toContain("import { normalizeResumeInput, validateResumeGender, deriveLegacyEducation }")
+  })
+  it('legacy 経路の education は従来どおり body 由来（変更しない）', () => {
+    expect(ROUTE).toContain('education: str(body.education),')
+  })
+})

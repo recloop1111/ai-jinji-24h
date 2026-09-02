@@ -3,8 +3,9 @@ import { normalizePostalCode, normalizeYearMonth, isValidYearMonth, computeAge, 
 import {
   educationFieldVisibility, workRequiresLeftDate,
   validateResumeEducation, validateResumeWorkExperience, validateResumeLicense, validateResumeAddress,
-  validateResumeGender, normalizeResumeInput,
+  validateResumeGender, deriveLegacyEducation, normalizeResumeInput,
 } from './validate'
+import type { NormalizedResumeEducation } from './types'
 import { RESUME_LIMITS } from './types'
 
 describe('normalizePostalCode（ハイフン/全角/桁）', () => {
@@ -84,6 +85,41 @@ describe('field visibility / current', () => {
     expect(workRequiresLeftDate(true)).toBe(false)
     expect(workRequiresLeftDate(false)).toBe(true)
     expect(workRequiresLeftDate(null)).toBe(true)
+  })
+})
+
+describe('deriveLegacyEducation（legacy applicants.education NOT NULL 対策）', () => {
+  const edu = (school_type: NormalizedResumeEducation['school_type'], school_name = 'X'): NormalizedResumeEducation => ({
+    sort_order: 0, school_type, school_name, faculty_department: null,
+    entered_year_month: null, graduated_year_month: null, graduation_status: null,
+  })
+  it('各 school_type を legacy コードへ変換（graduate_school→graduate）', () => {
+    expect(deriveLegacyEducation([edu('junior_high')])).toBe('junior_high')
+    expect(deriveLegacyEducation([edu('high_school')])).toBe('high_school')
+    expect(deriveLegacyEducation([edu('vocational')])).toBe('vocational')
+    expect(deriveLegacyEducation([edu('junior_college')])).toBe('junior_college')
+    expect(deriveLegacyEducation([edu('university')])).toBe('university')
+    expect(deriveLegacyEducation([edu('graduate_school')])).toBe('graduate')
+    expect(deriveLegacyEducation([edu('other')])).toBe('other')
+  })
+  it('複数学歴では「最後の有効な学歴カード」を最終学歴に採用', () => {
+    expect(deriveLegacyEducation([edu('high_school'), edu('university')])).toBe('university')
+    expect(deriveLegacyEducation([edu('university'), edu('graduate_school')])).toBe('graduate')
+  })
+  it('学歴0件は空文字（NOT NULL 違反にならない値・架空の学歴を作らない）', () => {
+    expect(deriveLegacyEducation([])).toBe('')
+  })
+  it('normalizeResumeInput 経由（route 相当）で education が非NULL値になる', () => {
+    // route: education = deriveLegacyEducation(normalizeResumeInput(resume).normalized.educations)
+    const { normalized } = normalizeResumeInput({
+      educations: [
+        { schoolType: 'high_school', schoolName: 'B高校' },
+        { schoolType: 'university', schoolName: 'A大学', facultyDepartment: '工学部' },
+      ],
+    })
+    expect(deriveLegacyEducation(normalized.educations)).toBe('university') // 最後の有効カード
+    // 学歴0件でも '' が返り、RPC の p_applicant.education が NULL にならない
+    expect(deriveLegacyEducation(normalizeResumeInput({}).normalized.educations)).toBe('')
   })
 })
 

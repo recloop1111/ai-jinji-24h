@@ -6,7 +6,7 @@ import {
   type SchoolType, type GraduationStatus,
   type ResumeInput, type ResumeEducationInput, type ResumeWorkExperienceInput,
   type ResumeLicenseInput, type ResumeAddressInput,
-  type NormalizedResumeInput, type ResumeValidationError,
+  type NormalizedResumeInput, type NormalizedResumeEducation, type ResumeValidationError,
 } from './types'
 import { normalizePostalCode, normalizeYearMonth, isValidYearMonth, yearMonthToOrdinal, trimToNull } from './normalize'
 
@@ -24,6 +24,28 @@ export function educationFieldVisibility(
     schoolType === 'vocational' || schoolType === 'junior_college' || schoolType === 'university' || schoolType === 'graduate_school'
   const showEnteredYearMonth = schoolType !== 'junior_high'
   return { showFacultyDepartment, showEnteredYearMonth }
+}
+
+// 新 school_type → legacy `applicants.education`（NOT NULL・単一 TEXT）用コードの対応表。
+//   admin/client 応募者詳細の EDUCATION_LABELS のキー集合と一致させる（graduate_school→'graduate'）。
+const SCHOOL_TYPE_TO_LEGACY_EDUCATION: Record<SchoolType, string> = {
+  junior_high: 'junior_high',
+  high_school: 'high_school',
+  vocational: 'vocational',
+  junior_college: 'junior_college',
+  university: 'university',
+  graduate_school: 'graduate',
+  other: 'other',
+}
+
+// 構造化学歴から legacy `applicants.education`（Production は NOT NULL）用の最終学歴コードを生成。
+//   - 最後の有効な学歴カード（normalized は空カード除外済み・フォーム順＝配列末尾が最終行）を「最終学歴」に採用。
+//   - 学歴 0 件は空文字 '' を返す（NOT NULL を満たす／架空の学歴を作らない／既存表示は '' → '未入力' として自然に描画）。
+//   - DB 制約は変更せず、server 側で legacy 互換値を補う（RPC/P9 SQL/Prod DB は不変）。
+export function deriveLegacyEducation(educations: readonly NormalizedResumeEducation[]): string {
+  if (!educations || educations.length === 0) return ''
+  const last = educations[educations.length - 1]
+  return SCHOOL_TYPE_TO_LEGACY_EDUCATION[last.school_type] ?? ''
 }
 
 // 新 resume フォームの性別は male/female 必須（空/other/no_answer は reject）。
