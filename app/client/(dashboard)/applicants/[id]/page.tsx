@@ -30,7 +30,7 @@ import {
 } from '@/lib/interview/interview-summary-display'
 import {
   genderLabel, employmentTypeLabel, industryExperienceLabel, schoolTypeLabel, graduationStatusLabel,
-  formatYearMonth, formatBirthDate, formatPostalCode, joinResumeAddress, resumeSectionMode,
+  formatYearMonth, formatBirthDate, formatPostalCode, joinResumeAddress, resumeSectionMode, resolveDisplayAge,
   type ResumeEducationView, type ResumeWorkView, type ResumeLicenseView, type ResumeChildStatus,
 } from '@/lib/resume/resume-view'
 import { ChevronLeft as ChevronLeftIcon, ChevronDown as ChevronDownIcon, Download, Mail, LinkIcon, Copy, Check } from 'lucide-react'
@@ -665,6 +665,7 @@ export default function ApplicantDetailPage() {
           address_line: applicant?.address_line, building: applicant?.building,
         })
         const postal = formatPostalCode(applicant?.postal_code)
+        const displayAge = resolveDisplayAge(applicant?.birth_date, applicant?.age)
         const hasLegacyEdu = !!(applicant?.education && applicant.education.trim())
         const hasLegacyWork = !!(applicant?.work_history && applicant.work_history.trim())
         const hasLegacyLic = !!(applicant?.qualifications && applicant.qualifications.trim())
@@ -673,34 +674,50 @@ export default function ApplicantDetailPage() {
         const licMode = resumeSectionMode(resumeChildStatus, resumeLicenses.length, hasLegacyLic)
         return (
         <div className="space-y-6">
+          {/* 履歴書ヘッダー（右側は Phase E で「PDF履歴書を出力」を置く余地・今は空） */}
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-base font-bold text-slate-900">履歴書</h2>
+            {/* PDF 出力ボタン設置スロット（Phase E）。現時点ではボタンは表示しない。 */}
+            <div data-slot="resume-pdf-action" className="shrink-0" />
+          </div>
+
           {/* 1. 基本情報 */}
           <ResumeSectionCard title="基本情報">
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
               <KV label="氏名" value={fullName} />
               <KV label="フリガナ" value={fullKana} />
               <KV label="生年月日" value={birthJp} />
-              <KV label="年齢" value={applicant?.age != null ? `${applicant.age}歳` : ''} />
+              <KV label="年齢" value={displayAge != null ? `${displayAge}歳` : ''} />
               <KV label="性別" value={genderLabel(applicant?.gender)} />
+              <KV label="電話番号" value={applicant?.phone_number || ''} />
+              <KV label="メールアドレス" value={applicant?.email || ''} />
+            </dl>
+          </ResumeSectionCard>
+
+          {/* 2. 住所 */}
+          <ResumeSectionCard title="住所">
+            <dl className="grid grid-cols-1 gap-y-2">
+              {postal && (
+                <div className="min-w-0">
+                  <dd className="text-sm text-slate-900">{postal}</dd>
+                </div>
+              )}
+              <div className="min-w-0">
+                <dd className="text-sm text-slate-900 whitespace-pre-wrap break-words">{address || '未入力'}</dd>
+              </div>
+            </dl>
+          </ResumeSectionCard>
+
+          {/* 3. 応募情報 */}
+          <ResumeSectionCard title="応募情報">
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
               <KV label="応募職種" value={applicant?.jobs?.title || ''} />
               <KV label="就業形態" value={employmentTypeLabel(applicant?.employment_type)} />
               <KV label="業界経験" value={industryExperienceLabel(applicant?.industry_experience)} />
             </dl>
           </ResumeSectionCard>
 
-          {/* 2. 連絡先・住所 */}
-          <ResumeSectionCard title="連絡先・住所">
-            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
-              <KV label="電話番号" value={applicant?.phone_number || ''} />
-              <KV label="メールアドレス" value={applicant?.email || ''} />
-              <KV label="郵便番号" value={postal} />
-              <div className="min-w-0 sm:col-span-2">
-                <dt className="text-xs font-medium text-slate-500 mb-1">住所</dt>
-                <dd className="text-sm text-slate-900 whitespace-pre-wrap break-words">{address || '未入力'}</dd>
-              </div>
-            </dl>
-          </ResumeSectionCard>
-
-          {/* 3. 学歴 */}
+          {/* 4. 学歴 */}
           <ResumeSectionCard title="学歴">
             {eduMode === 'loading' && <ResumeMuted text="読み込み中…" />}
             {eduMode === 'error' && <ResumeErrorNotice />}

@@ -1,6 +1,20 @@
 // デジタル履歴書 v1 — 企業側「履歴書」タブ表示用の pure formatter / label（DB/HTTP 非依存）。
 //   - DB コードを日本語ラベルへ変換。未知コードはクラッシュせず生値へフォールバック。
 //   - 欠損/不正値でも throw しない（表示は空文字 '' に寄せ、呼び出し側が「未入力」を出す）。
+import { computeAge } from './normalize'
+
+// 表示用の年齢を解決。birth_date があれば都度計算（age 列を SoT にしない）。
+//   birth_date が無い legacy 応募者は legacy age 列へフォールバック。どちらも無ければ null。
+export function resolveDisplayAge(
+  birthDate: string | null | undefined,
+  legacyAge: number | null | undefined,
+  now: Date = new Date(),
+): number | null {
+  const fromBirth = computeAge(birthDate, now)
+  if (fromBirth != null) return fromBirth
+  if (typeof legacyAge === 'number' && Number.isFinite(legacyAge) && legacyAge >= 0) return legacyAge
+  return null
+}
 
 // ── 子テーブル行の表示用型（SELECT する列のみ・snake_case は DB 由来） ──
 export interface ResumeEducationView {

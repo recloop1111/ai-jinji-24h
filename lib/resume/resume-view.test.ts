@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   genderLabel, employmentTypeLabel, industryExperienceLabel, schoolTypeLabel, graduationStatusLabel,
-  formatYearMonth, formatBirthDate, formatPostalCode, joinResumeAddress, resumeSectionMode,
+  formatYearMonth, formatBirthDate, formatPostalCode, joinResumeAddress, resumeSectionMode, resolveDisplayAge,
 } from './resume-view'
 
 describe('日本語ラベル変換', () => {
@@ -89,6 +89,26 @@ describe('joinResumeAddress', () => {
     expect(joinResumeAddress({ prefecture: '東京都', city: '千代田区', address_line: '1-1' })).toBe('東京都千代田区1-1')
     expect(joinResumeAddress({})).toBe('')
     expect(joinResumeAddress({ building: 'B棟' })).toBe('B棟')
+  })
+})
+
+describe('resolveDisplayAge（birth_date 都度計算・age 列を SoT にしない）', () => {
+  const now = new Date('2026-09-03T00:00:00')
+  it('birth_date があれば都度計算（age 列より優先）', () => {
+    expect(resolveDisplayAge('2000-06-15', null, now)).toBe(26)
+    expect(resolveDisplayAge('2000-06-15', 99, now)).toBe(26) // legacy age を無視して birth_date 優先
+  })
+  it('birth_date 無し＋legacy age → legacy age にフォールバック', () => {
+    expect(resolveDisplayAge(null, 28, now)).toBe(28)
+    expect(resolveDisplayAge('', 28, now)).toBe(28)
+    expect(resolveDisplayAge(undefined, 0, now)).toBe(0)
+  })
+  it('birth_date 不正＋legacy age → legacy age', () => {
+    expect(resolveDisplayAge('2000/06/15', 30, now)).toBe(30)
+  })
+  it('どちらも無ければ null（クラッシュしない）', () => {
+    expect(resolveDisplayAge(null, null, now)).toBeNull()
+    expect(resolveDisplayAge('bad', undefined, now)).toBeNull()
   })
 })
 
