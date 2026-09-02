@@ -16,6 +16,7 @@ import {
   Checkbox,
 } from '@/components/interview/FormComponents'
 import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget'
+import LicenseNameInput from '@/components/interview/LicenseNameInput'
 import { normalizeDigits } from '@/lib/utils/normalizeDigits'
 import { computeAge } from '@/lib/resume/normalize'
 import {
@@ -76,14 +77,6 @@ const GRADUATION_STATUS_OPTIONS = [
   { value: 'expected', label: '卒業見込み' },
   { value: 'enrolled', label: '在学中' },
   { value: 'withdrawn', label: '中退' },
-]
-
-// 資格名の入力補助（datalist・自由入力を妨げない）。
-const COMMON_LICENSES = [
-  '普通自動車第一種運転免許', 'TOEIC', 'TOEFL', '実用英語技能検定（英検）',
-  '日商簿記検定2級', '日商簿記検定3級', '基本情報技術者試験', '応用情報技術者試験',
-  'ファイナンシャル・プランニング技能士', '宅地建物取引士', 'MOS（Microsoft Office Specialist）',
-  '介護職員初任者研修', '登録販売者',
 ]
 
 const SUB_STEPS = ['基本情報', '住所', '学歴', '職歴', '資格・自己PR', '確認']
@@ -774,18 +767,18 @@ export default function FormPage() {
                 <div className="-mt-3 mb-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-500">
                   すべて任意です。入力せず次へ進むこともできます。
                 </div>
-                <datalist id="license-suggestions">
-                  {COMMON_LICENSES.map((n) => (<option key={n} value={n} />))}
-                </datalist>
                 <div className="mb-2 text-sm font-semibold text-slate-700">保有資格・免許</div>
                 <div className="flex flex-col gap-4">
                   {licenses.map((c, i) => (
                     <CardShell key={c._k} title={`資格 ${i + 1}`} onRemove={() => setLicenses((a) => a.filter((x) => x._k !== c._k))}>
                       <div className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
                         <InputField label="資格・免許名" required error={errors[`lic_${i}_name`]}>
-                          <input list="license-suggestions" value={c.name ?? ''} onChange={(e) => setLicenses((a) => a.map((x) => x._k === c._k ? { ...x, name: e.target.value } : x))}
-                            placeholder="普通自動車第一種運転免許" maxLength={RESUME_LIMITS.licenseName}
-                            className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                          <LicenseNameInput
+                            value={c.name ?? ''}
+                            onChange={(v) => setLicenses((a) => a.map((x) => x._k === c._k ? { ...x, name: v } : x))}
+                            placeholder="普通自動車第一種運転免許"
+                            maxLength={RESUME_LIMITS.licenseName}
+                          />
                         </InputField>
                         <InputField label="取得年月（任意）" error={errors[`lic_${i}_acquiredYearMonth`]}>
                           <MonthInput value={c.acquiredYearMonth ?? ''} onChange={(v) => setLicenses((a) => a.map((x) => x._k === c._k ? { ...x, acquiredYearMonth: v } : x))} />
