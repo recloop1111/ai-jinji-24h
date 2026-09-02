@@ -8,6 +8,7 @@
 --     子3テーブルの GRANT は forward(p9) 内の明示 GRANT を検証（この test では masking GRANT を付けない）。
 --     gender 省略→no_answer（TEST1）/ rollback preflight meta（TEST9）も検証。
 --     legacy education NOT NULL 回帰（TEST10: 省略→23502 / 付与→成功）。applicants.education は実DB同様 NOT NULL。
+--     work_history/qualifications NOT NULL 時の回帰＋fix（TEST11: 省略→23502 / legacy互換値付与→成功）。
 --     別途 rollback collision（既存 city 列温存）を runner で実証済み。
 -- ============================================================================
 
@@ -255,5 +256,38 @@ BEGIN
   RAISE NOTICE 'TEST10b PASS: education を渡すと保存成功（route 修正後の経路）';
 END $$;
 RESET ROLE;
+
+-- ===== TEST 11: work_history / qualifications も NOT NULL の場合の回帰＋fix =====
+--   （Prod で当該列が NOT NULL でも、route が deriveLegacyWorkHistory/Qualifications で値を渡せば成功する事の担保）
+RESET ROLE;
+-- 既存テスト行の NULL を空文字へ backfill（SET NOT NULL は既存 NULL があると失敗するため）
+UPDATE public.applicants SET work_history = COALESCE(work_history,''), qualifications = COALESCE(qualifications,'');
+ALTER TABLE public.applicants ALTER COLUMN work_history SET NOT NULL;
+ALTER TABLE public.applicants ALTER COLUMN qualifications SET NOT NULL;
+SET ROLE service_role;
+DO $$
+DECLARE v uuid;
+BEGIN
+  -- (a) work_history/qualifications 省略 → not_null_violation（当該列 NOT NULL 時の失敗を再現）
+  BEGIN
+    PERFORM public.create_applicant_with_resume('11111111-1111-1111-1111-111111111111',
+      jsonb_build_object('last_name','G','first_name','G','email','g@x.com','phone_number','090','education','university'),
+      '[]','[]','[]');
+    RAISE EXCEPTION 'FAIL: work_history/qualifications 省略でも通ってしまった';
+  EXCEPTION WHEN not_null_violation THEN RAISE NOTICE 'TEST11a PASS: work_history/qualifications 省略は not_null_violation（NOT NULL 時の失敗を再現）';
+  END;
+  -- (b) route 修正後 = legacy 互換値を渡す → 成功・保存
+  v := public.create_applicant_with_resume('11111111-1111-1111-1111-111111111111',
+    jsonb_build_object('last_name','G','first_name','G','email','g@x.com','phone_number','090',
+      'education','university','work_history','株式会社ABC（営業部） 2020年4月〜在職中','qualifications','TOEIC'),
+    '[]','[]','[]');
+  IF (SELECT work_history FROM applicants WHERE id=v) IS NULL THEN RAISE EXCEPTION 'FAIL: work_history 未保存'; END IF;
+  IF (SELECT qualifications FROM applicants WHERE id=v) IS NULL THEN RAISE EXCEPTION 'FAIL: qualifications 未保存'; END IF;
+  RAISE NOTICE 'TEST11b PASS: legacy work_history/qualifications を渡すと保存成功（route 修正後）';
+END $$;
+RESET ROLE;
+-- 後片付け（他テストへ影響させない）
+ALTER TABLE public.applicants ALTER COLUMN work_history DROP NOT NULL;
+ALTER TABLE public.applicants ALTER COLUMN qualifications DROP NOT NULL;
 
 SELECT 'ALL_TESTS_DONE' AS result;

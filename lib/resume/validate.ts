@@ -6,7 +6,8 @@ import {
   type SchoolType, type GraduationStatus,
   type ResumeInput, type ResumeEducationInput, type ResumeWorkExperienceInput,
   type ResumeLicenseInput, type ResumeAddressInput,
-  type NormalizedResumeInput, type NormalizedResumeEducation, type ResumeValidationError,
+  type NormalizedResumeInput, type NormalizedResumeEducation,
+  type NormalizedResumeWorkExperience, type NormalizedResumeLicense, type ResumeValidationError,
 } from './types'
 import { normalizePostalCode, normalizeYearMonth, isValidYearMonth, yearMonthToOrdinal, trimToNull } from './normalize'
 
@@ -46,6 +47,48 @@ export function deriveLegacyEducation(educations: readonly NormalizedResumeEduca
   if (!educations || educations.length === 0) return ''
   const last = educations[educations.length - 1]
   return SCHOOL_TYPE_TO_LEGACY_EDUCATION[last.school_type] ?? ''
+}
+
+// 'YYYY-MM' → 'YYYY年M月'（legacy テキスト用・軽量）。空/不正は生値/空。
+function ymLegacy(v: string | null | undefined): string {
+  if (v == null) return ''
+  const s = String(v).trim()
+  if (s === '') return ''
+  const m = /^(\d{4})-(\d{2})$/.exec(s)
+  return m ? `${m[1]}年${parseInt(m[2], 10)}月` : s
+}
+const t = (v: string | null | undefined) => (v == null ? '' : String(v).trim())
+
+// 構造化職歴から legacy `applicants.work_history`（単一 TEXT）用の後方互換文字列を生成。
+//   - 職歴 0 件は '' を返す（legacy 表示は '未入力'）。架空データは作らない。
+//   - 各行「会社名（部署・役職・雇用形態） 入社〜退職/在職中」＋改行で業務内容。行間は空行区切り。
+//   - client の work_history は信用せず normalized 構造から server 生成。
+export function deriveLegacyWorkHistory(work: readonly NormalizedResumeWorkExperience[]): string {
+  if (!work || work.length === 0) return ''
+  return work
+    .map((w) => {
+      const meta = [t(w.department), t(w.position), t(w.employment_type)].filter((x) => x !== '').join('・')
+      const period = [ymLegacy(w.joined_year_month), w.is_current ? '在職中' : ymLegacy(w.left_year_month)].filter((x) => x !== '').join('〜')
+      const head = `${t(w.company_name)}${meta ? `（${meta}）` : ''}${period ? ` ${period}` : ''}`.trim()
+      const desc = t(w.description)
+      return desc ? `${head}\n${desc}` : head
+    })
+    .filter((s) => s.trim() !== '')
+    .join('\n\n')
+}
+
+// 構造化資格から legacy `applicants.qualifications`（単一 TEXT）用の後方互換文字列を生成。
+//   - 資格 0 件は '' を返す（legacy 表示は '未入力'）。架空データは作らない。
+export function deriveLegacyQualifications(licenses: readonly NormalizedResumeLicense[]): string {
+  if (!licenses || licenses.length === 0) return ''
+  return licenses
+    .map((l) => {
+      const name = t(l.name)
+      const acq = ymLegacy(l.acquired_year_month)
+      return acq ? `${name}（${acq}取得）` : name
+    })
+    .filter((s) => s.trim() !== '')
+    .join('\n')
 }
 
 // 新 resume フォームの性別は male/female 必須（空/other/no_answer は reject）。

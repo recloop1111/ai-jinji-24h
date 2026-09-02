@@ -4,7 +4,10 @@ import { isValidUUID } from '@/lib/api/validation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { signInterviewToken } from '@/lib/interview/capability-token'
 import { verifyTurnstileToken } from '@/lib/auth/turnstile'
-import { normalizeResumeInput, validateResumeGender, deriveLegacyEducation } from '@/lib/resume/validate'
+import {
+  normalizeResumeInput, validateResumeGender,
+  deriveLegacyEducation, deriveLegacyWorkHistory, deriveLegacyQualifications,
+} from '@/lib/resume/validate'
 import { computeAge } from '@/lib/resume/normalize'
 import type { ResumeInput } from '@/lib/resume/types'
 
@@ -106,9 +109,13 @@ export async function POST(
         town: normalized.address.town,
         address_line: normalized.address.address_line,
         building: normalized.address.building,
-        // legacy `applicants.education`（Production は NOT NULL）を構造化学歴から server 生成。
-        //   RPC は p_applicant->>'education' を INSERT するため、未設定だと NOT NULL 違反で atomic rollback する。
+        // legacy 単一 TEXT 列（education は Production で NOT NULL）を構造化データから server 生成。
+        //   RPC は p_applicant->>'education'|'work_history'|'qualifications' を INSERT する。未設定だと
+        //   （当該列が NOT NULL の場合）NOT NULL 違反で atomic rollback するため、legacy 互換値を必ず渡す。
+        //   client 供給の education/work_history/qualifications は信用せず normalized から生成。
         education: deriveLegacyEducation(normalized.educations),
+        work_history: deriveLegacyWorkHistory(normalized.work_experiences),
+        qualifications: deriveLegacyQualifications(normalized.licenses),
         employment_type: str(body.employment_type),
         industry_experience: str(body.industry_experience),
         job_id: jobId, // company 所属は RPC 側でも再検証

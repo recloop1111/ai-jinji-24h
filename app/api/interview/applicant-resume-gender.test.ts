@@ -21,13 +21,24 @@ describe('applicant route: 新 resume 経路の gender は male/female 必須', 
   })
 })
 
-describe('applicant route: legacy education NOT NULL 対策（Prod blocker fix）', () => {
-  it('resume 経路の pApplicant は education を deriveLegacyEducation で生成して渡す', () => {
-    // Production の applicants.education は NOT NULL。RPC は p_applicant->>education を INSERT するため必須。
+describe('applicant route: legacy 単一TEXT列（education/work_history/qualifications）を server 生成', () => {
+  it('resume 経路は 3 legacy 列を normalized 構造から生成して渡す（client 値を信用しない）', () => {
+    // Production の applicants.education は NOT NULL。work_history/qualifications も NOT NULL の可能性に備え server 生成。
     expect(ROUTE).toContain('education: deriveLegacyEducation(normalized.educations)')
-    expect(ROUTE).toContain("import { normalizeResumeInput, validateResumeGender, deriveLegacyEducation }")
+    expect(ROUTE).toContain('work_history: deriveLegacyWorkHistory(normalized.work_experiences)')
+    expect(ROUTE).toContain('qualifications: deriveLegacyQualifications(normalized.licenses)')
+    // resume 経路の pApplicant ブロック内では client の body.work_history / body.qualifications を使わない
+    //（legacy 経路の insertData は body 由来のため、pApplicant ブロックに限定して検証）。
+    const start = ROUTE.indexOf('const pApplicant')
+    const end = ROUTE.indexOf('supabase.rpc(', start)
+    const pApplicantBlock = ROUTE.slice(start, end)
+    expect(start).toBeGreaterThan(0)
+    expect(pApplicantBlock).not.toContain('str(body.work_history)')
+    expect(pApplicantBlock).not.toContain('str(body.qualifications)')
   })
-  it('legacy 経路の education は従来どおり body 由来（変更しない）', () => {
+  it('legacy 経路（resume 無し）の education/work_history/qualifications は従来どおり body 由来（変更しない）', () => {
     expect(ROUTE).toContain('education: str(body.education),')
+    expect(ROUTE).toContain('work_history: str(body.work_history),')
+    expect(ROUTE).toContain('qualifications: str(body.qualifications),')
   })
 })

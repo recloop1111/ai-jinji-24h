@@ -3,9 +3,10 @@ import { normalizePostalCode, normalizeYearMonth, isValidYearMonth, computeAge, 
 import {
   educationFieldVisibility, workRequiresLeftDate,
   validateResumeEducation, validateResumeWorkExperience, validateResumeLicense, validateResumeAddress,
-  validateResumeGender, deriveLegacyEducation, normalizeResumeInput,
+  validateResumeGender, deriveLegacyEducation, deriveLegacyWorkHistory, deriveLegacyQualifications,
+  normalizeResumeInput,
 } from './validate'
-import type { NormalizedResumeEducation } from './types'
+import type { NormalizedResumeEducation, NormalizedResumeWorkExperience, NormalizedResumeLicense } from './types'
 import { RESUME_LIMITS } from './types'
 
 describe('normalizePostalCode（ハイフン/全角/桁）', () => {
@@ -120,6 +121,60 @@ describe('deriveLegacyEducation（legacy applicants.education NOT NULL 対策）
     expect(deriveLegacyEducation(normalized.educations)).toBe('university') // 最後の有効カード
     // 学歴0件でも '' が返り、RPC の p_applicant.education が NULL にならない
     expect(deriveLegacyEducation(normalizeResumeInput({}).normalized.educations)).toBe('')
+  })
+})
+
+describe('deriveLegacyWorkHistory（legacy work_history 後方互換生成）', () => {
+  const work = (o: Partial<NormalizedResumeWorkExperience>): NormalizedResumeWorkExperience => ({
+    sort_order: 0, company_name: 'X社', department: null, position: null, employment_type: null,
+    joined_year_month: null, left_year_month: null, is_current: false, description: null, ...o,
+  })
+  it('職歴なし（0件）は空文字（架空データを作らない・legacy は「未入力」）', () => {
+    expect(deriveLegacyWorkHistory([])).toBe('')
+  })
+  it('1件を会社名/部署役職/期間/業務内容で整形', () => {
+    const s = deriveLegacyWorkHistory([work({
+      company_name: '株式会社ABC', department: '営業部', position: '主任', employment_type: '正社員',
+      joined_year_month: '2020-04', left_year_month: '2023-03', description: '新規開拓を担当',
+    })])
+    expect(s).toContain('株式会社ABC')
+    expect(s).toContain('営業部・主任・正社員')
+    expect(s).toContain('2020年4月〜2023年3月')
+    expect(s).toContain('新規開拓を担当')
+  })
+  it('在職中は「在職中」表記・複数行は空行区切り', () => {
+    const s = deriveLegacyWorkHistory([
+      work({ company_name: 'A社', joined_year_month: '2018-04', left_year_month: '2020-03' }),
+      work({ company_name: 'B社', joined_year_month: '2020-04', is_current: true }),
+    ])
+    expect(s).toContain('在職中')
+    expect(s.split('\n\n').length).toBe(2)
+  })
+  it('normalizeResumeInput 経由（route 相当）で非空 / 職歴なしは空', () => {
+    const { normalized } = normalizeResumeInput({ workExperiences: [{ companyName: 'X社', joinedYearMonth: '2021-04', isCurrent: true }] })
+    expect(deriveLegacyWorkHistory(normalized.work_experiences)).toContain('X社')
+    expect(deriveLegacyWorkHistory(normalizeResumeInput({ workExperiences: [] }).normalized.work_experiences)).toBe('')
+  })
+})
+
+describe('deriveLegacyQualifications（legacy qualifications 後方互換生成）', () => {
+  const lic = (o: Partial<NormalizedResumeLicense>): NormalizedResumeLicense => ({ sort_order: 0, name: 'X', acquired_year_month: null, ...o })
+  it('0件は空文字（架空データを作らない）', () => {
+    expect(deriveLegacyQualifications([])).toBe('')
+  })
+  it('取得年月ありは「名称（YYYY年M月取得）」・複数は改行結合', () => {
+    const s = deriveLegacyQualifications([
+      lic({ name: '普通自動車第一種運転免許', acquired_year_month: '2019-06' }),
+      lic({ name: 'TOEIC', acquired_year_month: null }),
+    ])
+    expect(s).toContain('普通自動車第一種運転免許（2019年6月取得）')
+    expect(s).toContain('TOEIC')
+    expect(s.split('\n').length).toBe(2)
+  })
+  it('normalizeResumeInput 経由（route 相当）で非空 / 0件は空', () => {
+    const { normalized } = normalizeResumeInput({ licenses: [{ name: '日商簿記検定2級', acquiredYearMonth: '2022-11' }] })
+    expect(deriveLegacyQualifications(normalized.licenses)).toContain('日商簿記検定2級')
+    expect(deriveLegacyQualifications(normalizeResumeInput({ licenses: [] }).normalized.licenses)).toBe('')
   })
 })
 
