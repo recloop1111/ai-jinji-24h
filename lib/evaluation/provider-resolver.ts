@@ -2,7 +2,7 @@
 //   これにより「gate OFF なのに OpenAI を呼ぶ」経路を型/実行時の両方で塞ぐ（本 PR の OpenAI actual = 0 を担保）。
 //   R1-B では OPENAI_EVALUATION_ENABLED=true + OPENAI_API_KEY + OPENAI_EVALUATION_MODEL を設定するだけで有効化。
 
-import { isEvaluationEnabled, resolveEvaluationModel } from '@/lib/config/evaluation'
+import { isEvaluationEnabled, resolveEvaluationModel, evaluationRequestOptionsForModel } from '@/lib/config/evaluation'
 import { createOpenAiEvaluationProvider } from './openai-provider'
 import type { EvaluationProvider } from './service'
 
@@ -17,5 +17,7 @@ export function resolveEvaluationProvider(env: NodeJS.ProcessEnv = process.env):
   if (typeof apiKey !== 'string' || apiKey.trim().length === 0) return { ok: false, reason: 'api_key_missing' }
   const model = resolveEvaluationModel()
   if (!model) return { ok: false, reason: 'model_missing' }
-  return { ok: true, provider: createOpenAiEvaluationProvider({ apiKey: apiKey.trim(), model }), model }
+  // model capability に応じて temperature/reasoning を出し分け（reasoning model へ temperature を送らない）。
+  const requestOptions = evaluationRequestOptionsForModel(model, env)
+  return { ok: true, provider: createOpenAiEvaluationProvider({ apiKey: apiKey.trim(), model, requestOptions }), model }
 }

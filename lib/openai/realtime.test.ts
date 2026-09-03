@@ -25,14 +25,19 @@ describe('isRealtimeEnabled', () => {
 })
 
 describe('resolveRealtimeModel', () => {
-  it('accepts allowed models', () => {
-    expect(resolveRealtimeModel({ OPENAI_REALTIME_MODEL: 'gpt-realtime' } as NodeJS.ProcessEnv)).toBe('gpt-realtime')
+  it('accepts allowed models（primary mini + fallback 2.1 + 2/1.5 + deprecated 互換）', () => {
+    expect(resolveRealtimeModel({ OPENAI_REALTIME_MODEL: 'gpt-realtime-2.1-mini' } as NodeJS.ProcessEnv)).toBe('gpt-realtime-2.1-mini')
+    expect(resolveRealtimeModel({ OPENAI_REALTIME_MODEL: 'gpt-realtime-2.1' } as NodeJS.ProcessEnv)).toBe('gpt-realtime-2.1')
     expect(resolveRealtimeModel({ OPENAI_REALTIME_MODEL: 'gpt-realtime-2' } as NodeJS.ProcessEnv)).toBe('gpt-realtime-2')
+    expect(resolveRealtimeModel({ OPENAI_REALTIME_MODEL: 'gpt-realtime-1.5' } as NodeJS.ProcessEnv)).toBe('gpt-realtime-1.5')
+    // deprecated だが後方互換で許可（default にはしない）。
+    expect(resolveRealtimeModel({ OPENAI_REALTIME_MODEL: 'gpt-realtime' } as NodeJS.ProcessEnv)).toBe('gpt-realtime')
   })
-  it('falls back to default for invalid/unset', () => {
-    expect(resolveRealtimeModel({} as NodeJS.ProcessEnv)).toBe('gpt-realtime')
-    expect(resolveRealtimeModel({ OPENAI_REALTIME_MODEL: 'gpt-4o-realtime-preview' } as NodeJS.ProcessEnv)).toBe('gpt-realtime')
-    expect(resolveRealtimeModel({ OPENAI_REALTIME_MODEL: '  ' } as NodeJS.ProcessEnv)).toBe('gpt-realtime')
+  it('falls back to default (gpt-realtime-2.1-mini＝primary) for invalid/unset', () => {
+    expect(resolveRealtimeModel({} as NodeJS.ProcessEnv)).toBe('gpt-realtime-2.1-mini')
+    expect(resolveRealtimeModel({ OPENAI_REALTIME_MODEL: 'gpt-4o-realtime-preview' } as NodeJS.ProcessEnv)).toBe('gpt-realtime-2.1-mini')
+    expect(resolveRealtimeModel({ OPENAI_REALTIME_MODEL: '  ' } as NodeJS.ProcessEnv)).toBe('gpt-realtime-2.1-mini')
+    expect(resolveRealtimeModel({ OPENAI_REALTIME_MODEL: 'gpt-realtime-2.1' } as NodeJS.ProcessEnv)).toBe('gpt-realtime-2.1') // 明示 fallback は尊重
   })
 })
 
