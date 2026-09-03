@@ -3,6 +3,7 @@ import path from 'node:path'
 import PDFDocument from 'pdfkit'
 import {
   resolveEvaluationDisplayState, sortAxesForDisplay, confidenceText, CONFIDENCE_DISPLAY_LABEL,
+  type DisplayAxis,
 } from '@/lib/evaluation/evaluation-view'
 
 // AI面接結果レポート PDF ビルダー（A4 縦・日本語・白背景/黒文字）。
@@ -39,6 +40,15 @@ export interface ReportPdfInput {
 
 const t = (v: string | null | undefined) => (v == null ? '' : String(v).trim())
 
+// 評価軸を「意図的な2ページ構成」用に前半/後半へ分割する（pure・軸数非依存）。
+//   - 4軸以上のときだけ 2ページへ分割（前半 = ceil(n/2)）。3軸以下は分割せず全て前半（強制改ページしない）。
+//   - array index を hard-code せず ceil(n/2) で算出＝将来の軸数変更でも壊れない。並び順は呼び出し側 sortAxesForDisplay を維持。
+export function splitEvaluationAxesForPdf<T>(axes: readonly T[]): { first: T[]; second: T[] } {
+  if (axes.length < 4) return { first: [...axes], second: [] }
+  const half = Math.ceil(axes.length / 2)
+  return { first: axes.slice(0, half), second: axes.slice(half) }
+}
+
 export function buildReportPdf(input: ReportPdfInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
@@ -58,13 +68,20 @@ export function buildReportPdf(input: ReportPdfInput): Promise<Buffer> {
       const bottomLimit = () => doc.page.height - doc.page.margins.bottom
       const ensureSpace = (needed: number) => { if (doc.y + needed > bottomLimit()) doc.addPage() }
 
+      // 意図的な改ページ後（2ページ目以降）の小さなヘッダー。大タイトルは再掲しない。
+      const pageHeader = () => {
+        doc.fontSize(8).fillColor('#999').text('AI面接結果レポート', left, doc.y, { width: contentWidth, align: 'right' })
+        doc.fillColor('#000').fontSize(10)
+        doc.moveDown(0.4)
+      }
+
       const sectionTitle = (title: string) => {
-        ensureSpace(46)
-        doc.moveDown(0.5)
+        ensureSpace(48)
+        doc.moveDown(0.8)
         doc.fillColor('#000').fontSize(12).text(title, left, doc.y)
-        const ly = doc.y + 2
+        const ly = doc.y + 3
         doc.moveTo(left, ly).lineTo(right, ly).lineWidth(1).strokeColor('#333').stroke()
-        doc.y = ly + 6
+        doc.y = ly + 8
         doc.fontSize(10).fillColor('#000')
       }
 
@@ -80,8 +97,8 @@ export function buildReportPdf(input: ReportPdfInput): Promise<Buffer> {
         doc.fontSize(9).fillColor('#555').text(label, left, y + 1, { width: LABEL_W - 8 })
         doc.fontSize(10).fillColor(value.trim() ? '#000' : '#888').text(v, valX, y, { width: valW })
         const rowBottom = Math.max(y + h, doc.y)
-        doc.moveTo(left, rowBottom + 3).lineTo(right, rowBottom + 3).lineWidth(0.5).strokeColor('#dddddd').stroke()
-        doc.y = rowBottom + 8
+        doc.moveTo(left, rowBottom + 4).lineTo(right, rowBottom + 4).lineWidth(0.5).strokeColor('#dddddd').stroke()
+        doc.y = rowBottom + 11
         doc.fillColor('#000')
       }
 
@@ -91,7 +108,7 @@ export function buildReportPdf(input: ReportPdfInput): Promise<Buffer> {
         ensureSpace(LINE + 8)
         doc.fontSize(9).fillColor('#555').text(label, left, doc.y)
         doc.fontSize(10).fillColor('#000').text(String(text), left, doc.y, { width: contentWidth })
-        doc.moveDown(0.5)
+        doc.moveDown(0.7)
       }
 
       const bulletList = (items: string[]) => {
@@ -147,26 +164,37 @@ export function buildReportPdf(input: ReportPdfInput): Promise<Buffer> {
       }
 
       // ── 評価軸スコア（EBCA・evaluation-view を再利用。null score を 0 にしない） ──
+      //   標準（4軸以上）は「意図した2ページ構成」: 前半をページ1、明示改ページ後に後半＋強み＋改善をページ2へ。
+      //   3軸以下は分割せず flow（無理な改ページを作らない）。長文で軸自体が溢れる場合は PDFKit の自然な flow を優先。
       const hasLegacyEvaluation = !!(t(ev.personality_type) || t(ev.personality_description))
       const state = resolveEvaluationDisplayState({ evaluationAxes: ev.evaluation_axes, hasLegacyEvaluation })
       const axes = sortAxesForDisplay(state.axes)
-      if (axes.length > 0) {
-        sectionTitle('評価軸スコア')
-        for (const ax of axes) {
-          const scoreStr = ax.score == null ? '判断材料不足' : `${ax.score} / 20`
-          const parts = [scoreStr]
-          if (t(ax.rank)) parts.push(`評価: ${ax.rank}`)
-          const conf = confidenceText(ax.confidence)
-          if (conf) parts.push(`${CONFIDENCE_DISPLAY_LABEL}: ${conf}`)
-          kvRow(ax.label, parts.join('　'))
-          if (ax.score == null && t(ax.insufficientReason)) labeledText('判断材料不足の理由', ax.insufficientReason)
-          if (ax.evidence.length > 0) {
-            for (const e of ax.evidence) {
-              const q = e.seq != null ? `（発話#${e.seq}）${e.quote}` : e.quote
-              bulletList([q])
-            }
+      const renderAxis = (ax: DisplayAxis) => {
+        const scoreStr = ax.score == null ? '判断材料不足' : `${ax.score} / 20`
+        const parts = [scoreStr]
+        if (t(ax.rank)) parts.push(`評価: ${ax.rank}`)
+        const conf = confidenceText(ax.confidence)
+        if (conf) parts.push(`${CONFIDENCE_DISPLAY_LABEL}: ${conf}`)
+        kvRow(ax.label, parts.join('　'))
+        if (ax.score == null && t(ax.insufficientReason)) labeledText('判断材料不足の理由', ax.insufficientReason)
+        if (ax.evidence.length > 0) {
+          for (const e of ax.evidence) {
+            const q = e.seq != null ? `（発話#${e.seq}）${e.quote}` : e.quote
+            bulletList([q])
           }
-          doc.moveDown(0.3)
+        }
+        doc.moveDown(0.5)
+      }
+      if (axes.length > 0) {
+        const { first, second } = splitEvaluationAxesForPdf(axes)
+        sectionTitle('評価軸スコア')
+        for (const ax of first) renderAxis(ax)
+        if (second.length > 0) {
+          // 明示的な改ページ＝ページ2を「意図した続き」として開始（見出しで何の続きか分かる）。
+          doc.addPage()
+          pageHeader()
+          sectionTitle('評価軸スコア（続き）')
+          for (const ax of second) renderAxis(ax)
         }
       }
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { buildReportPdf, type ReportPdfInput, type ReportPdfEvaluation } from './report-pdf'
+import { buildReportPdf, splitEvaluationAxesForPdf, type ReportPdfInput, type ReportPdfEvaluation } from './report-pdf'
 
 const emptyEval = (): ReportPdfEvaluation => ({
   total_score: null, recommendation_rank: null, summary_text: null, feedback_text: null,
@@ -76,6 +76,53 @@ describe('buildReportPdf（Buffer 生成・PDF header）', () => {
     expect(SRC).toContain('resolveEvaluationDisplayState')
     expect(SRC).toContain('sortAxesForDisplay')
     expect(SRC).toContain('confidenceText')
+  })
+})
+
+describe('splitEvaluationAxesForPdf（意図的2ページ分割・軸数非依存）', () => {
+  const ids = (n: number) => Array.from({ length: n }, (_, i) => i)
+  it('6軸 → 前半3 / 後半3', () => {
+    expect(splitEvaluationAxesForPdf(ids(6))).toEqual({ first: [0, 1, 2], second: [3, 4, 5] })
+  })
+  it('4軸 → 前半2 / 後半2、5軸 → 前半3 / 後半2', () => {
+    expect(splitEvaluationAxesForPdf(ids(4))).toEqual({ first: [0, 1], second: [2, 3] })
+    expect(splitEvaluationAxesForPdf(ids(5))).toEqual({ first: [0, 1, 2], second: [3, 4] })
+  })
+  it('3軸以下は分割せず全て前半（強制改ページしない）', () => {
+    expect(splitEvaluationAxesForPdf(ids(3))).toEqual({ first: [0, 1, 2], second: [] })
+    expect(splitEvaluationAxesForPdf(ids(1))).toEqual({ first: [0], second: [] })
+    expect(splitEvaluationAxesForPdf(ids(0))).toEqual({ first: [], second: [] })
+  })
+  it('順序を保持（first + second が入力順と一致）', () => {
+    const src = ids(6)
+    const { first, second } = splitEvaluationAxesForPdf(src)
+    expect([...first, ...second]).toEqual(src)
+  })
+  it('index を hard-code せず ceil(n/2)（7軸→4/3・8軸→4/4）', () => {
+    expect(splitEvaluationAxesForPdf(ids(7))).toEqual({ first: [0, 1, 2, 3], second: [4, 5, 6] })
+    expect(splitEvaluationAxesForPdf(ids(8))).toEqual({ first: [0, 1, 2, 3], second: [4, 5, 6, 7] })
+  })
+})
+
+describe('buildReportPdf: 6軸標準は2ページ以上（意図的改ページ）', () => {
+  it('6軸フル評価で生成成功（内容は不変）', async () => {
+    const axis = (a: string, label: string, score: number | null) => ({ axis: a, label, score, rank: score == null ? null : 'B', confidence: 'medium', evidence: [{ seq: 1, quote: '根拠発言' }], insufficient_reason: score == null ? '不足' : null })
+    const buf = await buildReportPdf({
+      applicantName: '高橋 美咲', jobTitle: 'エンジニア', interviewDate: '2026年8月1日', statusLabel: '完了',
+      evaluation: {
+        total_score: 88, recommendation_rank: 'A', summary_text: 'リーダー型', feedback_text: '推奨',
+        personality_type: null, personality_description: null,
+        profile_persona: '課題解決型', profile_career: 'BE 7年', profile_interviewer_notes: '即戦力',
+        strengths: ['リーダーシップ', 'コミュニケーション', '挑戦意欲'],
+        improvement_points: ['細部への注意力'],
+        evaluation_axes: [
+          axis('communication', 'コミュニケーション力', 18), axis('logical_thinking', '論理的思考力', 16),
+          axis('initiative', '主体性・行動力', 18), axis('desire', '志望度・意欲', 17),
+          axis('stress_tolerance', 'ストレス耐性・柔軟性', 16), axis('integrity', '誠実性・一貫性', 17),
+        ],
+      },
+    })
+    expect(buf.subarray(0, 5).toString('latin1')).toBe('%PDF-')
   })
 })
 
