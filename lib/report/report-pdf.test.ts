@@ -172,14 +172,16 @@ describe('report-pdf route: runtime / tenant / SoT / font', () => {
   })
 })
 
-describe('共有タブ UI: 状態ゲート', () => {
-  it('interviewResult 無しでは PDF ボタン disabled・TODO toast は撤去', () => {
-    expect(PAGE_SRC).toContain('disabled={!interviewResult || reportPdfLoading}')
-    expect(PAGE_SRC).not.toContain("setToast('PDF生成機能は今後実装予定です')")
-    expect(PAGE_SRC).toContain('/api/client/applicants/${id}/report-pdf')
+// ※ Phase E-3-1 で共有タブは「応募者総合レポート」(/applicant-report-pdf) へ移行。
+//   共有タブ UI の状態ゲート検証は lib/report/applicant-report-pdf.test.ts へ移設。
+//   report-pdf（AI単体PDF）は非破壊で保持（route/builder は存続・UI 配線のみ移行）。
+describe('report-pdf（AI単体PDF）は非破壊で保持', () => {
+  it('report-pdf route/builder は存続', () => {
+    expect(ROUTE_SRC).toContain("export const runtime = 'nodejs'")
+    expect(PDF_SRC).toContain('export function buildReportPdf')
   })
-  it('未評価時の補足文（既存空状態コピーと整合）', () => {
-    expect(PAGE_SRC).toContain('AI評価レポートはまだ生成されていません')
-    expect(PAGE_SRC).toContain('面接完了後にレポートをダウンロードできます')
+  it('共有タブは report-pdf ではなく総合レポートを参照（配線移行済み）', () => {
+    expect(PAGE_SRC).not.toContain('/api/client/applicants/${id}/report-pdf')
+    expect(PAGE_SRC).toContain('/api/client/applicants/${id}/applicant-report-pdf')
   })
 })

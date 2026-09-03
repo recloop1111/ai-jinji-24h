@@ -26,6 +26,8 @@ const nextConfig: NextConfig = {
     '/api/client/applicants/[id]/resume-pdf': ['./assets/fonts/IPAexGothic.ttf'],
     // AI面接結果レポートPDF も同じ日本語フォントを serverless へ同梱する。
     '/api/client/applicants/[id]/report-pdf': ['./assets/fonts/IPAexGothic.ttf'],
+    // 応募者総合レポートPDF（履歴書＋AI面接評価）も同じ日本語フォントを serverless へ同梱する。
+    '/api/client/applicants/[id]/applicant-report-pdf': ['./assets/fonts/IPAexGothic.ttf'],
   },
   async headers() {
     return [

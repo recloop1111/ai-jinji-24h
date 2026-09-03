@@ -415,19 +415,19 @@ export default function ApplicantDetailPage() {
     }
   }
 
-  // AI面接結果レポートPDF を都度生成してダウンロード（評価が無ければボタンは disabled のため到達しない）。
+  // 応募者総合レポートPDF（履歴書＋AI面接評価）を都度生成してダウンロード（評価が無ければ button disabled のため到達しない）。
   async function downloadReportPdf() {
     if (reportPdfLoading || !interviewResult) return
     setReportPdfLoading(true)
     setReportPdfError(false)
     try {
-      const res = await fetch(`/api/client/applicants/${id}/report-pdf`)
+      const res = await fetch(`/api/client/applicants/${id}/applicant-report-pdf`)
       if (!res.ok) throw new Error('failed')
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `report_${id.slice(0, 8)}.pdf`
+      link.download = `applicant-report_${id.slice(0, 8)}.pdf`
       document.body.appendChild(link)
       link.click()
       link.remove()
@@ -1312,9 +1312,9 @@ export default function ApplicantDetailPage() {
         <div className="space-y-6">
           {/* レポートPDFダウンロード */}
           <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
-            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">レポートPDFダウンロード</h2>
+            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">応募者総合レポート</h2>
             <p className="text-sm text-slate-600 mb-5 leading-relaxed">
-              応募者の面接結果レポートをPDF形式でダウンロードできます。社内共有や印刷用にご利用ください。
+              履歴書情報とAI面接評価をまとめたPDFをダウンロードできます。社内共有や印刷用にご利用ください。
             </p>
             <button
               type="button"
@@ -1323,13 +1323,11 @@ export default function ApplicantDetailPage() {
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-md shadow-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Download className="w-4 h-4" />
-              {reportPdfLoading ? 'PDFを生成中…' : 'PDFをダウンロード'}
+              {reportPdfLoading ? 'PDFを生成中…' : '総合レポートをダウンロード'}
             </button>
             {!interviewResult && (
               <p className="mt-3 text-sm text-slate-500">
-                {interview
-                  ? 'AI評価レポートはまだ生成されていません。'
-                  : '面接完了後にレポートをダウンロードできます。'}
+                AI評価の生成後にダウンロードできます。履歴書のみは「履歴書」タブからダウンロードできます。
               </p>
             )}
             {reportPdfError && (
