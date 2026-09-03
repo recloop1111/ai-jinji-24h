@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import PDFDocument from 'pdfkit'
 import {
-  genderLabel, graduationStatusLabel,
+  genderLabel, graduationStatusLabel, legacyEducationLabel,
   formatBirthDate, formatPostalCode, formatYearMonth, joinResumeAddress, resolveDisplayAge, resumeSectionMode,
   type ResumeEducationView, type ResumeWorkView, type ResumeLicenseView, type ResumeChildStatus,
 } from '@/lib/resume/resume-view'
@@ -35,6 +35,14 @@ export interface ApplicantReportPdfInput {
 
 const t = (v: string | null | undefined) => (v == null ? '' : String(v).trim())
 
+// 現在位置に needed の高さが収まらなければ改ページが必要（pure・adaptive page boundary の判定）。
+export function willOverflow(currentY: number, needed: number, pageBottom: number): boolean {
+  return currentY + needed > pageBottom
+}
+// AI評価を同一ページで開始するのに必要な最小高さ（見出し＋面接情報＋総合評価の主要部）。
+//   これ未満なら履歴書ページに見出しだけ残さず、改ページして AI評価を新ページ先頭から始める。
+export const AI_SECTION_MIN_HEIGHT = 190
+
 export function buildApplicantReportPdf(input: ApplicantReportPdfInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
@@ -55,12 +63,12 @@ export function buildApplicantReportPdf(input: ApplicantReportPdfInput): Promise
       const ensureSpace = (needed: number) => { if (doc.y + needed > bottomLimit()) doc.addPage() }
 
       const sectionTitle = (title: string) => {
-        ensureSpace(46)
-        doc.moveDown(0.5)
+        ensureSpace(44)
+        doc.moveDown(0.4)
         doc.fillColor('#000').fontSize(12).text(title, left, doc.y)
         const ly = doc.y + 2
         doc.moveTo(left, ly).lineTo(right, ly).lineWidth(1).strokeColor('#333').stroke()
-        doc.y = ly + 6
+        doc.y = ly + 5
         doc.fontSize(10).fillColor('#000')
       }
 
@@ -77,7 +85,7 @@ export function buildApplicantReportPdf(input: ApplicantReportPdfInput): Promise
         doc.fontSize(10).fillColor(value.trim() ? '#000' : '#888').text(v, valX, y, { width: valW })
         const rowBottom = Math.max(y + h, doc.y)
         doc.moveTo(left, rowBottom + 3).lineTo(right, rowBottom + 3).lineWidth(0.5).strokeColor('#dddddd').stroke()
-        doc.y = rowBottom + 8
+        doc.y = rowBottom + 6
         doc.fillColor('#000')
       }
 
@@ -109,7 +117,7 @@ export function buildApplicantReportPdf(input: ApplicantReportPdfInput): Promise
         ensureSpace(LINE + 8)
         doc.fontSize(9).fillColor('#555').text(label, left, doc.y)
         doc.fontSize(10).fillColor('#000').text(String(text), left, doc.y, { width: contentWidth })
-        doc.moveDown(0.5)
+        doc.moveDown(0.4)
       }
 
       const bulletList = (items: string[]) => {
@@ -167,7 +175,7 @@ export function buildApplicantReportPdf(input: ApplicantReportPdfInput): Promise
       sectionTitle('学歴')
       if (eduMode === 'error') errorNote()
       else if (eduMode === 'empty') entryRow('', '未入力')
-      else if (eduMode === 'legacy') entryRow('', String(a.education))
+      else if (eduMode === 'legacy') entryRow('', legacyEducationLabel(a.education)) // 内部コード(graduate等)を日本語へ
       else {
         for (const e of input.educations) {
           const base = [t(e.school_name), t(e.faculty_department)].filter((x) => x).join('　')
@@ -221,11 +229,19 @@ export function buildApplicantReportPdf(input: ApplicantReportPdfInput): Promise
       sectionTitle('本人希望欄')
       paragraph(a.personal_requests)
 
-      // ══════════════════ ② AI面接評価（意味境界で明示改ページ＝必ず新ページ先頭） ══════════════════
-      doc.addPage()
-      // 小さな page header（大タイトルは再掲しない）＋「AI面接評価」見出し
-      doc.fontSize(8).fillColor('#999').text('応募者総合レポート', left, doc.y, { width: contentWidth, align: 'right' })
-      doc.moveDown(0.2)
+      // ══════════════════ ② AI面接評価（adaptive page boundary） ══════════════════
+      //   履歴書終端で残り高さを確認。AI評価の開始ブロック（見出し＋面接情報＋総合評価主要部）が
+      //   入る十分な余白があれば同一ページで開始（1ページ目の余白を活用）。
+      //   足りなければ改ページ（見出しだけ前ページ末尾に孤立させない）。
+      if (willOverflow(doc.y, AI_SECTION_MIN_HEIGHT, bottomLimit())) {
+        doc.addPage()
+        // 新ページ時のみ小さな page header（大タイトルは再掲しない）。
+        doc.fontSize(8).fillColor('#999').text('応募者総合レポート', left, doc.y, { width: contentWidth, align: 'right' })
+        doc.moveDown(0.2)
+      } else {
+        // 同一ページ継続時は履歴書とAI評価の間に区切りの余白。
+        doc.moveDown(1.2)
+      }
       doc.fillColor('#000').fontSize(15).text('AI面接評価', left, doc.y)
       const hy = doc.y + 3
       doc.moveTo(left, hy).lineTo(right, hy).lineWidth(1.2).strokeColor('#333').stroke()
@@ -272,7 +288,7 @@ export function buildApplicantReportPdf(input: ApplicantReportPdfInput): Promise
             bulletList([q])
           }
         }
-        doc.moveDown(0.4)
+        doc.moveDown(0.3)
       }
       if (axes.length > 0) {
         sectionTitle('評価軸スコア')

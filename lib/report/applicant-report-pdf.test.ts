@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { buildApplicantReportPdf, type ApplicantReportPdfInput } from './applicant-report-pdf'
+import { buildApplicantReportPdf, willOverflow, AI_SECTION_MIN_HEIGHT, type ApplicantReportPdfInput } from './applicant-report-pdf'
 import type { ResumeEducationView, ResumeWorkView, ResumeLicenseView } from '@/lib/resume/resume-view'
 
 const emptyApplicant = () => ({
@@ -70,6 +70,28 @@ describe('buildApplicantReportPdf（履歴書＋AI評価 統合PDF）', () => {
     expect(isPdf(buf)).toBe(true)
     expect(buf.length).toBeGreaterThan(2000)
   })
+
+  it('legacy education（graduate）は日本語ラベルで生成（内部コードを露出しない）', async () => {
+    const buf = await buildApplicantReportPdf(base({
+      applicant: { ...emptyApplicant(), last_name: '高橋', first_name: '美咲', education: 'graduate' },
+      evaluation: { ...emptyEval(), total_score: 88, recommendation_rank: 'A' },
+    }))
+    expect(isPdf(buf)).toBe(true)
+  })
+})
+
+describe('willOverflow（adaptive page boundary・pure）', () => {
+  it('残りが needed 未満なら true（改ページ必要）', () => {
+    expect(willOverflow(700, 190, 792)).toBe(true) // 700+190=890 > 792
+    expect(willOverflow(500, 190, 792)).toBe(false) // 500+190=690 ≤ 792
+  })
+  it('境界（ちょうど収まる）は false', () => {
+    expect(willOverflow(600, 192, 792)).toBe(false)
+    expect(willOverflow(600, 193, 792)).toBe(true)
+  })
+  it('AI_SECTION_MIN_HEIGHT は正の目安値', () => {
+    expect(AI_SECTION_MIN_HEIGHT).toBeGreaterThan(0)
+  })
 })
 
 // ── source-level guard ──
@@ -79,11 +101,14 @@ const NEXT_SRC = readFileSync(join(process.cwd(), 'next.config.ts'), 'utf8')
 const PAGE_SRC = readFileSync(join(process.cwd(), 'app/client/(dashboard)/applicants/[id]/page.tsx'), 'utf8')
 
 describe('統合PDF: 意味境界改ページ・null score・evaluation-view 再利用・強制分割なし', () => {
-  it('履歴書終了後 AI評価を新ページから開始（doc.addPage ＋「AI面接評価」）', () => {
-    expect(PDF_SRC).toContain('doc.addPage()')
+  it('AI評価は adaptive page boundary（無条件 addPage ではなく willOverflow 判定）＋「AI面接評価」', () => {
+    expect(PDF_SRC).toContain('willOverflow(doc.y, AI_SECTION_MIN_HEIGHT, bottomLimit())')
     expect(PDF_SRC).toContain('AI面接評価')
-    // 応募者総合レポート大タイトルは1ページ目
     expect(PDF_SRC).toContain('応募者総合レポート')
+  })
+  it('legacy education は日本語ラベル helper 経由（内部コードを直接露出しない）', () => {
+    expect(PDF_SRC).toContain('legacyEducationLabel(a.education)')
+    expect(PDF_SRC).not.toContain("entryRow('', String(a.education))")
   })
   it('null score を 0 化しない・evaluation-view helper 再利用', () => {
     expect(PDF_SRC).toContain("ax.score == null ? '判断材料不足'")

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import PDFDocument from 'pdfkit'
 import {
-  genderLabel, graduationStatusLabel,
+  genderLabel, graduationStatusLabel, legacyEducationLabel,
   formatBirthDate, formatPostalCode, formatYearMonth, joinResumeAddress, resolveDisplayAge, resumeSectionMode,
   type ResumeEducationView, type ResumeWorkView, type ResumeLicenseView, type ResumeChildStatus,
 } from './resume-view'
@@ -173,7 +173,7 @@ export function buildResumePdf(input: ResumePdfInput): Promise<Buffer> {
       sectionTitle('学歴')
       if (eduMode === 'error') errorNote()
       else if (eduMode === 'empty') entryRow('', '未入力')
-      else if (eduMode === 'legacy') entryRow('', String(a.education))
+      else if (eduMode === 'legacy') entryRow('', legacyEducationLabel(a.education)) // 内部コード(graduate等)を日本語へ
       else {
         for (const e of input.educations) {
           const base = [t(e.school_name), t(e.faculty_department)].filter((x) => x).join('　')

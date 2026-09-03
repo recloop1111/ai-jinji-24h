@@ -63,6 +63,14 @@ function labelFrom(map: Record<string, string>, code: string | null | undefined)
   return map[s] ?? s
 }
 
+// legacy `applicants.education`（単一 TEXT・後付コード）の日本語ラベル。
+//   キー集合は admin/client 応募者詳細の EDUCATION_LABELS と一致（graduate=大学院卒業）。未知コードは生値。
+const LEGACY_EDUCATION_LABELS: Record<string, string> = {
+  junior_high: '中学校卒業', high_school: '高校卒業', vocational: '専門学校卒業',
+  junior_college: '短期大学卒業', university: '大学卒業', graduate: '大学院卒業', other: 'その他',
+}
+export const legacyEducationLabel = (v: string | null | undefined) => labelFrom(LEGACY_EDUCATION_LABELS, v)
+
 export const genderLabel = (v: string | null | undefined) => labelFrom(GENDER_LABELS, v)
 export const employmentTypeLabel = (v: string | null | undefined) => labelFrom(EMPLOYMENT_TYPE_LABELS, v)
 export const industryExperienceLabel = (v: string | null | undefined) => labelFrom(INDUSTRY_EXP_LABELS, v)

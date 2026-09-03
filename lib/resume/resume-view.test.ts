@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   genderLabel, employmentTypeLabel, industryExperienceLabel, schoolTypeLabel, graduationStatusLabel,
+  legacyEducationLabel,
   formatYearMonth, formatBirthDate, formatPostalCode, joinResumeAddress, resumeSectionMode, resolveDisplayAge,
 } from './resume-view'
 
@@ -31,6 +32,17 @@ describe('日本語ラベル変換', () => {
     expect(graduationStatusLabel('expected')).toBe('卒業見込み')
     expect(graduationStatusLabel('withdrawn')).toBe('中退')
     expect(graduationStatusLabel('enrolled')).toBe('在学中')
+  })
+  it('legacy education コード → 日本語（graduate=大学院卒業・EDUCATION_LABELS と一致）', () => {
+    expect(legacyEducationLabel('graduate')).toBe('大学院卒業')
+    expect(legacyEducationLabel('university')).toBe('大学卒業')
+    expect(legacyEducationLabel('junior_high')).toBe('中学校卒業')
+    expect(legacyEducationLabel('high_school')).toBe('高校卒業')
+    expect(legacyEducationLabel('vocational')).toBe('専門学校卒業')
+    expect(legacyEducationLabel('junior_college')).toBe('短期大学卒業')
+    expect(legacyEducationLabel('other')).toBe('その他')
+    expect(legacyEducationLabel('unknown_code')).toBe('unknown_code') // 未知は生値
+    expect(legacyEducationLabel(null)).toBe('')
   })
   it('未知コードは生値・null/空は空文字（クラッシュしない）', () => {
     expect(genderLabel('xyz')).toBe('xyz')
