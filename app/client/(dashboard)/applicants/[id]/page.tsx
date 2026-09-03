@@ -224,6 +224,9 @@ export default function ApplicantDetailPage() {
   // 履歴書PDF ダウンロード（都度生成・二重クリック防止・失敗時は簡潔なエラー表示）
   const [resumePdfLoading, setResumePdfLoading] = useState(false)
   const [resumePdfError, setResumePdfError] = useState(false)
+  // AI面接結果レポートPDF ダウンロード（interview_results 存在時のみ有効）
+  const [reportPdfLoading, setReportPdfLoading] = useState(false)
+  const [reportPdfError, setReportPdfError] = useState(false)
 
   // Supabaseから応募者データと面接データを取得
   useEffect(() => {
@@ -409,6 +412,31 @@ export default function ApplicantDetailPage() {
       setTimeout(() => setResumePdfError(false), 4000)
     } finally {
       setResumePdfLoading(false)
+    }
+  }
+
+  // AI面接結果レポートPDF を都度生成してダウンロード（評価が無ければボタンは disabled のため到達しない）。
+  async function downloadReportPdf() {
+    if (reportPdfLoading || !interviewResult) return
+    setReportPdfLoading(true)
+    setReportPdfError(false)
+    try {
+      const res = await fetch(`/api/client/applicants/${id}/report-pdf`)
+      if (!res.ok) throw new Error('failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `report_${id.slice(0, 8)}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      setReportPdfError(true)
+      setTimeout(() => setReportPdfError(false), 4000)
+    } finally {
+      setReportPdfLoading(false)
     }
   }
 
@@ -1290,16 +1318,23 @@ export default function ApplicantDetailPage() {
             </p>
             <button
               type="button"
-              onClick={() => {
-                // TODO: Phase 4 PDFダウンロード機能を実装
-                setToast('PDF生成機能は今後実装予定です')
-                setTimeout(() => setToast(''), 2500)
-              }}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-md shadow-blue-500/20"
+              onClick={downloadReportPdf}
+              disabled={!interviewResult || reportPdfLoading}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-md shadow-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Download className="w-4 h-4" />
-              PDFをダウンロード
+              {reportPdfLoading ? 'PDFを生成中…' : 'PDFをダウンロード'}
             </button>
+            {!interviewResult && (
+              <p className="mt-3 text-sm text-slate-500">
+                {interview
+                  ? 'AI評価レポートはまだ生成されていません。'
+                  : '面接完了後にレポートをダウンロードできます。'}
+              </p>
+            )}
+            {reportPdfError && (
+              <p className="mt-3 text-sm text-red-600">PDFの生成に失敗しました。時間をおいて再度お試しください。</p>
+            )}
           </div>
 
           {/* メール送信フォーム */}
