@@ -1,0 +1,101 @@
+import { type NextRequest } from 'next/server'
+import { getClientUser } from '@/lib/api/auth'
+import { successJson, apiError, errorJson } from '@/lib/api/response'
+import { can } from '@/lib/rbac/permissions'
+import { createServiceRoleClient } from '@/lib/supabase/server'
+import { sendEmail, isEmailConfigured } from '@/lib/email/send-email'
+import { parseAllowlist, evaluateSendPolicy } from '@/lib/email/share-report'
+import { normalizeInviteEmail, isInvitableRole, computeInviteExpiresAt, buildInviteEmailBody, INVITE_EMAIL_SUBJECT } from '@/lib/members/invite'
+import { generateInviteToken } from '@/lib/members/invite-token'
+
+// 企業メンバー招待の作成（client・member.manage=OWNER/ADMIN のみ）。
+//   OWNER が指定するのは email ＋ 権限(admin/recruiter/viewer)のみ。氏名/パスワードは accept 時に本人が設定。
+//   company_id は getClientUser 由来で固定（body の company_id は信用しない）。owner 招待は不可。
+//   メール未設定/Demo・Preview は honest に送らない（副作用も残さない）。平文 token は URL のみ・DB は hash。
+export async function POST(request: NextRequest) {
+  try {
+    const { data: user, error: authError } = await getClientUser()
+    if (authError) return authError
+    if (!can(user.companyRole, 'member.manage')) return apiError('FORBIDDEN')
+
+    const body = await request.json().catch(() => null)
+    const emailRes = normalizeInviteEmail(body?.email)
+    if (!emailRes.ok) return apiError('VALIDATION_ERROR', emailRes.error)
+    const email = emailRes.email
+    if (!isInvitableRole(body?.company_role)) {
+      return apiError('VALIDATION_ERROR', '権限は 管理者 / 採用担当 / 閲覧者 のいずれかを指定してください')
+    }
+    const companyRole = body.company_role as string
+
+    // メール未設定なら実送信しない（honest）。副作用（invite 作成）も起こさない。
+    if (!isEmailConfigured()) {
+      return errorJson('EMAIL_UNAVAILABLE', 'メール送信は現在利用できません。', 503)
+    }
+
+    const svc = createServiceRoleClient()
+
+    // 会社名（メール本文用）＋ demo 判定（誤送信防止）。company_id は自社固定。
+    const { data: companyRow } = await svc.from('companies').select('name, is_demo').eq('id', user.companyId).maybeSingle()
+    const companyName = (companyRow as { name?: string } | null)?.name ?? '企業'
+    const isDemo = (companyRow as { is_demo?: boolean } | null)?.is_demo === true
+    const isProduction = process.env.VERCEL_ENV === 'production'
+    const policy = evaluateSendPolicy({ isDemo, isProduction, recipient: email, allowlist: parseAllowlist(process.env.MAIL_TEST_RECIPIENT_ALLOWLIST) })
+    if (!policy.allowed) {
+      if (policy.reason === 'allowlist_only') return errorJson('FORBIDDEN', '現在の環境では、許可されたテスト用アドレスにのみ招待できます。', 403)
+      return errorJson('EMAIL_UNAVAILABLE', 'メール送信は現在利用できません。', 503)
+    }
+
+    // 既存ユーザー/所属チェック（tenant/1user1company/platform admin 混入防止）。
+    const { data: prof } = await svc.from('profiles').select('id, role').ilike('email', email).maybeSingle()
+    if (prof) {
+      const p = prof as { id: string; role: string | null }
+      if (p.role === 'admin' || p.role === 'super_admin') {
+        return apiError('CONFLICT', '運営アカウントは企業メンバーとして招待できません')
+      }
+      const { data: existingMember } = await svc.from('company_members').select('company_id, status').eq('user_id', p.id).maybeSingle()
+      if (existingMember) {
+        const em = existingMember as { company_id: string; status: string }
+        if (em.company_id === user.companyId && em.status === 'active') {
+          return apiError('CONFLICT', 'このメールアドレスは既にメンバーです')
+        }
+        if (em.company_id !== user.companyId) {
+          return apiError('CONFLICT', 'このメールアドレスは別の企業に所属しているため招待できません')
+        }
+      }
+    }
+
+    // 既存 pending は再招待（revoke→新規）。partial unique(company_id,email WHERE pending) 衝突を避ける。
+    await svc.from('member_invites').update({ status: 'revoked', revoked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('company_id', user.companyId).eq('email', email).eq('status', 'pending')
+
+    const { token, tokenHash } = generateInviteToken()
+    const expiresAt = computeInviteExpiresAt()
+    const { data: inserted, error: insertError } = await svc.from('member_invites').insert({
+      company_id: user.companyId,
+      email,
+      company_role: companyRole,
+      status: 'pending',
+      token_hash: tokenHash,
+      invited_by: user.userId,
+      expires_at: expiresAt,
+    }).select('id, email, company_role, status, expires_at, created_at').maybeSingle()
+    if (insertError || !inserted) return apiError('INTERNAL_ERROR', '招待の作成に失敗しました')
+    const invite = inserted as { id: string; email: string; company_role: string; status: string; expires_at: string; created_at: string }
+
+    // accept リンク（平文 token は URL のみ）。origin は deploy 由来。
+    const acceptUrl = `${new URL(request.url).origin}/invite/accept?token=${token}`
+    const result = await sendEmail({ to: email, subject: INVITE_EMAIL_SUBJECT, text: buildInviteEmailBody(companyName, acceptUrl) })
+    if (!result.ok) {
+      // 送信できなければ招待を無効化（宛先がリンクを得られない pending を残さない）。
+      await svc.from('member_invites').update({ status: 'revoked', revoked_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', invite.id)
+      return apiError('INTERNAL_ERROR', '招待メールを送信できませんでした。もう一度お試しください。')
+    }
+
+    return successJson({
+      invited: true,
+      invite: { id: invite.id, email: invite.email, company_role: invite.company_role, status: invite.status, expires_at: invite.expires_at, created_at: invite.created_at },
+    }, 201)
+  } catch {
+    return apiError('INTERNAL_ERROR')
+  }
+}
