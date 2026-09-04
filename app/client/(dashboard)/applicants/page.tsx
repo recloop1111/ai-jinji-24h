@@ -8,6 +8,7 @@ import { deriveCurrentStatus, CURRENT_STATUS_LABEL, type CurrentStatusKey } from
 import { useTemplates, type Template } from '../../contexts/TemplatesContext'
 import { Download as DownloadIcon, Eye as EyeIcon, EyeOff as EyeOffIcon, Search as SearchEmptyIcon, Phone as PhoneIcon, Mail as MailIcon, Filter as FilterIcon, ChevronDown as ChevronDownIcon } from 'lucide-react'
 import { scoreToGrade, gradeColor } from '@/lib/utils/scoreToGrade'
+import { resultKeyToValue, type SelectionResultKey } from '@/lib/applicants/selectionResult'
 
 // currentStatus: preparing=準備中(システム), completed=完了(システム)
 // status: null=未対応(面接完了後・結果未設定時の初期値), considering=検討中, second_pass=二次通過, rejected=不採用(企業担当者が手動管理)
@@ -175,6 +176,7 @@ function ApplicantsContent() {
   const [dataLoading, setDataLoading] = useState(true)
   const [statusDropdownApplicantId, setStatusDropdownApplicantId] = useState<string | null>(null)
   const [statusToast, setStatusToast] = useState(false)
+  const [statusErrorToast, setStatusErrorToast] = useState(false)
 
   // Supabaseから応募者データを取得
   useEffect(() => {
@@ -436,30 +438,39 @@ function ApplicantsContent() {
     return applicants.filter((a) => mailSelectedIds.has(a.id))
   }, [applicants, mailSelectedIds])
 
-  const handleStatusUpdate = async (applicantId: string, newStatus: 'considering' | 'second_pass' | 'rejected' | null) => {
-    // resultカラムを更新（未対応・検討中・二次通過・不採用）
-    const dbResult = newStatus === null ? '未対応' 
-      : newStatus === 'considering' ? '検討中'
-      : newStatus === 'second_pass' ? '二次通過'
-      : newStatus === 'rejected' ? '不採用'
-      : '未対応'
-    
-    // Supabaseでステータス更新
-    try {
-      await supabase
-        .from('applicants')
-        .update({ result: dbResult, updated_at: new Date().toISOString() })
-        .eq('id', applicantId)
-    } catch {
-    }
-    
-    setApplicants((prev) => {
-      const updated = prev.map((a) =>
-        a.id === applicantId ? { ...a, status: newStatus } : a
-      )
-      return updated
-    })
+  const handleStatusUpdate = async (applicantId: string, newStatus: SelectionResultKey) => {
     setStatusDropdownApplicantId(null)
+    // 選考結果の永続化は server route（RBAC/tenant/validation/history/honest error を集約）。
+    // 成功時のみ local state 更新＋成功トースト。失敗時は成功状態にしない（false success を作らない）。
+    // demo- 合成行は DB 実体が無いため local のみ更新。
+    const applyLocal = () => setApplicants((prev) => prev.map((a) => (a.id === applicantId ? { ...a, status: newStatus } : a)))
+
+    if (applicantId.startsWith('demo-')) {
+      applyLocal()
+      setStatusToast(true)
+      setTimeout(() => setStatusToast(false), 2000)
+      return
+    }
+
+    try {
+      const res = await fetch(`/api/client/applicants/${applicantId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ result: resultKeyToValue(newStatus) }),
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok || !json || json.updated === undefined) {
+        setStatusErrorToast(true)
+        setTimeout(() => setStatusErrorToast(false), 2500)
+        return
+      }
+    } catch {
+      setStatusErrorToast(true)
+      setTimeout(() => setStatusErrorToast(false), 2500)
+      return
+    }
+
+    applyLocal()
     setStatusToast(true)
     setTimeout(() => setStatusToast(false), 2000)
   }
@@ -1065,6 +1076,11 @@ function ApplicantsContent() {
       {statusToast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-6 py-3 bg-gray-900 text-white text-sm font-medium rounded-xl shadow-lg">
           結果を更新しました
+        </div>
+      )}
+      {statusErrorToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-6 py-3 bg-red-600 text-white text-sm font-medium rounded-xl shadow-lg">
+          選考結果を更新できませんでした
         </div>
       )}
 

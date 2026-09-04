@@ -8,6 +8,7 @@ import { deriveCurrentStatus, CURRENT_STATUS_LABEL, type CurrentStatusKey } from
 import { useTemplates, type Template } from '../../contexts/TemplatesContext'
 import { ChevronRight as ChevronRightIcon, ChevronDown as ChevronDownIcon, Phone as PhoneIcon, Mail as MailIcon } from 'lucide-react'
 import { scoreToGrade, gradeColor } from '@/lib/utils/scoreToGrade'
+import { resultKeyToValue } from '@/lib/applicants/selectionResult'
 
 
 type ApplicantStatus = 'considering' | 'second_pass' | 'rejected' | null
@@ -159,6 +160,7 @@ function DashboardContent() {
   const [mailModalOpen, setMailModalOpen] = useState(false)
   const [statusDropdownApplicantId, setStatusDropdownApplicantId] = useState<string | null>(null)
   const [statusToast, setStatusToast] = useState(false)
+  const [statusErrorToast, setStatusErrorToast] = useState(false)
   const [mailSelectedIds, setMailSelectedIds] = useState<Set<string>>(new Set())
   const [mailTemplateId, setMailTemplateId] = useState('')
   const [mailBody, setMailBody] = useState('')
@@ -212,36 +214,35 @@ function DashboardContent() {
   }, [mailSelectedIds, applicants])
 
   const handleStatusUpdate = async (applicantId: string, newStatus: ApplicantStatus) => {
-    // resultカラムを更新（未対応・検討中・二次通過・不採用）
-    const dbResult = newStatus === null ? '未対応' 
-      : newStatus === 'considering' ? '検討中'
-      : newStatus === 'second_pass' ? '二次通過'
-      : newStatus === 'rejected' ? '不採用'
-      : '未対応'
-    
-    // デモデータの場合はSupabase更新をスキップ
+    setStatusDropdownApplicantId(null)
+    // 選考結果の永続化は server route（RBAC/tenant/validation/history/honest error を集約）。
+    // 成功時のみ local state 更新＋トースト。失敗時は成功状態にしない。demo- 合成行は local のみ。
+    const applyLocal = () => {
+      setApplicants((prev) => prev.map((a) => (a.id === applicantId ? { ...a, status: newStatus } : a)))
+      setRecentApplicants((prev) => prev.map((a) => (a.id === applicantId ? { ...a, status: newStatus } : a)))
+    }
+
     if (!applicantId.startsWith('demo-')) {
       try {
-        await supabase
-          .from('applicants')
-          .update({ result: dbResult, updated_at: new Date().toISOString() })
-          .eq('id', applicantId)
+        const res = await fetch(`/api/client/applicants/${applicantId}/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ result: resultKeyToValue(newStatus) }),
+        })
+        const json = await res.json().catch(() => null)
+        if (!res.ok || !json || json.updated === undefined) {
+          setStatusErrorToast(true)
+          setTimeout(() => setStatusErrorToast(false), 2500)
+          return
+        }
       } catch {
+        setStatusErrorToast(true)
+        setTimeout(() => setStatusErrorToast(false), 2500)
+        return
       }
     }
-    
-    // applicantsとrecentApplicantsの両方を更新
-    setApplicants((prev) => {
-      const updated = prev.map((a) => (a.id === applicantId ? { ...a, status: newStatus } : a))
-      return updated
-    })
-    
-    setRecentApplicants((prev) => {
-      const updated = prev.map((a) => (a.id === applicantId ? { ...a, status: newStatus } : a))
-      return updated
-    })
-    
-    setStatusDropdownApplicantId(null)
+
+    applyLocal()
     setStatusToast(true)
     setTimeout(() => setStatusToast(false), 2000)
   }
@@ -635,6 +636,11 @@ function DashboardContent() {
       {statusToast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-6 py-3 bg-gray-900 text-white text-sm font-medium rounded-xl shadow-lg">
           結果を更新しました
+        </div>
+      )}
+      {statusErrorToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-6 py-3 bg-red-600 text-white text-sm font-medium rounded-xl shadow-lg">
+          選考結果を更新できませんでした
         </div>
       )}
 

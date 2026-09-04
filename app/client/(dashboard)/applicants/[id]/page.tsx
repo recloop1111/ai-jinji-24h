@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyPermissions } from '@/lib/rbac/useCompanyPermissions'
+import { resultKeyToValue, type SelectionResultKey } from '@/lib/applicants/selectionResult'
 import { deriveCurrentStatus, CURRENT_STATUS_LABEL } from '@/lib/applicants/displayStatus'
 import TranscriptLog from '@/components/interview/TranscriptLog'
 import {
@@ -207,7 +208,6 @@ export default function ApplicantDetailPage() {
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null)
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
-  const [statusToast, setStatusToast] = useState(false)
   const [applicant, setApplicant] = useState<ApplicantRow | null>(null)
   const [interview, setInterview] = useState<InterviewRow | null>(null)
   const [interviewResult, setInterviewResult] = useState<InterviewResultRow | null>(null)
@@ -378,6 +378,8 @@ export default function ApplicantDetailPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
   const [selectionMemo, setSelectionMemo] = useState('')
+  const [savingStatus, setSavingStatus] = useState(false)
+  const [statusSaveError, setStatusSaveError] = useState('')
   const [toast, setToast] = useState('')
   // 共有タブ用
   const [shareEmail, setShareEmail] = useState('')
@@ -419,6 +421,32 @@ export default function ApplicantDetailPage() {
       setTimeout(() => setResumePdfError(false), 4000)
     } finally {
       setResumePdfLoading(false)
+    }
+  }
+
+  // 選考結果（applicants.result）を server route 経由で永続化。API 成功時のみ「保存しました」。
+  //   失敗時は成功表示せず入力（selectedStatus）を保持。二重クリックは savingStatus で防止。
+  async function saveSelectionResult() {
+    if (savingStatus) return
+    setSavingStatus(true)
+    setStatusSaveError('')
+    try {
+      const res = await fetch(`/api/client/applicants/${id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ result: resultKeyToValue(selectedStatus as SelectionResultKey) }),
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok || !json || json.updated === undefined) {
+        setStatusSaveError('選考結果を保存できませんでした。時間をおいて再度お試しください。')
+        return
+      }
+      setToast('保存しました')
+      setTimeout(() => setToast(''), 2500)
+    } catch {
+      setStatusSaveError('選考結果を保存できませんでした。時間をおいて再度お試しください。')
+    } finally {
+      setSavingStatus(false)
     }
   }
 
@@ -542,11 +570,8 @@ export default function ApplicantDetailPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            // TODO: Phase 4 - Supabaseでステータス更新
                             setSelectedStatus(null)
                             setStatusDropdownOpen(false)
-                            setStatusToast(true)
-                            setTimeout(() => setStatusToast(false), 2000)
                           }}
                           className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
                         >
@@ -555,11 +580,8 @@ export default function ApplicantDetailPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            // TODO: Phase 4 - Supabaseでステータス更新
                             setSelectedStatus('considering')
                             setStatusDropdownOpen(false)
-                            setStatusToast(true)
-                            setTimeout(() => setStatusToast(false), 2000)
                           }}
                           className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
                         >
@@ -568,11 +590,8 @@ export default function ApplicantDetailPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            // TODO: Phase 4 - Supabaseでステータス更新
                             setSelectedStatus('second_pass')
                             setStatusDropdownOpen(false)
-                            setStatusToast(true)
-                            setTimeout(() => setStatusToast(false), 2000)
                           }}
                           className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
                         >
@@ -581,11 +600,8 @@ export default function ApplicantDetailPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            // TODO: Phase 4 - Supabaseでステータス更新
                             setSelectedStatus('rejected')
                             setStatusDropdownOpen(false)
-                            setStatusToast(true)
-                            setTimeout(() => setStatusToast(false), 2000)
                           }}
                           className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
                         >
@@ -628,18 +644,18 @@ export default function ApplicantDetailPage() {
                     onChange={(e) => setSelectionMemo(e.target.value)}
                     rows={3}
                     className="w-full px-3 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all resize-none"
-                    placeholder="選考メモを入力..."
+                    placeholder="選考メモ（下書き・保存対象外）"
                   />
+                  {/* ※ 選考メモは現状 DB 保存先が無く未永続（別途対応）。ここでの「保存」は選考結果のみを保存する。 */}
+                  <p className="text-xs text-slate-400">選考メモは現在保存されません（選考結果のみ保存されます）。</p>
+                  {statusSaveError && <p className="text-sm text-red-600">{statusSaveError}</p>}
                   <button
                     type="button"
-                    onClick={() => {
-                      // TODO: Phase 4 Supabase API 実装時に差替え
-                      setToast('保存しました')
-                      setTimeout(() => setToast(''), 2500)
-                    }}
-                    className="w-full px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all shadow-md shadow-blue-500/20"
+                    onClick={saveSelectionResult}
+                    disabled={savingStatus}
+                    className="w-full px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all shadow-md shadow-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    保存
+                    {savingStatus ? '保存中…' : '保存'}
                   </button>
                 </div>
               </div>
@@ -647,11 +663,6 @@ export default function ApplicantDetailPage() {
             </div>
           </div>
 
-          {statusToast && (
-            <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-6 py-3 bg-gray-900 text-white text-sm font-medium rounded-xl shadow-lg">
-              結果を更新しました
-            </div>
-          )}
 
           {/* ステータス別バナー */}
           {applicant?.status === '途中離脱' && (
