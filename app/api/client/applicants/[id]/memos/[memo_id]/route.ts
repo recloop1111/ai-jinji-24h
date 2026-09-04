@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
+import { can } from '@/lib/rbac/permissions'
 import { createClientServerClient } from '@/lib/supabase/server'
 
 const MAX_MEMO_LENGTH = 2000
@@ -11,6 +12,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
+    // VIEWER はメモ更新不可。
+    if (!can(user.companyRole, 'applicant_memo.manage')) return apiError('FORBIDDEN')
 
     const { id, memo_id } = await params
     const body = await request.json().catch(() => null)
@@ -61,6 +64,8 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
+    // VIEWER はメモ削除不可。
+    if (!can(user.companyRole, 'applicant_memo.manage')) return apiError('FORBIDDEN')
 
     const { id, memo_id } = await params
     const supabase = await createClientServerClient()

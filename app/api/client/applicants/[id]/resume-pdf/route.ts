@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { apiError } from '@/lib/api/response'
+import { can } from '@/lib/rbac/permissions'
 import { isValidUUID } from '@/lib/api/validation'
 import { createClientServerClient } from '@/lib/supabase/server'
 import { buildResumePdf, type ResumePdfInput } from '@/lib/resume/resume-pdf'
@@ -17,6 +18,8 @@ export async function GET(
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
+    // VIEWER は履歴書 export 不可（server が正。UI 非表示だけに依存しない）。
+    if (!can(user.companyRole, 'resume.pdf.download')) return apiError('FORBIDDEN')
 
     const { id } = await params
     if (!isValidUUID(id)) return apiError('VALIDATION_ERROR', 'IDの形式が不正です')

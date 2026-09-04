@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError, errorJson } from '@/lib/api/response'
+import { can } from '@/lib/rbac/permissions'
 import { isValidUUID } from '@/lib/api/validation'
 import { createClientServerClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { deriveCurrentStatus, CURRENT_STATUS_LABEL } from '@/lib/applicants/displayStatus'
@@ -23,6 +24,8 @@ export async function POST(
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
+    // VIEWER はメール共有不可（PDF 生成・送信の前に遮断）。
+    if (!can(user.companyRole, 'applicant_report.email_share')) return apiError('FORBIDDEN')
 
     const { id } = await params
     if (!isValidUUID(id)) return apiError('VALIDATION_ERROR', 'IDの形式が不正です')

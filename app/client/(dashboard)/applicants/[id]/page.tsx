@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo, type ReactNode } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClientBrowserClient } from '@/lib/supabase/client'
+import { useCompanyPermissions } from '@/lib/rbac/useCompanyPermissions'
 import { deriveCurrentStatus, CURRENT_STATUS_LABEL } from '@/lib/applicants/displayStatus'
 import TranscriptLog from '@/components/interview/TranscriptLog'
 import {
@@ -198,8 +199,10 @@ export default function ApplicantDetailPage() {
   // createClientBrowserClient() を毎レンダー生成するとデータ取得 effect の依存(supabase)が
   // 毎回変わり再取得ループ（画面チカチカ）になるため useMemo で安定化する（billing ページと同方式・6620f8f）。
   const supabase = useMemo(() => createClientBrowserClient(), [])
-  
-  
+  // 企業RBAC（Phase E-5-2）: VIEWER には write/export 操作を出さない。security の正はサーバ/RLS。
+  const { can } = useCompanyPermissions()
+
+
   const [activeTab, setActiveTab] = useState<TabKey>('summary')
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null)
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
@@ -519,6 +522,7 @@ export default function ApplicantDetailPage() {
                       : 'bg-red-100 text-red-600'
                     return <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${cls}`}>{CURRENT_STATUS_LABEL[cs]}</span>
                   })()}
+                  {can('selection.manage') && (
                   <div ref={statusDropdownRef} className="relative inline-block">
                     <button
                       type="button"
@@ -590,6 +594,7 @@ export default function ApplicantDetailPage() {
                       </div>
                     )}
                   </div>
+                  )}
                 </div>
                 <dl className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-slate-600">
                   <div className="flex gap-2 min-w-0">
@@ -602,7 +607,8 @@ export default function ApplicantDetailPage() {
                   </div>
                 </dl>
               </div>
-              {/* 選考ステータス（常時表示） */}
+              {/* 選考ステータス（VIEWER は変更不可＝非表示。RBAC） */}
+              {can('selection.manage') && (
               <div className="w-full sm:w-72 shrink-0 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-md shadow-slate-200/50">
                 <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">選考結果</h3>
                 <div className="space-y-3">
@@ -637,6 +643,7 @@ export default function ApplicantDetailPage() {
                   </button>
                 </div>
               </div>
+              )}
             </div>
           </div>
 
@@ -774,21 +781,23 @@ export default function ApplicantDetailPage() {
           {/* 履歴書ヘッダー（右側は Phase E で「PDF履歴書を出力」を置く余地・今は空） */}
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-base font-bold text-slate-900">履歴書</h2>
-            {/* PDF 出力ボタン設置スロット（Phase E）。現時点ではボタンは表示しない。 */}
-            <div data-slot="resume-pdf-action" className="flex shrink-0 flex-col items-end gap-1">
-              <button
-                type="button"
-                onClick={downloadResumePdf}
-                disabled={resumePdfLoading || !applicant}
-                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Download className="h-4 w-4" />
-                {resumePdfLoading ? 'PDFを生成中…' : '履歴書PDFをダウンロード'}
-              </button>
-              {resumePdfError && (
-                <span className="text-xs text-red-600">PDFの生成に失敗しました。時間をおいて再度お試しください。</span>
-              )}
-            </div>
+            {/* PDF 出力ボタン設置スロット（Phase E）。VIEWER には export を出さない（RBAC）。 */}
+            {can('resume.pdf.download') && (
+              <div data-slot="resume-pdf-action" className="flex shrink-0 flex-col items-end gap-1">
+                <button
+                  type="button"
+                  onClick={downloadResumePdf}
+                  disabled={resumePdfLoading || !applicant}
+                  className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Download className="h-4 w-4" />
+                  {resumePdfLoading ? 'PDFを生成中…' : '履歴書PDFをダウンロード'}
+                </button>
+                {resumePdfError && (
+                  <span className="text-xs text-red-600">PDFの生成に失敗しました。時間をおいて再度お試しください。</span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* 1. 基本情報 */}
@@ -1351,7 +1360,14 @@ export default function ApplicantDetailPage() {
       {/* タブ5: 共有 */}
       {activeTab === 'share' && (
         <div className="space-y-6">
+          {/* VIEWER は共有/エクスポート操作を持たない（閲覧のみ）。RBAC でカードを非表示にする。 */}
+          {!can('applicant_report.pdf.download') && !can('applicant_report.email_share') && !can('share_link.manage') && (
+            <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
+              <p className="text-sm text-slate-500">この応募者は閲覧のみ可能です。レポートの共有・エクスポートには権限が必要です。</p>
+            </div>
+          )}
           {/* レポートPDFダウンロード */}
+          {can('applicant_report.pdf.download') && (
           <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">応募者総合レポート</h2>
             <p className="text-sm text-slate-600 mb-5 leading-relaxed">
@@ -1375,8 +1391,10 @@ export default function ApplicantDetailPage() {
               <p className="mt-3 text-sm text-red-600">PDFの生成に失敗しました。時間をおいて再度お試しください。</p>
             )}
           </div>
+          )}
 
           {/* メール送信フォーム */}
+          {can('applicant_report.email_share') && (
           <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">メールで共有</h2>
             <p className="text-sm text-slate-600 mb-5 leading-relaxed">
@@ -1421,8 +1439,10 @@ export default function ApplicantDetailPage() {
               {shareSuccess && <p className="text-sm text-emerald-600">メールを送信しました。</p>}
             </div>
           </div>
+          )}
 
           {/* 共有リンク生成 */}
+          {can('share_link.manage') && (
           <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">共有リンク</h2>
             <p className="text-sm text-slate-600 mb-5 leading-relaxed">
@@ -1450,6 +1470,7 @@ export default function ApplicantDetailPage() {
               </button>
             </div>
           </div>
+          )}
         </div>
       )}
         </div>

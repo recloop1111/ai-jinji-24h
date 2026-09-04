@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
+import { can } from '@/lib/rbac/permissions'
 import { createClientServerClient } from '@/lib/supabase/server'
 
 const VALID_STATUSES = ['pending', 'second_interview', 'rejected'] as const
@@ -12,6 +13,8 @@ export async function PATCH(
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
+    // VIEWER は選考ステータス変更不可。
+    if (!can(user.companyRole, 'selection.manage')) return apiError('FORBIDDEN')
 
     const { id } = await params
     const body = await request.json().catch(() => null)

@@ -7,5 +7,6 @@ import { successJson, apiError } from '@/lib/api/response'
 export async function GET() {
   const { data, error } = await getClientUser()
   if (error || !data) return error ?? apiError('UNAUTHORIZED')
-  return successJson({ userId: data.userId, companyId: data.companyId })
+  // companyRole のみ追加公開（membership の内部フィールドは返さない）。
+  return successJson({ userId: data.userId, companyId: data.companyId, companyRole: data.companyRole })
 }

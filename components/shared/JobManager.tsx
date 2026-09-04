@@ -85,9 +85,11 @@ type JobManagerProps = {
   // 求人の「質問設定」への遷移。admin 代理管理では /client/** へ飛ばさず親のタブ切替に委ねる。
   // 未指定（企業自身の画面）では従来どおり /client/questions へ遷移する。
   onNavigateToQuestions?: (jobId: string) => void
+  // 企業RBAC（E-5-2）: false のとき求人 CRUD を非表示（VIEWER）。admin 代理・既存呼び出しは default true で不変。
+  canWrite?: boolean
 }
 
-export default function JobManager({ companyId: companyIdProp, theme, onNavigateToQuestions }: JobManagerProps) {
+export default function JobManager({ companyId: companyIdProp, theme, onNavigateToQuestions, canWrite = true }: JobManagerProps) {
   // companyId='current'（企業自身）のときだけ client セッションから解決する。
   // admin 代理管理（companyIdProp に対象企業IDを明示）では client API を呼ばず redirect もしない。
   const { companyId: currentCompanyId, loading: companyIdLoading, error: companyIdError } =
@@ -410,14 +412,16 @@ export default function JobManager({ companyId: companyIdProp, theme, onNavigate
           <h1 className={`text-2xl font-bold ${cn.title}`}>求人管理</h1>
           <p className={`text-sm mt-1 ${cn.subtext}`}>募集中の求人を管理します。求人ごとに面接の質問を設定できます。</p>
         </div>
-        <button
-          type="button"
-          onClick={openCreateModal}
-          className={`inline-flex items-center gap-2 ${cn.btnPrimary} text-white text-sm font-medium rounded-xl px-5 py-2.5 transition-all duration-200 shrink-0 shadow-sm`}
-        >
-          <Plus className="w-4 h-4" />
-          新規求人を作成
-        </button>
+        {canWrite && (
+          <button
+            type="button"
+            onClick={openCreateModal}
+            className={`inline-flex items-center gap-2 ${cn.btnPrimary} text-white text-sm font-medium rounded-xl px-5 py-2.5 transition-all duration-200 shrink-0 shadow-sm`}
+          >
+            <Plus className="w-4 h-4" />
+            新規求人を作成
+          </button>
+        )}
       </div>
 
       {jobs.length === 0 ? (
@@ -447,14 +451,16 @@ export default function JobManager({ companyId: companyIdProp, theme, onNavigate
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openEditModal(job)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${cn.btnSecondary}`}
-                  >
-                    <Pencil className="w-4 h-4" />
-                    編集
-                  </button>
+                  {canWrite && (
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(job)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${cn.btnSecondary}`}
+                    >
+                      <Pencil className="w-4 h-4" />
+                      編集
+                    </button>
+                  )}
                   {onNavigateToQuestions ? (
                     <button
                       type="button"
@@ -473,7 +479,7 @@ export default function JobManager({ companyId: companyIdProp, theme, onNavigate
                       質問設定
                     </Link>
                   )}
-                  {job.status === 'active' ? (
+                  {canWrite && job.status === 'active' ? (
                     <button
                       type="button"
                       onClick={() => handleToggleStatus(job.id)}
@@ -482,7 +488,7 @@ export default function JobManager({ companyId: companyIdProp, theme, onNavigate
                       <Pause className="w-4 h-4" />
                       募集停止
                     </button>
-                  ) : job.status === 'paused' ? (
+                  ) : canWrite && job.status === 'paused' ? (
                     <button
                       type="button"
                       onClick={() => handleToggleStatus(job.id)}
@@ -492,14 +498,16 @@ export default function JobManager({ companyId: companyIdProp, theme, onNavigate
                       再開
                     </button>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteJob(job.id)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${cn.btnDelete}`}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    削除
-                  </button>
+                  {canWrite && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteJob(job.id)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${cn.btnDelete}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      削除
+                    </button>
+                  )}
                 </div>
               </div>
             )

@@ -120,9 +120,11 @@ type QuestionEditorProps = {
   companyId: string
   theme: 'light' | 'dark'
   onNavigateToJobs?: () => void
+  // 企業RBAC（E-5-2）: false のとき質問編集を無効化（VIEWER）。admin 代理・既存呼び出しは default true で不変。
+  canWrite?: boolean
 }
 
-export default function QuestionEditor({ companyId: companyIdProp, theme, onNavigateToJobs }: QuestionEditorProps) {
+export default function QuestionEditor({ companyId: companyIdProp, theme, onNavigateToJobs, canWrite = true }: QuestionEditorProps) {
   const searchParams = useSearchParams()
   const initialJobId = searchParams.get('jobId')
   // companyId='current'（企業自身）のときだけ client セッションから解決する。
@@ -730,6 +732,14 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
         )}
       </div>
 
+      {!canWrite && (
+        <div className={`mb-6 rounded-xl border p-4 text-sm ${isDark ? 'bg-white/[0.04] border-white/[0.08] text-gray-300' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+          質問は閲覧のみ可能です。追加・編集・保存には権限が必要です。
+        </div>
+      )}
+
+      {/* 企業RBAC（E-5-2）: canWrite=false（VIEWER）は編集領域の全操作を無効化（display:contents でレイアウト非影響）。 */}
+      <fieldset disabled={!canWrite} className="contents">
       {selectedJobId && selectedJob ? (
         <>
           <div className={`mb-8 rounded-xl border p-6 ${cn.card}`}>
@@ -994,6 +1004,7 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
           <p className={cn.subtext}>求人を選択してください</p>
         </div>
       ) : null}
+      </fieldset>
 
       {toast && (
         <div className="fixed bottom-6 right-6 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium z-50">
