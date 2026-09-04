@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   SELECTION_RESULT_VALUES, isSelectionResultValue, resultKeyToValue, resultValueToKey,
+  MAX_SELECTION_MEMO_LENGTH, validateSelectionMemo,
 } from './selectionResult'
 
 describe('selectionResult（client 選考結果 SoT = applicants.result）', () => {
@@ -36,5 +37,33 @@ describe('selectionResult（client 選考結果 SoT = applicants.result）', () 
     for (const key of [null, 'considering', 'second_pass', 'rejected'] as const) {
       expect(resultValueToKey(resultKeyToValue(key))).toBe(key)
     }
+  })
+})
+
+describe('validateSelectionMemo（選考メモ・applicants.selection_memo）', () => {
+  it('最大文字数は 2000', () => {
+    expect(MAX_SELECTION_MEMO_LENGTH).toBe(2000)
+  })
+  it('string 以外は reject', () => {
+    expect(validateSelectionMemo(123).ok).toBe(false)
+    expect(validateSelectionMemo(null).ok).toBe(false)
+    expect(validateSelectionMemo(undefined).ok).toBe(false)
+  })
+  it('trim される', () => {
+    const r = validateSelectionMemo('  メモ  ')
+    expect(r.ok && r.value).toBe('メモ')
+  })
+  it('空文字はクリアとして許可（value=""）', () => {
+    const r = validateSelectionMemo('   ')
+    expect(r.ok).toBe(true)
+    expect(r.ok && r.value).toBe('')
+  })
+  it('改行を保持する（plain text・trim は端のみ）', () => {
+    const r = validateSelectionMemo('一行目\n二行目')
+    expect(r.ok && r.value).toBe('一行目\n二行目')
+  })
+  it('2000文字は許可・2001文字は reject', () => {
+    expect(validateSelectionMemo('あ'.repeat(2000)).ok).toBe(true)
+    expect(validateSelectionMemo('あ'.repeat(2001)).ok).toBe(false)
   })
 })

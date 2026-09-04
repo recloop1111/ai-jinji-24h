@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyPermissions } from '@/lib/rbac/useCompanyPermissions'
-import { resultKeyToValue, type SelectionResultKey } from '@/lib/applicants/selectionResult'
+import { resultKeyToValue, MAX_SELECTION_MEMO_LENGTH, type SelectionResultKey } from '@/lib/applicants/selectionResult'
 import { deriveCurrentStatus, CURRENT_STATUS_LABEL } from '@/lib/applicants/displayStatus'
 import TranscriptLog from '@/components/interview/TranscriptLog'
 import {
@@ -44,6 +44,14 @@ const STATUS_OPTIONS = [
   { value: 'second_pass', label: '二次通過' },
   { value: 'rejected', label: '不採用' },
 ]
+
+// 選考メモ最終更新日時の表示（YYYY/MM/DD HH:mm）。actor UUID は画面に出さない（氏名整備は E-5-3）。
+function formatMemoUpdatedAt(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
 
 const RECOMMEND_LEGEND = [
   { grade: 'A', label: '強く推奨', desc: '即戦力として高く評価' },
@@ -206,6 +214,9 @@ export default function ApplicantDetailPage() {
 
   const [activeTab, setActiveTab] = useState<TabKey>('summary')
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null)
+  // 選考メモ（applicants.selection_memo）＋最終更新日時。fetch 効果より前に宣言（use-before-declare 回避）。
+  const [selectionMemo, setSelectionMemo] = useState('')
+  const [selectionMemoUpdatedAt, setSelectionMemoUpdatedAt] = useState<string | null>(null)
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
   const [applicant, setApplicant] = useState<ApplicantRow | null>(null)
@@ -258,6 +269,10 @@ export default function ApplicantDetailPage() {
         } else if (applicantData) {
           setApplicant(applicantData)
           setSelectedStatus(applicantData.result === '未対応' ? null : applicantData.result === '検討中' ? 'considering' : applicantData.result === '二次通過' ? 'second_pass' : applicantData.result === '不採用' ? 'rejected' : null)
+          // 選考メモ（applicants.selection_memo）を state へロード（未入力は ''）。
+          //   selection_memo_updated_at は actor 列 migration 適用後のみ存在（未適用時は undefined → 非表示）。
+          setSelectionMemo((applicantData as { selection_memo?: string | null }).selection_memo ?? '')
+          setSelectionMemoUpdatedAt((applicantData as { selection_memo_updated_at?: string | null }).selection_memo_updated_at ?? null)
 
           // デジタル履歴書 v1: 学歴/職歴/資格の子3テーブルを並列取得（自社のみ RLS・明示列・sort_order ASC）。
           //   取得エラーは 0件（未入力）と偽装せず 'error' として区別（画面に安全なエラー表示）。
@@ -377,7 +392,6 @@ export default function ApplicantDetailPage() {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
-  const [selectionMemo, setSelectionMemo] = useState('')
   const [savingStatus, setSavingStatus] = useState(false)
   const [statusSaveError, setStatusSaveError] = useState('')
   const [toast, setToast] = useState('')
@@ -424,23 +438,32 @@ export default function ApplicantDetailPage() {
     }
   }
 
-  // 選考結果（applicants.result）を server route 経由で永続化。API 成功時のみ「保存しました」。
-  //   失敗時は成功表示せず入力（selectedStatus）を保持。二重クリックは savingStatus で防止。
+  // 選考結果（applicants.result）＋選考メモ（applicants.selection_memo）を server route 経由で1回のUPDATEで永続化。
+  //   API 成功時のみ「保存しました」。失敗時は成功表示せず入力（selectedStatus/selectionMemo）を保持。
+  //   二重クリックは savingStatus で防止。2000文字超は送信前に中断。
   async function saveSelectionResult() {
     if (savingStatus) return
+    if (selectionMemo.length > MAX_SELECTION_MEMO_LENGTH) {
+      setStatusSaveError(`選考メモは${MAX_SELECTION_MEMO_LENGTH}文字以内で入力してください。`)
+      return
+    }
     setSavingStatus(true)
     setStatusSaveError('')
     try {
       const res = await fetch(`/api/client/applicants/${id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ result: resultKeyToValue(selectedStatus as SelectionResultKey) }),
+        body: JSON.stringify({
+          result: resultKeyToValue(selectedStatus as SelectionResultKey),
+          selection_memo: selectionMemo,
+        }),
       })
       const json = await res.json().catch(() => null)
       if (!res.ok || !json || json.updated === undefined) {
         setStatusSaveError('選考結果を保存できませんでした。時間をおいて再度お試しください。')
         return
       }
+      if (typeof json.selection_memo_updated_at === 'string') setSelectionMemoUpdatedAt(json.selection_memo_updated_at)
       setToast('保存しました')
       setTimeout(() => setToast(''), 2500)
     } catch {
@@ -639,25 +662,45 @@ export default function ApplicantDetailPage() {
                       </option>
                     ))}
                   </select>
-                  <textarea
-                    value={selectionMemo}
-                    onChange={(e) => setSelectionMemo(e.target.value)}
-                    rows={3}
-                    className="w-full px-3 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all resize-none"
-                    placeholder="選考メモ（下書き・保存対象外）"
-                  />
-                  {/* ※ 選考メモは現状 DB 保存先が無く未永続（別途対応）。ここでの「保存」は選考結果のみを保存する。 */}
-                  <p className="text-xs text-slate-400">選考メモは現在保存されません（選考結果のみ保存されます）。</p>
+                  <div>
+                    <textarea
+                      value={selectionMemo}
+                      onChange={(e) => setSelectionMemo(e.target.value)}
+                      rows={3}
+                      className="w-full px-3 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all resize-none"
+                      placeholder="選考メモを入力..."
+                    />
+                    <p className={`mt-1 text-right text-xs ${selectionMemo.length > MAX_SELECTION_MEMO_LENGTH ? 'text-red-600' : 'text-slate-400'}`}>
+                      {selectionMemo.length} / {MAX_SELECTION_MEMO_LENGTH}
+                    </p>
+                  </div>
+                  {selectionMemoUpdatedAt && (
+                    <p className="text-xs text-slate-400">最終更新：{formatMemoUpdatedAt(selectionMemoUpdatedAt)}</p>
+                  )}
                   {statusSaveError && <p className="text-sm text-red-600">{statusSaveError}</p>}
                   <button
                     type="button"
                     onClick={saveSelectionResult}
-                    disabled={savingStatus}
+                    disabled={savingStatus || selectionMemo.length > MAX_SELECTION_MEMO_LENGTH}
                     className="w-full px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all shadow-md shadow-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {savingStatus ? '保存中…' : '保存'}
                   </button>
                 </div>
+              </div>
+              )}
+              {/* VIEWER（選考変更権限なし）: 選考メモを read-only 表示（改行保持・React 既定エスケープ）。 */}
+              {!can('selection.manage') && (
+              <div className="w-full sm:w-72 shrink-0 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-md shadow-slate-200/50">
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">選考メモ</h3>
+                {selectionMemo.trim() ? (
+                  <p className="text-sm text-slate-800 whitespace-pre-wrap break-words">{selectionMemo}</p>
+                ) : (
+                  <p className="text-sm text-slate-400">メモはありません</p>
+                )}
+                {selectionMemoUpdatedAt && (
+                  <p className="mt-3 text-xs text-slate-400">最終更新：{formatMemoUpdatedAt(selectionMemoUpdatedAt)}</p>
+                )}
               </div>
               )}
             </div>

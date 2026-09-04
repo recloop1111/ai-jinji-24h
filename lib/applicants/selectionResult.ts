@@ -34,3 +34,20 @@ export function resultValueToKey(value: string | null | undefined): SelectionRes
     default: return null // '未対応' / null / 未知値
   }
 }
+
+// 選考メモ（applicants.selection_memo・単一 TEXT）。SCREEN_DESIGN の 2000 文字要件に合わせる。
+export const MAX_SELECTION_MEMO_LENGTH = 2000
+
+export type SelectionMemoValidation = { ok: true; value: string } | { ok: false; error: string }
+
+// 選考メモの server-side validation。string のみ・trim・<=2000・空文字はクリアとして許可（plain text）。
+//   ※ 保存値は trim 後の生テキスト（HTML として解釈しない／表示側は React 既定エスケープ）。改行は保持。
+//   ※ 空は '' に統一（既存 admin 挙動 = 空文字保存 に合わせ、client/admin 表示を自然にする）。
+export function validateSelectionMemo(input: unknown): SelectionMemoValidation {
+  if (typeof input !== 'string') return { ok: false, error: '選考メモは文字列で入力してください' }
+  const value = input.trim()
+  if (value.length > MAX_SELECTION_MEMO_LENGTH) {
+    return { ok: false, error: `選考メモは${MAX_SELECTION_MEMO_LENGTH}文字以内で入力してください` }
+  }
+  return { ok: true, value }
+}
