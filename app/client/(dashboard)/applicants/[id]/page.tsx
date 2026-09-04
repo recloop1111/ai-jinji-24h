@@ -379,6 +379,10 @@ export default function ApplicantDetailPage() {
   // 共有タブ用
   const [shareEmail, setShareEmail] = useState('')
   const [shareMessage, setShareMessage] = useState('')
+  // メールで共有（応募者総合レポートPDF 添付）
+  const [shareSending, setShareSending] = useState(false)
+  const [shareError, setShareError] = useState('')
+  const [shareSuccess, setShareSuccess] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
 
   const tabs: { key: TabKey; label: string }[] = [
@@ -437,6 +441,43 @@ export default function ApplicantDetailPage() {
       setTimeout(() => setReportPdfError(false), 4000)
     } finally {
       setReportPdfLoading(false)
+    }
+  }
+
+  // 応募者総合レポートをメールで共有（PDF 添付）。provider 成功時のみ成功表示・失敗時は入力保持。
+  async function sendShareEmail() {
+    if (shareSending || !interviewResult) return
+    setShareError('')
+    setShareSuccess(false)
+    const email = shareEmail.trim()
+    if (!email) { setShareError('送信先メールアドレスを入力してください'); return }
+    if (email.length > 254 || /[\r\n]/.test(email) || !/^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(email)) {
+      setShareError('メールアドレスの形式が正しくありません'); return
+    }
+    if (shareMessage.trim().length > 1000) { setShareError('メッセージは1000文字以内で入力してください'); return }
+    setShareSending(true)
+    try {
+      const res = await fetch(`/api/client/applicants/${id}/share-report-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, message: shareMessage.trim() || undefined }),
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok || !json?.sent) {
+        // 送信できていないのに成功表示しない。入力は保持して再送可能に。
+        setShareError(json?.error?.message || 'メールを送信できませんでした。もう一度お試しください。')
+        setShareSending(false)
+        return
+      }
+      // provider 成功時のみ成功表示。誤再送防止のため入力をクリア。
+      setShareSuccess(true)
+      setShareEmail('')
+      setShareMessage('')
+      setTimeout(() => setShareSuccess(false), 4000)
+    } catch {
+      setShareError('メールを送信できませんでした。もう一度お試しください。')
+    } finally {
+      setShareSending(false)
     }
   }
 
@@ -1339,7 +1380,7 @@ export default function ApplicantDetailPage() {
           <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">メールで共有</h2>
             <p className="text-sm text-slate-600 mb-5 leading-relaxed">
-              面接レポートのサマリーを指定のメールアドレスに送信します。
+              応募者総合レポートPDFをメールに添付して送信します。
             </p>
             <div className="space-y-4 max-w-lg">
               <div>
@@ -1366,16 +1407,18 @@ export default function ApplicantDetailPage() {
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  // TODO: Phase 4 Resend APIでメール送信を実装
-                  setToast('メール送信機能は今後実装予定です')
-                  setTimeout(() => setToast(''), 2500)
-                }}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-md shadow-blue-500/20"
+                onClick={sendShareEmail}
+                disabled={!interviewResult || shareSending}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-md shadow-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Mail className="w-4 h-4" />
-                送信する
+                {shareSending ? '送信中…' : '送信する'}
               </button>
+              {!interviewResult && (
+                <p className="text-sm text-slate-500">AI評価の生成後に共有できます。</p>
+              )}
+              {shareError && <p className="text-sm text-red-600">{shareError}</p>}
+              {shareSuccess && <p className="text-sm text-emerald-600">メールを送信しました。</p>}
             </div>
           </div>
 
