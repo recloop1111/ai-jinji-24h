@@ -7,10 +7,12 @@ import { createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
 import PasswordInput from '@/components/shared/PasswordInput'
 import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget'
+import { useCompanyPermissions } from '@/lib/rbac/useCompanyPermissions'
+import MembersTab from '@/components/client/MembersTab'
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
-type TabType = 'general' | 'billing' | 'notifications' | 'security'
+type TabType = 'general' | 'billing' | 'notifications' | 'security' | 'members'
 
 type BillingProfileForm = {
   billing_name: string
@@ -43,6 +45,8 @@ function SettingsContent() {
 
   const [activeTab, setActiveTab] = useState<TabType>('general')
   const [toast, setToast] = useState<string | null>(null)
+  // 企業RBAC（E-5-3-1）: メンバー管理タブは member.manage 保有者（OWNER/ADMIN）のみ。
+  const { can: canPermission } = useCompanyPermissions()
 
   // 企業情報（一般タブ）
   const [, setCompany] = useState<CompanyForm | null>(null)
@@ -324,6 +328,8 @@ function SettingsContent() {
     { id: 'billing' as TabType, label: '請求先情報' },
     { id: 'notifications' as TabType, label: '通知' },
     { id: 'security' as TabType, label: 'セキュリティ' },
+    // member.manage（OWNER/ADMIN）のみメンバー管理タブを表示。RECRUITER/VIEWER には出さない。
+    ...(canPermission('member.manage') ? [{ id: 'members' as TabType, label: 'メンバー管理' }] : []),
   ]
 
   const cardClass = 'bg-white rounded-xl border border-slate-200 shadow-sm p-6'
@@ -777,6 +783,11 @@ function SettingsContent() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* メンバー管理タブ（member.manage 保有者のみ・タブ自体が上で非表示） */}
+      {activeTab === 'members' && canPermission('member.manage') && (
+        <MembersTab />
       )}
 
       {toast && (
