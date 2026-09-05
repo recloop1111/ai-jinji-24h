@@ -25,6 +25,7 @@ export const PERMISSIONS = [
   'member.role_change',
   'audit.read',
   'company_settings.manage',
+  'billing.read', // 請求履歴の閲覧・請求書PDF DL（OWNER/ADMIN）。billing.manage（OWNER のみ）とは別。
   // OWNER のみ
   'billing.manage',
   'subscription.manage',
@@ -53,6 +54,7 @@ const ADMIN_PLUS: Permission[] = [
   'member.role_change',
   'audit.read',
   'company_settings.manage',
+  'billing.read',
 ]
 
 const OWNER_ONLY: Permission[] = [

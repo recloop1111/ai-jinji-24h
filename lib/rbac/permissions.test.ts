@@ -17,6 +17,7 @@ const MATRIX: Record<Permission, { owner: boolean; admin: boolean; recruiter: bo
   'member.role_change':             { owner: true,  admin: true,  recruiter: false, viewer: false },
   'audit.read':                     { owner: true,  admin: true,  recruiter: false, viewer: false },
   'company_settings.manage':        { owner: true,  admin: true,  recruiter: false, viewer: false },
+  'billing.read':                   { owner: true,  admin: true,  recruiter: false, viewer: false },
   'billing.manage':                 { owner: true,  admin: false, recruiter: false, viewer: false },
   'subscription.manage':            { owner: true,  admin: false, recruiter: false, viewer: false },
   'company_destructive_action':     { owner: true,  admin: false, recruiter: false, viewer: false },

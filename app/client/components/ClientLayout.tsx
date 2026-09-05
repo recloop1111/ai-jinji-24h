@@ -6,19 +6,22 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClientBrowserClient } from '@/lib/supabase/client'
 import { hasDemoCookie, clearDemoCookie } from '@/lib/config/demo'
+import { useCompanyPermissions } from '@/lib/rbac/useCompanyPermissions'
+import type { Permission } from '@/lib/rbac/permissions'
 import { LayoutGrid as DashboardIcon, Users as UsersIcon, Briefcase as BriefcaseIcon, MessageSquare as QuestionsIcon, Mail as MailIcon, FileText as PlanIcon, CircleDollarSign as BillingIcon, Settings as SettingsIcon, Pause as SuspensionIcon, User as PersonIcon, Menu as MenuIcon, X as CloseIcon, Copy as CopyIcon, ArrowLeft as BackIcon } from 'lucide-react'
 
 // TODO: 実際の企業URLに差替え
 const INTERVIEW_URL = 'https://ai-jinji-24h.vercel.app/interview/demo-company'
 
-const navigation = [
+// requiredPermission がある項目は can() 保有時のみ表示（無指定は全 company member に表示）。
+const navigation: { name: string; href: string; icon: typeof DashboardIcon; requiredPermission?: Permission }[] = [
   { name: 'ダッシュボード', href: '/client/dashboard', icon: DashboardIcon },
   { name: '応募者一覧', href: '/client/applicants', icon: UsersIcon },
   { name: '求人管理', href: '/client/jobs', icon: BriefcaseIcon },
   { name: '面接質問設定', href: '/client/questions', icon: QuestionsIcon },
   { name: 'メールテンプレート', href: '/client/templates', icon: MailIcon },
   { name: 'プラン・契約', href: '/client/plan', icon: PlanIcon },
-  { name: '請求履歴', href: '/client/billing', icon: BillingIcon },
+  { name: '請求履歴', href: '/client/billing', icon: BillingIcon, requiredPermission: 'billing.read' },
   { name: '設定', href: '/client/settings', icon: SettingsIcon },
   { name: '停止申請', href: '/client/suspension', icon: SuspensionIcon },
 ]
@@ -29,6 +32,9 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [copySuccess, setCopySuccess] = useState(false)
   const [companyName, setCompanyName] = useState('')
+  // permission 依存の nav 項目（請求履歴=billing.read）は保有時のみ表示。loading 中は fail-closed（非表示）。
+  const { can } = useCompanyPermissions()
+  const visibleNavigation = navigation.filter((item) => !item.requiredPermission || can(item.requiredPermission))
 
   // ヘッダーの企業名: demo時は「デモ企業」、実ログイン時は /api/client/company から取得
   useEffect(() => {
@@ -111,7 +117,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
         {/* メニュー */}
         <nav className="flex-1 p-3 overflow-y-auto">
-          {navigation.map((item) => {
+          {visibleNavigation.map((item) => {
             const Icon = item.icon
             return (
               <Link

@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { apiError, errorJson } from '@/lib/api/response'
+import { can } from '@/lib/rbac/permissions'
 import { isValidUUID } from '@/lib/api/validation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { isIssuableStatus } from '@/lib/config/billing'
@@ -17,6 +18,8 @@ export async function GET(
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
+    // role 認可を record 取得より先に行う（recruiter/viewer は自社/他社/不存在いずれでも 403＝存在有無を漏らさない）。
+    if (!can(user.companyRole, 'billing.read')) return apiError('FORBIDDEN')
 
     const { billing_record_id } = await params
     if (!isValidUUID(billing_record_id)) {
