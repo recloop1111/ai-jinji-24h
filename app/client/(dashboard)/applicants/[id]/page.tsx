@@ -35,7 +35,7 @@ import {
   formatYearMonth, formatBirthDate, formatPostalCode, joinResumeAddress, resumeSectionMode, resolveDisplayAge,
   type ResumeEducationView, type ResumeWorkView, type ResumeLicenseView, type ResumeChildStatus,
 } from '@/lib/resume/resume-view'
-import { ChevronLeft as ChevronLeftIcon, ChevronDown as ChevronDownIcon, Download, Mail, LinkIcon, Copy, Check } from 'lucide-react'
+import { ChevronLeft as ChevronLeftIcon, ChevronDown as ChevronDownIcon, Download, LinkIcon, Copy, Check } from 'lucide-react'
 
 
 const STATUS_OPTIONS = [
@@ -396,12 +396,6 @@ export default function ApplicantDetailPage() {
   const [statusSaveError, setStatusSaveError] = useState('')
   const [toast, setToast] = useState('')
   // 共有タブ用
-  const [shareEmail, setShareEmail] = useState('')
-  const [shareMessage, setShareMessage] = useState('')
-  // メールで共有（応募者総合レポートPDF 添付）
-  const [shareSending, setShareSending] = useState(false)
-  const [shareError, setShareError] = useState('')
-  const [shareSuccess, setShareSuccess] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
 
   const tabs: { key: TabKey; label: string }[] = [
@@ -498,42 +492,6 @@ export default function ApplicantDetailPage() {
     }
   }
 
-  // 応募者総合レポートをメールで共有（PDF 添付）。provider 成功時のみ成功表示・失敗時は入力保持。
-  async function sendShareEmail() {
-    if (shareSending || !interviewResult) return
-    setShareError('')
-    setShareSuccess(false)
-    const email = shareEmail.trim()
-    if (!email) { setShareError('送信先メールアドレスを入力してください'); return }
-    if (email.length > 254 || /[\r\n]/.test(email) || !/^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(email)) {
-      setShareError('メールアドレスの形式が正しくありません'); return
-    }
-    if (shareMessage.trim().length > 1000) { setShareError('メッセージは1000文字以内で入力してください'); return }
-    setShareSending(true)
-    try {
-      const res = await fetch(`/api/client/applicants/${id}/share-report-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, message: shareMessage.trim() || undefined }),
-      })
-      const json = await res.json().catch(() => null)
-      if (!res.ok || !json?.sent) {
-        // 送信できていないのに成功表示しない。入力は保持して再送可能に。
-        setShareError(json?.error?.message || 'メールを送信できませんでした。もう一度お試しください。')
-        setShareSending(false)
-        return
-      }
-      // provider 成功時のみ成功表示。誤再送防止のため入力をクリア。
-      setShareSuccess(true)
-      setShareEmail('')
-      setShareMessage('')
-      setTimeout(() => setShareSuccess(false), 4000)
-    } catch {
-      setShareError('メールを送信できませんでした。もう一度お試しください。')
-    } finally {
-      setShareSending(false)
-    }
-  }
 
   // 基本情報は applicants の実データのみ（取得できない場合は空状態）
   const displayName = applicant ? `${applicant.last_name || ''} ${applicant.first_name || ''}`.trim() || '名前未設定' : '—'
@@ -1415,7 +1373,7 @@ export default function ApplicantDetailPage() {
       {activeTab === 'share' && (
         <div className="space-y-6">
           {/* VIEWER は共有/エクスポート操作を持たない（閲覧のみ）。RBAC でカードを非表示にする。 */}
-          {!can('applicant_report.pdf.download') && !can('applicant_report.email_share') && !can('share_link.manage') && (
+          {!can('applicant_report.pdf.download') && !can('share_link.manage') && (
             <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
               <p className="text-sm text-slate-500">この応募者は閲覧のみ可能です。レポートの共有・エクスポートには権限が必要です。</p>
             </div>
@@ -1447,53 +1405,6 @@ export default function ApplicantDetailPage() {
           </div>
           )}
 
-          {/* メール送信フォーム */}
-          {can('applicant_report.email_share') && (
-          <div className="bg-white rounded-2xl shadow-md shadow-slate-200/50 border border-slate-200/80 p-6 sm:p-7">
-            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">メールで共有</h2>
-            <p className="text-sm text-slate-600 mb-5 leading-relaxed">
-              応募者総合レポートPDFをメールに添付して送信します。
-            </p>
-            <div className="space-y-4 max-w-lg">
-              <div>
-                <label htmlFor="share-email" className="block text-sm font-medium text-slate-700 mb-1">送信先メールアドレス</label>
-                <input
-                  id="share-email"
-                  type="email"
-                  value={shareEmail}
-                  onChange={(e) => setShareEmail(e.target.value)}
-                  placeholder="example@company.com"
-                  className="w-full px-4 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all"
-                />
-              </div>
-              <div>
-                <label htmlFor="share-message" className="block text-sm font-medium text-slate-700 mb-1">メッセージ（任意）</label>
-                <textarea
-                  id="share-message"
-                  value={shareMessage}
-                  onChange={(e) => setShareMessage(e.target.value)}
-                  rows={3}
-                  placeholder="補足メッセージを入力..."
-                  className="w-full px-4 py-2.5 border border-slate-200 bg-slate-50/50 text-slate-800 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all resize-none"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={sendShareEmail}
-                disabled={!interviewResult || shareSending}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-md shadow-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Mail className="w-4 h-4" />
-                {shareSending ? '送信中…' : '送信する'}
-              </button>
-              {!interviewResult && (
-                <p className="text-sm text-slate-500">AI評価の生成後に共有できます。</p>
-              )}
-              {shareError && <p className="text-sm text-red-600">{shareError}</p>}
-              {shareSuccess && <p className="text-sm text-emerald-600">メールを送信しました。</p>}
-            </div>
-          </div>
-          )}
 
           {/* 共有リンク生成 */}
           {can('share_link.manage') && (

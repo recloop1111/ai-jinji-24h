@@ -5,17 +5,11 @@ import { companyRoleLabel, memberStatusLabel, MAX_FULL_NAME_LENGTH } from '@/lib
 import { INVITABLE_ROLES, INVITE_ROLE_LABEL } from '@/lib/members/invite'
 
 type Member = {
-  id: string
-  full_name: string | null
-  email: string | null
-  company_role: string
-  status: string
-  joined_at: string | null
-  invited_at: string | null
-  last_login_at: string | null
-  is_self: boolean
+  id: string; full_name: string | null; email: string | null; company_role: string; status: string
+  joined_at: string | null; invited_at: string | null; last_login_at: string | null; is_self: boolean
 }
 type PendingInvite = { id: string; email: string; company_role: string; status: string; expires_at: string | null; created_at: string | null }
+type Issued = { email: string; url: string }
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—'
@@ -24,9 +18,14 @@ function formatDate(iso: string | null): string {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())}`
 }
+function isExpired(iso: string | null): boolean {
+  if (!iso) return true
+  const t = new Date(iso).getTime()
+  return Number.isNaN(t) || t <= Date.now()
+}
 
-// 設定 > メンバー管理。E-5-3-2: 一覧 ＋ 招待 ＋ pending 招待の取消 ＋ 本人の表示名編集。
-//   role/status 変更・remove は E-5-3-3（未実装のため出さない）。
+// 設定 > メンバー管理（E-5-3-2A: v1 はメール送信なし＝招待リンク発行方式）。
+//   一覧 ＋ 招待リンク発行 ＋ 再発行 ＋ 取消 ＋ 本人の表示名編集。role/status 変更・remove は E-5-3-3。
 export default function MembersTab() {
   const [members, setMembers] = useState<Member[]>([])
   const [pending, setPending] = useState<PendingInvite[]>([])
@@ -34,17 +33,17 @@ export default function MembersTab() {
   const [loadError, setLoadError] = useState(false)
   const [toast, setToast] = useState('')
 
-  // 表示名編集
   const [editing, setEditing] = useState(false)
   const [nameInput, setNameInput] = useState('')
   const [savingName, setSavingName] = useState(false)
   const [nameError, setNameError] = useState('')
 
-  // 招待
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<string>('viewer')
   const [inviting, setInviting] = useState(false)
   const [inviteError, setInviteError] = useState('')
+  // 発行された招待リンク（平文 token を含む）。component memory のみ・保存しない・reload で失われる。
+  const [issued, setIssued] = useState<Issued | null>(null)
 
   async function fetchAll(): Promise<{ members: Member[]; pending: PendingInvite[] } | null> {
     try {
@@ -55,9 +54,7 @@ export default function MembersTab() {
         members: Array.isArray(json?.members) ? (json.members as Member[]) : [],
         pending: Array.isArray(json?.pendingInvites) ? (json.pendingInvites as PendingInvite[]) : [],
       }
-    } catch {
-      return null
-    }
+    } catch { return null }
   }
 
   useEffect(() => {
@@ -89,20 +86,17 @@ export default function MembersTab() {
     setSavingName(true); setNameError('')
     try {
       const res = await fetch('/api/client/members/me', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_name: trimmed }),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ full_name: trimmed }),
       })
       const json = await res.json().catch(() => null)
       if (!res.ok || !json || typeof json.full_name !== 'string') { setNameError('表示名を保存できませんでした。時間をおいて再度お試しください。'); return }
       setEditing(false); showToast('表示名を保存しました'); await reload()
     } catch {
       setNameError('表示名を保存できませんでした。時間をおいて再度お試しください。')
-    } finally {
-      setSavingName(false)
-    }
+    } finally { setSavingName(false) }
   }
 
-  async function sendInvite() {
+  async function issueInvite() {
     if (inviting) return
     setInviteError('')
     const email = inviteEmail.trim()
@@ -110,20 +104,29 @@ export default function MembersTab() {
     setInviting(true)
     try {
       const res = await fetch('/api/client/members/invite', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, company_role: inviteRole }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, company_role: inviteRole }),
       })
       const json = await res.json().catch(() => null)
-      if (!res.ok || !json?.invited) {
-        setInviteError(json?.error?.message ?? '招待を送信できませんでした。')
+      if (!res.ok || !json?.invited || typeof json.inviteUrl !== 'string') {
+        setInviteError(json?.error?.message ?? '招待リンクを発行できませんでした。')
         return
       }
-      setInviteEmail(''); showToast('招待メールを送信しました'); await reload()
+      setIssued({ email: json.invite?.email ?? email, url: json.inviteUrl })
+      setInviteEmail('')
+      await reload()
     } catch {
-      setInviteError('招待を送信できませんでした。')
-    } finally {
-      setInviting(false)
-    }
+      setInviteError('招待リンクを発行できませんでした。')
+    } finally { setInviting(false) }
+  }
+
+  async function regenerate(id: string) {
+    try {
+      const res = await fetch(`/api/client/members/invite/${id}/regenerate`, { method: 'POST' })
+      const json = await res.json().catch(() => null)
+      if (!res.ok || !json?.regenerated || typeof json.inviteUrl !== 'string') { showToast('リンクを再発行できませんでした'); return }
+      setIssued({ email: json.invite?.email ?? '', url: json.inviteUrl })
+      await reload()
+    } catch { showToast('リンクを再発行できませんでした') }
   }
 
   async function revokeInvite(id: string) {
@@ -131,20 +134,28 @@ export default function MembersTab() {
       const res = await fetch(`/api/client/members/invite/${id}`, { method: 'DELETE' })
       if (!res.ok) { showToast('招待を取り消せませんでした'); return }
       showToast('招待を取り消しました'); await reload()
+    } catch { showToast('招待を取り消せませんでした') }
+  }
+
+  async function copyUrl(url: string) {
+    try {
+      await navigator.clipboard.writeText(url)
+      showToast('招待リンクをコピーしました')
     } catch {
-      showToast('招待を取り消せませんでした')
+      // clipboard 不可時は fake success を出さない。URL は input から手動コピー可能。
+      showToast('コピーできませんでした。リンクを選択してコピーしてください')
     }
   }
 
   return (
     <div className="space-y-6">
-      {/* 招待 */}
+      {/* 招待リンク発行 */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
         <h2 className="text-base font-bold text-slate-900">メンバーを招待</h2>
-        <p className="mt-1 text-sm text-slate-500">メールアドレスと権限を指定して招待します。招待された方はご自身で氏名とパスワードを設定します。</p>
+        <p className="mt-1 text-sm text-slate-500">メールアドレスと権限を指定して招待リンクを発行し、招待する本人へ共有してください。招待された方はご自身で氏名とパスワードを設定します。</p>
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
           <div className="flex-1">
-            <label htmlFor="inv-email" className="block text-xs font-semibold text-slate-500 mb-1">メールアドレス</label>
+            <label htmlFor="inv-email" className="block text-xs font-semibold text-slate-500 mb-1">メールアドレス（ログインID）</label>
             <input id="inv-email" type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="member@company.com"
               className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
           </div>
@@ -152,17 +163,33 @@ export default function MembersTab() {
             <label htmlFor="inv-role" className="block text-xs font-semibold text-slate-500 mb-1">権限</label>
             <select id="inv-role" value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}
               className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
-              {INVITABLE_ROLES.map((r) => (
-                <option key={r} value={r}>{INVITE_ROLE_LABEL[r]}</option>
-              ))}
+              {INVITABLE_ROLES.map((r) => (<option key={r} value={r}>{INVITE_ROLE_LABEL[r]}</option>))}
             </select>
           </div>
-          <button type="button" onClick={sendInvite} disabled={inviting}
+          <button type="button" onClick={issueInvite} disabled={inviting}
             className="shrink-0 rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">
-            {inviting ? '送信中…' : '招待する'}
+            {inviting ? '発行中…' : '招待リンクを発行'}
           </button>
         </div>
         {inviteError && <p className="mt-2 text-sm text-red-600">{inviteError}</p>}
+
+        {/* 発行された招待リンク（memory のみ・reload で消える） */}
+        {issued && (
+          <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/60 p-4">
+            <p className="text-sm font-semibold text-slate-800">招待リンクを発行しました（{issued.email}）</p>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+              <input readOnly value={issued.url} onFocus={(e) => e.currentTarget.select()}
+                className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700" />
+              <button type="button" onClick={() => copyUrl(issued.url)} className="shrink-0 rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900">リンクをコピー</button>
+            </div>
+            <ul className="mt-3 space-y-1 text-xs text-slate-500">
+              <li>このリンクを招待する本人へ共有してください。</li>
+              <li>リンクの有効期限は7日間です。</li>
+              <li>メールアドレスはログインIDとして利用されます。入力内容に誤りがないかご確認ください。</li>
+              <li>このリンクは再表示できません。必要な場合は「リンクを再発行」してください。</li>
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* メンバー一覧 */}
@@ -172,7 +199,6 @@ export default function MembersTab() {
           <p className="mt-1 text-sm text-slate-500">この企業に所属するメンバーの一覧です。権限の変更などは今後追加されます。</p>
         </div>
 
-        {/* 本人の表示名 */}
         {self && (
           <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50/60 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -206,32 +232,16 @@ export default function MembersTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs font-semibold text-slate-500 border-b border-slate-200">
-                  <th className="py-2.5 pr-4">氏名</th>
-                  <th className="py-2.5 pr-4">メールアドレス</th>
-                  <th className="py-2.5 pr-4">権限</th>
-                  <th className="py-2.5 pr-4">状態</th>
-                  <th className="py-2.5 pr-4">参加日</th>
-                  <th className="py-2.5">操作</th>
+                  <th className="py-2.5 pr-4">氏名</th><th className="py-2.5 pr-4">メールアドレス</th><th className="py-2.5 pr-4">権限</th><th className="py-2.5 pr-4">状態</th><th className="py-2.5 pr-4">参加日</th><th className="py-2.5">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {members.map((m) => (
                   <tr key={m.id} className="border-b border-slate-100">
-                    <td className="py-3 pr-4 text-slate-800">
-                      {m.full_name ? m.full_name : <span className="text-slate-400">未設定</span>}
-                      {m.is_self && <span className="ml-2 text-xs text-slate-400">(あなた)</span>}
-                    </td>
+                    <td className="py-3 pr-4 text-slate-800">{m.full_name ? m.full_name : <span className="text-slate-400">未設定</span>}{m.is_self && <span className="ml-2 text-xs text-slate-400">(あなた)</span>}</td>
                     <td className="py-3 pr-4 text-slate-600">{m.email ?? '—'}</td>
-                    <td className="py-3 pr-4">
-                      {m.company_role === 'owner'
-                        ? <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">オーナー</span>
-                        : <span className="text-slate-700">{companyRoleLabel(m.company_role)}</span>}
-                    </td>
-                    <td className="py-3 pr-4">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
-                        m.status === 'active' ? 'bg-green-100 text-green-700' : m.status === 'suspended' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'
-                      }`}>{memberStatusLabel(m.status)}</span>
-                    </td>
+                    <td className="py-3 pr-4">{m.company_role === 'owner' ? <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">オーナー</span> : <span className="text-slate-700">{companyRoleLabel(m.company_role)}</span>}</td>
+                    <td className="py-3 pr-4"><span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${m.status === 'active' ? 'bg-green-100 text-green-700' : m.status === 'suspended' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{memberStatusLabel(m.status)}</span></td>
                     <td className="py-3 pr-4 text-slate-600">{formatDate(m.joined_at)}</td>
                     <td className="py-3 text-slate-400">—</td>
                   </tr>
@@ -242,7 +252,7 @@ export default function MembersTab() {
         )}
       </div>
 
-      {/* pending 招待 */}
+      {/* 招待中（pending） */}
       {pending.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
           <h2 className="text-base font-bold text-slate-900">招待中</h2>
@@ -250,10 +260,7 @@ export default function MembersTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs font-semibold text-slate-500 border-b border-slate-200">
-                  <th className="py-2.5 pr-4">メールアドレス</th>
-                  <th className="py-2.5 pr-4">権限</th>
-                  <th className="py-2.5 pr-4">有効期限</th>
-                  <th className="py-2.5">操作</th>
+                  <th className="py-2.5 pr-4">メールアドレス</th><th className="py-2.5 pr-4">権限</th><th className="py-2.5 pr-4">有効期限</th><th className="py-2.5">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -261,9 +268,16 @@ export default function MembersTab() {
                   <tr key={p.id} className="border-b border-slate-100">
                     <td className="py-3 pr-4 text-slate-800">{p.email}</td>
                     <td className="py-3 pr-4 text-slate-700">{companyRoleLabel(p.company_role)}</td>
-                    <td className="py-3 pr-4 text-slate-600">{formatDate(p.expires_at)}</td>
+                    <td className="py-3 pr-4">
+                      {isExpired(p.expires_at)
+                        ? <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500">期限切れ</span>
+                        : <span className="text-slate-600">{formatDate(p.expires_at)}</span>}
+                    </td>
                     <td className="py-3">
-                      <button type="button" onClick={() => revokeInvite(p.id)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">取消</button>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => regenerate(p.id)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">リンクを再発行</button>
+                        <button type="button" onClick={() => revokeInvite(p.id)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">招待を取消</button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -273,9 +287,7 @@ export default function MembersTab() {
         </div>
       )}
 
-      {toast && (
-        <div className="fixed bottom-6 right-6 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium z-50">{toast}</div>
-      )}
+      {toast && (<div className="fixed bottom-6 right-6 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium z-50">{toast}</div>)}
     </div>
   )
 }

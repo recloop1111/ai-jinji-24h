@@ -15,12 +15,14 @@ describe('applicant 詳細: VIEWER の export/write を gate', () => {
   it('useCompanyPermissions を使う', () => {
     expect(DETAIL).toContain("useCompanyPermissions")
   })
-  it('履歴書/総合PDF/メール共有/選考ステータスを can() で gate', () => {
+  it('履歴書/総合PDF/選考ステータスを can() で gate（メール共有 UI は E-5-3-2A で撤去）', () => {
     expect(DETAIL).toContain("can('resume.pdf.download')")
     expect(DETAIL).toContain("can('applicant_report.pdf.download')")
-    expect(DETAIL).toContain("can('applicant_report.email_share')")
     expect(DETAIL).toContain("can('selection.manage')")
     expect(DETAIL).toContain("can('share_link.manage')")
+    // v1: メール共有は廃止＝メール送信 UI/呼び出しを持たない
+    expect(DETAIL).not.toContain('applicant_report.email_share')
+    expect(DETAIL).not.toContain('share-report-email')
   })
 })
 

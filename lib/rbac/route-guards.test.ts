@@ -12,7 +12,6 @@ const ME = read('app/api/client/me/route.ts')
 const RESUME = read('app/api/client/applicants/[id]/resume-pdf/route.ts')
 const REPORT = read('app/api/client/applicants/[id]/report-pdf/route.ts')
 const APPREPORT = read('app/api/client/applicants/[id]/applicant-report-pdf/route.ts')
-const EMAIL = read('app/api/client/applicants/[id]/share-report-email/route.ts')
 const STATUS = read('app/api/client/applicants/[id]/status/route.ts')
 const MEMOS = read('app/api/client/applicants/[id]/memos/route.ts')
 const MEMO_ID = read('app/api/client/applicants/[id]/memos/[memo_id]/route.ts')
@@ -45,7 +44,6 @@ describe('protected routes: can(user.companyRole, permission) guard', () => {
     ['resume-pdf', RESUME, 'resume.pdf.download'],
     ['report-pdf', REPORT, 'report.pdf.download'],
     ['applicant-report-pdf', APPREPORT, 'applicant_report.pdf.download'],
-    ['share-report-email', EMAIL, 'applicant_report.email_share'],
     ['status', STATUS, 'selection.manage'],
   ]
   for (const [name, src, perm] of cases) {
@@ -74,7 +72,7 @@ describe('memo: write は guard・read は open', () => {
 })
 
 describe('tenant ownership は維持（company_id 条件を外していない）', () => {
-  for (const [name, src] of [['resume', RESUME], ['report', REPORT], ['appreport', APPREPORT], ['email', EMAIL], ['status', STATUS], ['memos', MEMOS]] as const) {
+  for (const [name, src] of [['resume', RESUME], ['report', REPORT], ['appreport', APPREPORT], ['status', STATUS], ['memos', MEMOS]] as const) {
     it(`${name}: company_id = user.companyId で絞り込む`, () => {
       expect(src).toContain("user.companyId")
     })

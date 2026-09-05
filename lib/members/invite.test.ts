@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   INVITE_EXPIRY_DAYS, INVITABLE_ROLES, isInvitableRole, normalizeInviteEmail,
-  computeInviteExpiresAt, isInviteExpired, buildInviteEmailBody, INVITE_ROLE_LABEL,
+  computeInviteExpiresAt, isInviteExpired, buildInviteUrl, INVITE_ROLE_LABEL,
 } from './invite'
 
 describe('invite pure helpers', () => {
@@ -37,11 +37,10 @@ describe('invite pure helpers', () => {
     expect(isInviteExpired('garbage', now)).toBe(true)
   })
 
-  it('メール本文に acceptUrl と会社名を含む（plain text）', () => {
-    const body = buildInviteEmailBody('テスト株式会社', 'https://x.app/invite/accept?token=abc')
-    expect(body).toContain('テスト株式会社')
-    expect(body).toContain('https://x.app/invite/accept?token=abc')
-    expect(body).toContain('7 日間')
+  it('buildInviteUrl は fragment(#token=)形式・末尾スラッシュ吸収', () => {
+    expect(buildInviteUrl('https://x.app', 'abc')).toBe('https://x.app/invite/accept#token=abc')
+    expect(buildInviteUrl('https://x.app/', 'abc')).toBe('https://x.app/invite/accept#token=abc')
+    expect(buildInviteUrl('https://x.app', 'abc')).not.toContain('?token=')
   })
 
   it('role ラベル', () => {
