@@ -11,13 +11,20 @@ export const runtime = 'nodejs'
 
 // 月次請求の自前確定バッチ（Stripe不使用・銀行振込）。
 // 前月（JST）の is_billable=true 面接を company ごとに集計し billing_records を確定（pending）する。
-// 冪等: (company_id, billing_month) UNIQUE。再実行は payment_status='pending' のみ再計算更新、paid/failed/refunded は不変。
+//
+// 【請求書の不変性（B-1）】billing_record が作成された時点で「請求確定・請求書発行可能」とみなす。
+//   payment_status='pending' は「未確定」ではなく **「発行済み・未入金（振込待ち）」**。
+//   一度 billing_record が存在したら、payment_status（pending/paid/failed/refunded いずれ）に関わらず
+//   本バッチは interview_count / amount_jpy / tax_jpy / total_jpy / plan_at_billing / invoice_snapshot を
+//   **一切変更しない（immutable）**。＝ batch 再実行で確定済み請求書の内容・番号・宛名・振込先が変わらない。
+//   支払状態（pending↔paid）は admin PATCH（別経路）でのみ変更する。
+//
+// 冪等: (company_id, billing_month) UNIQUE。既存があれば skip（内容不変）／無ければ新規 INSERT。
+//   partial failure（ある社が1回目に未作成）→ 再実行でその社だけ新規作成される（既存社は skip）。
 // 認証: INTERNAL_BATCH_SECRET の Bearer（service-role で実行）。secret はログ/レスポンスへ出さない。
 //
-// dry-run: `?dryRun=1` で「対象企業・件数・金額・予定アクション」を返すだけで **DB 書き込みを一切しない**。
-//   - billing_records の insert/update は必ず `if (!dryRun)` 配下に置く（dry-run では到達しない）。
-//   - dry-run でも SELECT / count / snapshot 構築は行うが、snapshot は保存しない。
-//   - live のレスポンス形・集計値は不変（skipped = would_skip_zero + would_skip_protected）。
+// dry-run: `?dryRun=1` で「対象企業・件数・金額・予定アクション（create / skip_existing）」を返すだけで
+//   **DB 書き込みを一切しない**（insert は必ず `if (!dryRun)` 配下）。snapshot は新規作成予定時のみ構築・保存しない。
 
 // dry-run の per-company 明細（live レスポンスには含めない）。
 type DryRunCompany = {
@@ -27,7 +34,7 @@ type DryRunCompany = {
   amount: number
   tax: number
   total: number
-  action: 'create' | 'update_pending' | 'skip_protected' | null // error 時は null
+  action: 'create' | 'skip_existing' | null // error 時は null
   existing_payment_status: string | null
   error: string | null
 }
@@ -82,8 +89,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 発行者/振込先/支払案内文は全社共通の単一設定（id='default'）。ループ前に1回だけ取得し
-    // 各社の invoice_snapshot.issuer/bank/payment_note を固める（空項目は config fallback）。
-    // 取得 error 時は config fallback で続行せずバッチ全体を中断する（全社の snapshot に誤った
+    // 新規作成社の invoice_snapshot.issuer/bank/payment_note を固める（空項目は config fallback）。
+    // 取得 error 時は config fallback で続行せずバッチ全体を中断する（新規社の snapshot に誤った
     // 発行者/振込先を永久凍結するのを防ぐ）。error なしで data=null（未作成/未設定）は fallback で続行。
     const { data: issuerRow, error: issuerError } = await supabase
       .from('billing_issuer_settings')
@@ -95,9 +102,8 @@ export async function POST(request: NextRequest) {
     }
 
     let created = 0
-    let updated = 0
     let skippedZero = 0 // billable 0 件
-    let skippedProtected = 0 // 既存が paid/failed/refunded
+    let skippedExisting = 0 // 既存 record あり（pending/paid/failed/refunded 問わず内容不変）
     let skippedDemo = 0 // DB-authoritative is_demo=true（課金・利用量から完全除外）
     let errors = 0
     const details: DryRunCompany[] = [] // dry-run のみ使用
@@ -105,12 +111,32 @@ export async function POST(request: NextRequest) {
     for (const company of companies) {
       try {
         // 正式仕様: DB 権威 companies.is_demo=true は請求対象から完全除外（billing_record を作らない）。
-        //   client の is_demo/query/mode は使わず companies.is_demo のみ。
         if (company.is_demo === true) {
           skippedDemo++
           continue
         }
-        // 前月の課金対象（is_billable=true）件数
+
+        // 既存（同 company × billing_month）の有無を先に確認。存在すれば内容は immutable＝skip。
+        const { data: existing, error: selError } = await supabase
+          .from('billing_records')
+          .select('id, payment_status')
+          .eq('company_id', company.id)
+          .eq('billing_month', billingMonth)
+          .maybeSingle()
+        if (selError) {
+          errors++
+          if (dryRun) details.push({ company_id: company.id, company_name: company.name, billable_count: 0, amount: 0, tax: 0, total: 0, action: null, existing_payment_status: null, error: 'select_failed' })
+          continue
+        }
+        if (existing) {
+          // 既存請求は payment_status に関わらず不変（発行済み請求書の不変性）。集計/単価/profile/issuer の
+          // 現在値が変わっていても再計算・上書きしない。支払状態変更は admin PATCH のみ。
+          skippedExisting++
+          if (dryRun) details.push({ company_id: company.id, company_name: company.name, billable_count: 0, amount: 0, tax: 0, total: 0, action: 'skip_existing', existing_payment_status: existing.payment_status, error: null })
+          continue
+        }
+
+        // ここから新規作成のみ（前月の課金対象 is_billable=true 件数を集計）。
         const { count, error: countError } = await supabase
           .from('interviews')
           .select('id', { count: 'exact', head: true })
@@ -120,19 +146,12 @@ export async function POST(request: NextRequest) {
           .lt('created_at', endIso)
         if (countError) {
           errors++
-          if (dryRun) {
-            details.push({
-              company_id: company.id, company_name: company.name,
-              billable_count: 0, amount: 0, tax: 0, total: 0,
-              action: null, existing_payment_status: null, error: 'count_failed',
-            })
-          }
+          if (dryRun) details.push({ company_id: company.id, company_name: company.name, billable_count: 0, amount: 0, tax: 0, total: 0, action: null, existing_payment_status: null, error: 'count_failed' })
           continue
         }
-
         const interviewCount = count ?? 0
-        // 0件企業は請求レコードを作らない（dry-run の companies[] にも出さず would_skip_zero に計上）
         if (interviewCount === 0) {
+          // 0件企業は請求レコードを作らない
           skippedZero++
           continue
         }
@@ -142,137 +161,53 @@ export async function POST(request: NextRequest) {
         const taxJpy = Math.round(amountJpy * 0.1)
         const totalJpy = amountJpy + taxJpy
 
-        // 既存（同 company × billing_month）の有無と支払状況で分岐（冪等）
-        const { data: existing, error: selError } = await supabase
-          .from('billing_records')
-          .select('id, payment_status')
+        // invoice_snapshot は新規作成時のみ生成・凍結（既存には触れない＝過去 snapshot を永久保持）。
+        // bill_to=profile→companies、issuer/bank/note=billing_issuer_settings→config。
+        const { data: profile, error: profileError } = await supabase
+          .from('company_billing_profiles')
+          .select('billing_name, department, contact_name, postal_code, address, building, phone')
           .eq('company_id', company.id)
-          .eq('billing_month', billingMonth)
           .maybeSingle()
-        if (selError) {
+        // 取得 error は「profile無し」と同一視しない（誤って会社名 fallback を凍結しないため）。当該社のみスキップ。
+        if (profileError) {
           errors++
-          if (dryRun) {
-            details.push({
-              company_id: company.id, company_name: company.name,
-              billable_count: interviewCount, amount: amountJpy, tax: taxJpy, total: totalJpy,
-              action: null, existing_payment_status: null, error: 'select_failed',
-            })
-          }
+          if (dryRun) details.push({ company_id: company.id, company_name: company.name, billable_count: interviewCount, amount: amountJpy, tax: taxJpy, total: totalJpy, action: null, existing_payment_status: null, error: 'profile_fetch_failed' })
           continue
         }
+        const invoiceSnapshot = buildInvoiceSnapshot(
+          { name: company.name, contact_person: company.contact_person },
+          profile ?? null,
+          issuerRow ?? null,
+        )
 
-        // 新規確定 or pending 再計算の時だけ snapshot を組む（paid/failed/refunded の skip では作らない＝余計な取得をしない）。
-        // snapshot は確定時点のライブ値を凍結: bill_to=profile→companies、issuer/bank/note=billing_issuer_settings→config。
-        // dry-run でも構築する（読み取りのみ・保存はしない）。
-        const willWrite = !existing || existing.payment_status === 'pending'
-        let invoiceSnapshot: ReturnType<typeof buildInvoiceSnapshot> | null = null
-        if (willWrite) {
-          const { data: profile, error: profileError } = await supabase
-            .from('company_billing_profiles')
-            .select('billing_name, department, contact_name, postal_code, address, building, phone')
-            .eq('company_id', company.id)
-            .maybeSingle()
-          // 取得 error は「profile無し」と同一視しない（誤って会社名 fallback を凍結しないため）。
-          // 当該 company のみスキップし、他社の確定は継続する。error なしの data=null は未登録＝fallback。
-          if (profileError) {
+        if (dryRun) {
+          created++ // would_create
+          details.push({ company_id: company.id, company_name: company.name, billable_count: interviewCount, amount: amountJpy, tax: taxJpy, total: totalJpy, action: 'create', existing_payment_status: null, error: null })
+        } else {
+          const { error: insError } = await supabase.from('billing_records').insert({
+            company_id: company.id,
+            billing_month: billingMonth,
+            interview_count: interviewCount,
+            amount_jpy: amountJpy,
+            tax_jpy: taxJpy,
+            total_jpy: totalJpy,
+            plan_at_billing: company.plan,
+            auto_upgrade_applied: false,
+            payment_status: 'pending',
+            paid_at: null,
+            stripe_invoice_id: null,
+            invoice_pdf_url: null,
+            invoice_snapshot: invoiceSnapshot, // 作成時点を凍結（以後不変）
+          })
+          if (insError) {
             errors++
-            if (dryRun) {
-              details.push({
-                company_id: company.id, company_name: company.name,
-                billable_count: interviewCount, amount: amountJpy, tax: taxJpy, total: totalJpy,
-                action: null, existing_payment_status: existing?.payment_status ?? null,
-                error: 'profile_fetch_failed',
-              })
-            }
             continue
           }
-          invoiceSnapshot = buildInvoiceSnapshot(
-            { name: company.name, contact_person: company.contact_person },
-            profile ?? null,
-            issuerRow ?? null,
-          )
-        }
-
-        if (!existing) {
-          // 新規確定
-          if (dryRun) {
-            created++ // would_create
-            details.push({
-              company_id: company.id, company_name: company.name,
-              billable_count: interviewCount, amount: amountJpy, tax: taxJpy, total: totalJpy,
-              action: 'create', existing_payment_status: null, error: null,
-            })
-          } else {
-            const { error: insError } = await supabase.from('billing_records').insert({
-              company_id: company.id,
-              billing_month: billingMonth,
-              interview_count: interviewCount,
-              amount_jpy: amountJpy,
-              tax_jpy: taxJpy,
-              total_jpy: totalJpy,
-              plan_at_billing: company.plan,
-              auto_upgrade_applied: false,
-              payment_status: 'pending',
-              paid_at: null,
-              stripe_invoice_id: null,
-              invoice_pdf_url: null,
-              invoice_snapshot: invoiceSnapshot, // 確定時点を凍結
-            })
-            if (insError) {
-              errors++
-              continue
-            }
-            created++
-          }
-        } else if (existing.payment_status === 'pending') {
-          // 未入金のみ再計算更新（遅延 finalize を反映）。paid/failed/refunded は上書きしない。
-          // snapshot も再計算時点で更新（pending は未確定のため許容）。
-          if (dryRun) {
-            updated++ // would_update_pending
-            details.push({
-              company_id: company.id, company_name: company.name,
-              billable_count: interviewCount, amount: amountJpy, tax: taxJpy, total: totalJpy,
-              action: 'update_pending', existing_payment_status: 'pending', error: null,
-            })
-          } else {
-            const { error: updError } = await supabase
-              .from('billing_records')
-              .update({
-                interview_count: interviewCount,
-                amount_jpy: amountJpy,
-                tax_jpy: taxJpy,
-                total_jpy: totalJpy,
-                plan_at_billing: company.plan,
-                invoice_snapshot: invoiceSnapshot,
-              })
-              .eq('id', existing.id)
-              .eq('payment_status', 'pending') // ← paid/failed/refunded への二重ガード（snapshot も含め上書きしない）
-            if (updError) {
-              errors++
-              continue
-            }
-            updated++
-          }
-        } else {
-          // paid / failed / refunded は確定済みとして保護（live でも dry-run でも一切 UPDATE しない）
-          skippedProtected++
-          if (dryRun) {
-            details.push({
-              company_id: company.id, company_name: company.name,
-              billable_count: interviewCount, amount: amountJpy, tax: taxJpy, total: totalJpy,
-              action: 'skip_protected', existing_payment_status: existing.payment_status, error: null,
-            })
-          }
+          created++
         }
       } catch {
         errors++
-        if (dryRun) {
-          details.push({
-            company_id: company.id, company_name: company.name,
-            billable_count: 0, amount: 0, tax: 0, total: 0,
-            action: null, existing_payment_status: null, error: 'exception',
-          })
-        }
+        if (dryRun) details.push({ company_id: company.id, company_name: company.name, billable_count: 0, amount: 0, tax: 0, total: 0, action: null, existing_payment_status: null, error: 'exception' })
       }
     }
 
@@ -285,8 +220,7 @@ export async function POST(request: NextRequest) {
         summary: {
           processed_companies: companies.length,
           would_create: created,
-          would_update_pending: updated,
-          would_skip_protected: skippedProtected,
+          would_skip_existing: skippedExisting,
           would_skip_zero: skippedZero,
           would_skip_demo: skippedDemo,
           errors,
@@ -295,13 +229,15 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // live: 既存レスポンス形を維持（skipped = zero + protected + demo）。
+    // live: 既存レスポンス形を維持。updated は互換のため残し常に 0（B-1 で既存 record は更新しない）。
+    // skipped = zero + existing + demo。skipped_existing を新規追加（既存 field は壊さない）。
     return successJson({
       billing_month: billingMonth,
       processed_companies: companies.length,
       created,
-      updated,
-      skipped: skippedZero + skippedProtected + skippedDemo,
+      updated: 0,
+      skipped: skippedZero + skippedExisting + skippedDemo,
+      skipped_existing: skippedExisting,
       skipped_demo: skippedDemo,
       errors,
     })
