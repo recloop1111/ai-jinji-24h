@@ -21,9 +21,10 @@ CREATE POLICY company_select_billing_records ON public.billing_records
     )
   );
 
--- (b) grant を B-2 適用前（permissive）へ復元
+-- (b) grant を B-2 適用前（permissive）へ復元。forward で service_role も REVOKE ALL したため、
+--     開始時 Production snapshot（anon/authenticated/service_role とも全 privilege）を正確に戻す。
 GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.billing_records TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.billing_records TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.billing_records TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.billing_records TO service_role;
 
 COMMIT;

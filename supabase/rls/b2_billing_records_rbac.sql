@@ -29,9 +29,11 @@ CREATE POLICY billing_records_owner_admin_select ON public.billing_records
   );
 
 -- (b) table 権限の最小化（RLS と併用の多層防御）。
---   anon: billing_records に権限不要。authenticated: SELECT のみ（INSERT/UPDATE/DELETE/TRUNCATE/TRIGGER/REFERENCES は剥奪）。
---   service_role: server/batch/admin が使うため維持（明示 GRANT）。
-REVOKE ALL ON public.billing_records FROM PUBLIC, anon, authenticated;
+--   ※ PostgreSQL の GRANT は既存 privilege を消さないため、service_role も一度 REVOKE ALL してから
+--     必要分だけ再 GRANT する（そうしないと Production 既存の TRUNCATE/REFERENCES/TRIGGER が service_role に残る）。
+--   anon: billing_records に権限不要（0件）。authenticated: SELECT のみ。
+--   service_role: server/batch/admin が使う SELECT/INSERT/UPDATE/DELETE のみ（TRUNCATE/REFERENCES/TRIGGER は付けない）。
+REVOKE ALL ON public.billing_records FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.billing_records TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.billing_records TO service_role;
 

@@ -105,9 +105,9 @@ DO $$ BEGIN
 END $$;
 RESET ROLE;
 
--- ---- TEST6: policy 名・roles・grants ----
+-- ---- TEST6: policy 名・roles・grants（anon 0 / authenticated SELECT のみ / service_role SIUD のみ）----
 DO $$
-DECLARE pol int; anon_g int; auth_ins int; auth_sel int;
+DECLARE pol int; anon_g int; auth_ins int; auth_sel int; svc_min int; svc_extra int;
 BEGIN
   SELECT count(*) INTO pol FROM pg_policies WHERE tablename='billing_records' AND policyname='billing_records_owner_admin_select';
   IF pol <> 1 THEN RAISE EXCEPTION 'FAIL: new policy missing'; END IF;
@@ -117,19 +117,33 @@ BEGIN
   IF auth_ins <> 0 THEN RAISE EXCEPTION 'FAIL: authenticated still has write grants (%)', auth_ins; END IF;
   SELECT count(*) INTO auth_sel FROM information_schema.role_table_grants WHERE table_name='billing_records' AND grantee='authenticated' AND privilege_type='SELECT';
   IF auth_sel <> 1 THEN RAISE EXCEPTION 'FAIL: authenticated missing SELECT grant'; END IF;
-  RAISE NOTICE 'TEST6 PASS: policy renamed + grants minimized (anon 0 / authenticated SELECT-only)';
+  -- service_role: SELECT/INSERT/UPDATE/DELETE の4つのみ・TRUNCATE/REFERENCES/TRIGGER は無いこと
+  SELECT count(*) INTO svc_min FROM information_schema.role_table_grants WHERE table_name='billing_records' AND grantee='service_role' AND privilege_type IN ('SELECT','INSERT','UPDATE','DELETE');
+  SELECT count(*) INTO svc_extra FROM information_schema.role_table_grants WHERE table_name='billing_records' AND grantee='service_role' AND privilege_type IN ('TRUNCATE','REFERENCES','TRIGGER');
+  IF svc_min <> 4 THEN RAISE EXCEPTION 'FAIL: service_role should have exactly SELECT/INSERT/UPDATE/DELETE (got %)', svc_min; END IF;
+  IF svc_extra <> 0 THEN RAISE EXCEPTION 'FAIL: service_role still has TRUNCATE/REFERENCES/TRIGGER (%)', svc_extra; END IF;
+  RAISE NOTICE 'TEST6 PASS: policy renamed + grants minimized (anon 0 / authenticated SELECT / service_role SIUD only)';
 END $$;
 
 -- ===== [ROLLBACK] =====
 -- \i supabase/rls/b2_billing_records_rbac_ROLLBACK.sql
 DO $$
-DECLARE oldpol int;
+DECLARE oldpol int; g int;
 BEGIN
   SELECT count(*) INTO oldpol FROM pg_policies WHERE tablename='billing_records' AND policyname='company_select_billing_records';
   IF oldpol <> 1 THEN RAISE EXCEPTION 'FAIL: rollback did not restore old policy'; END IF;
   -- rollback 後は recruiter も見える（旧 profiles ベース）
   IF visible_count('10000000-0000-0000-0000-000000000003') <> 1 THEN RAISE EXCEPTION 'FAIL: rollback should restore recruiter visibility'; END IF;
-  RAISE NOTICE 'TEST7 PASS: rollback restores old policy (recruiter visible again)';
+  -- grant が B-2 前（全7 privilege）へ復元されること（anon/authenticated/service_role）
+  FOR g IN
+    SELECT (SELECT count(*) FROM information_schema.role_table_grants
+              WHERE table_name='billing_records' AND grantee=r
+                AND privilege_type IN ('SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'))
+    FROM (VALUES ('anon'),('authenticated'),('service_role')) v(r)
+  LOOP
+    IF g <> 7 THEN RAISE EXCEPTION 'FAIL: rollback grant not fully restored (got % of 7)', g; END IF;
+  END LOOP;
+  RAISE NOTICE 'TEST7 PASS: rollback restores old policy + full grants (anon/authenticated/service_role = 7 each)';
 END $$;
 
 SELECT 'ALL_TESTS_DONE' AS result;
