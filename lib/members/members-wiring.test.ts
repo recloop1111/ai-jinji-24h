@@ -68,13 +68,8 @@ describe('settings UI: メンバー管理タブ RBAC', () => {
   })
 })
 
-describe('MembersTab UI: 未実装 action を出さない / honest', () => {
-  // 招待は E-5-3-2 で実装済（invite-wiring.test.ts で検証）。ここでは E-5-3-3 の未実装 action が無いことを確認。
-  it('role 変更 / suspend / remove の行アクションを出さない', () => {
-    expect(TAB).not.toContain('停止')
-    expect(TAB).not.toContain('削除する')
-    expect(TAB).not.toContain('権限を変更')
-  })
+describe('MembersTab UI: honest', () => {
+  // role 変更 / suspend / reactivate / remove は E-5-3-3 で実装済（member-actions-wiring.test.ts で検証）。
   it('OWNER badge / role・status ラベルを使う', () => {
     expect(TAB).toContain('オーナー')
     expect(TAB).toContain('companyRoleLabel')

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { companyRoleLabel, memberStatusLabel, MAX_FULL_NAME_LENGTH } from '@/lib/members/member-view'
 import { INVITABLE_ROLES, INVITE_ROLE_LABEL } from '@/lib/members/invite'
+import { ASSIGNABLE_ROLES } from '@/lib/members/member-actions'
 
 type Member = {
   id: string; full_name: string | null; email: string | null; company_role: string; status: string
@@ -77,6 +78,50 @@ export default function MembersTab() {
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 2500) }
 
   const self = members.find((m) => m.is_self) ?? null
+
+  // メンバー操作（権限変更/停止/再有効化/削除）。API 成功時のみ refetch。破壊操作は確認モーダル。
+  const [confirmState, setConfirmState] = useState<{ member: Member; action: 'suspend' | 'remove' | 'change_role'; role?: string } | null>(null)
+  const [actingId, setActingId] = useState<string | null>(null)
+
+  function memberLabel(m: Member): string { return m.full_name || m.email || '（名称未設定）' }
+
+  async function runMemberAction(memberId: string, body: Record<string, unknown>) {
+    if (actingId) return
+    setActingId(memberId)
+    try {
+      const res = await fetch(`/api/client/members/${memberId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok || !json?.updated) { showToast(json?.error?.message ?? '操作を完了できませんでした'); return }
+      showToast('更新しました'); await reload()
+    } catch {
+      showToast('操作を完了できませんでした')
+    } finally {
+      setActingId(null)
+    }
+  }
+
+  // 破壊操作/権限変更は confirm 経由。再有効化・復元は非破壊のため直接実行。
+  function askConfirm(member: Member, action: 'suspend' | 'remove' | 'change_role', role?: string) {
+    if (action === 'change_role' && role && role === member.company_role) return // 同一 role は無視（select 復帰）
+    setConfirmState({ member, action, role })
+  }
+  async function confirmProceed() {
+    const c = confirmState
+    if (!c) return
+    setConfirmState(null)
+    if (c.action === 'change_role') await runMemberAction(c.member.id, { action: 'change_role', company_role: c.role })
+    else await runMemberAction(c.member.id, { action: c.action })
+  }
+  function confirmMessage(c: { member: Member; action: 'suspend' | 'remove' | 'change_role'; role?: string }): string {
+    const name = memberLabel(c.member)
+    if (c.action === 'suspend') return `「${name}」を利用停止します。対象メンバーは企業管理画面を利用できなくなります（アカウント情報は保持され、後で再有効化できます）。`
+    if (c.action === 'remove') return `「${name}」をメンバーから削除します。対象メンバーは企業管理画面を利用できなくなります。アカウント情報は保持され、必要に応じて復元できます。`
+    const roleLabel = c.role ? companyRoleLabel(c.role) : ''
+    const adminNote = c.role === 'admin' ? '\n管理者はメンバー管理や企業設定を変更できます。' : ''
+    return `「${name}」の権限を「${roleLabel}」に変更します。${adminNote}`
+  }
 
   async function saveName() {
     if (savingName) return
@@ -243,7 +288,34 @@ export default function MembersTab() {
                     <td className="py-3 pr-4">{m.company_role === 'owner' ? <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">オーナー</span> : <span className="text-slate-700">{companyRoleLabel(m.company_role)}</span>}</td>
                     <td className="py-3 pr-4"><span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${m.status === 'active' ? 'bg-green-100 text-green-700' : m.status === 'suspended' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{memberStatusLabel(m.status)}</span></td>
                     <td className="py-3 pr-4 text-slate-600">{formatDate(m.joined_at)}</td>
-                    <td className="py-3 text-slate-400">—</td>
+                    <td className="py-3">
+                      {m.company_role === 'owner' || m.is_self ? (
+                        <span className="text-xs text-slate-400">{m.company_role === 'owner' ? 'オーナー変更は現在できません' : '—'}</span>
+                      ) : m.status === 'active' ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select
+                            aria-label="権限を変更"
+                            value={m.company_role}
+                            disabled={actingId === m.id}
+                            onChange={(e) => askConfirm(m, 'change_role', e.target.value)}
+                            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 disabled:opacity-60"
+                          >
+                            {ASSIGNABLE_ROLES.map((r) => (<option key={r} value={r}>{companyRoleLabel(r)}</option>))}
+                          </select>
+                          <button type="button" disabled={actingId === m.id} onClick={() => askConfirm(m, 'suspend')} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60">利用停止</button>
+                          <button type="button" disabled={actingId === m.id} onClick={() => askConfirm(m, 'remove')} className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-60">メンバーから削除</button>
+                        </div>
+                      ) : m.status === 'suspended' ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button type="button" disabled={actingId === m.id} onClick={() => runMemberAction(m.id, { action: 'reactivate' })} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60">再有効化</button>
+                          <button type="button" disabled={actingId === m.id} onClick={() => askConfirm(m, 'remove')} className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-60">メンバーから削除</button>
+                        </div>
+                      ) : m.status === 'removed' ? (
+                        <button type="button" disabled={actingId === m.id} onClick={() => runMemberAction(m.id, { action: 'reactivate' })} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60">復元</button>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -283,6 +355,25 @@ export default function MembersTab() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* 破壊操作/権限変更の確認モーダル */}
+      {confirmState && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={(e) => { if (e.target === e.currentTarget) setConfirmState(null) }}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="text-base font-bold text-slate-900">
+              {confirmState.action === 'suspend' ? '利用停止の確認' : confirmState.action === 'remove' ? 'メンバー削除の確認' : '権限変更の確認'}
+            </h3>
+            <p className="mt-3 whitespace-pre-wrap text-sm text-slate-600">{confirmMessage(confirmState)}</p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button type="button" onClick={() => setConfirmState(null)} className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900">キャンセル</button>
+              <button type="button" onClick={confirmProceed}
+                className={`rounded-lg px-5 py-2 text-sm font-semibold text-white ${confirmState.action === 'remove' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                {confirmState.action === 'suspend' ? '利用停止する' : confirmState.action === 'remove' ? '削除する' : '変更する'}
+              </button>
+            </div>
           </div>
         </div>
       )}
