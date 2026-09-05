@@ -9,10 +9,11 @@ import PasswordInput from '@/components/shared/PasswordInput'
 import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget'
 import { useCompanyPermissions } from '@/lib/rbac/useCompanyPermissions'
 import MembersTab from '@/components/client/MembersTab'
+import AuditLogsTab from '@/components/client/AuditLogsTab'
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
-type TabType = 'general' | 'billing' | 'notifications' | 'security' | 'members'
+type TabType = 'general' | 'billing' | 'notifications' | 'security' | 'members' | 'audit'
 
 type BillingProfileForm = {
   billing_name: string
@@ -330,6 +331,8 @@ function SettingsContent() {
     { id: 'security' as TabType, label: 'セキュリティ' },
     // member.manage（OWNER/ADMIN）のみメンバー管理タブを表示。RECRUITER/VIEWER には出さない。
     ...(canPermission('member.manage') ? [{ id: 'members' as TabType, label: 'メンバー管理' }] : []),
+    // audit.read（OWNER/ADMIN）のみ操作ログタブを表示。
+    ...(canPermission('audit.read') ? [{ id: 'audit' as TabType, label: '操作ログ' }] : []),
   ]
 
   const cardClass = 'bg-white rounded-xl border border-slate-200 shadow-sm p-6'
@@ -788,6 +791,11 @@ function SettingsContent() {
       {/* メンバー管理タブ（member.manage 保有者のみ・タブ自体が上で非表示） */}
       {activeTab === 'members' && canPermission('member.manage') && (
         <MembersTab />
+      )}
+
+      {/* 操作ログタブ（audit.read 保有者のみ） */}
+      {activeTab === 'audit' && canPermission('audit.read') && (
+        <AuditLogsTab />
       )}
 
       {toast && (
