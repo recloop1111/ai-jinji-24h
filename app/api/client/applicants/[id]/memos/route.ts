@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
+import { can } from '@/lib/rbac/permissions'
 import { createClientServerClient } from '@/lib/supabase/server'
 
 export async function GET(
@@ -52,6 +53,8 @@ export async function POST(
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
+    // VIEWER はメモ作成不可（read は上の GET で許可）。
+    if (!can(user.companyRole, 'applicant_memo.manage')) return apiError('FORBIDDEN')
 
     const { id } = await params
     const body = await request.json().catch(() => null)

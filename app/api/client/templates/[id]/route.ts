@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createClientServerClient } from '@/lib/supabase/server'
+import { writeCompanyAuditLog } from '@/lib/audit/company-audit'
 
 export async function PATCH(
   request: NextRequest,
@@ -52,6 +53,12 @@ export async function PATCH(
     if (updateError) {
       return apiError('INTERNAL_ERROR', 'テンプレートの更新に失敗しました')
     }
+
+    // 操作ログ（best-effort・テンプレート本文/subject は保存しない）。
+    await writeCompanyAuditLog({
+      companyId: user.companyId, actorUserId: user.userId, actorCompanyRole: user.companyRole,
+      action: 'template.updated', resourceType: 'template', resourceId: id, metadata: {},
+    })
 
     return successJson({ updated: true })
   } catch {

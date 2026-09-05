@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Pause as PauseIcon, AlertTriangle as AlertIcon, ChevronDown as ChevronDownIcon, ChevronUp as ChevronUpIcon, Eye as EyeIcon, EyeOff as EyeOffIcon } from 'lucide-react'
 import PasswordInput from '@/components/shared/PasswordInput'
+import { useCompanyPermissions } from '@/lib/rbac/useCompanyPermissions'
 
 // 固定FAQ（停止フローのヘルプ。実データ取得は不要）
 const FAQ_ITEMS = [
@@ -35,6 +36,10 @@ const FAQ_ITEMS = [
 
 
 export default function SuspensionPage() {
+  // 停止申請（一時停止/緊急停止/取消）は破壊的な企業操作＝OWNER/ADMIN のみ。RECRUITER/VIEWER は閲覧のみ
+  // （server も設定用パスワードで多層保護。ここでは操作導線自体を出さない）。
+  const { can: canPermission } = useCompanyPermissions()
+  const canManageSuspension = canPermission('company_settings.manage')
   const [currentStatus, setCurrentStatus] = useState<'active' | 'pending_suspension' | 'emergency_pending' | 'suspended'>('active')
   const [toastVisible, setToastVisible] = useState(false)
   const [toastMessage, setToastMessage] = useState('')
@@ -271,13 +276,17 @@ export default function SuspensionPage() {
                   <li>停止後の再開は運営へのお問い合わせが必要です</li>
                 </ul>
               </div>
-              <button
-                type="button"
-                onClick={() => setSuspensionModal({ isOpen: true })}
-                className="bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors"
-              >
-                一時停止を申請する
-              </button>
+              {canManageSuspension ? (
+                <button
+                  type="button"
+                  onClick={() => setSuspensionModal({ isOpen: true })}
+                  className="bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors"
+                >
+                  一時停止を申請する
+                </button>
+              ) : (
+                <p className="text-xs text-slate-500">停止申請にはオーナーまたは管理者権限が必要です（閲覧のみ）。</p>
+              )}
             </>
           )}
 
@@ -291,13 +300,15 @@ export default function SuspensionPage() {
                 {scheduledDate && <p className="text-sm text-gray-700 font-semibold mt-1">停止予定日: {scheduledDate}</p>}
                 {daysRemaining !== null && <p className="text-sm text-amber-600 mt-1">残り{daysRemaining}日で停止されます</p>}
               </div>
-              <button
-                type="button"
-                onClick={() => setCancelModal({ isOpen: true })}
-                className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium px-6 py-2.5 rounded-xl transition-colors"
-              >
-                申請を取り消す
-              </button>
+              {canManageSuspension && (
+                <button
+                  type="button"
+                  onClick={() => setCancelModal({ isOpen: true })}
+                  className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium px-6 py-2.5 rounded-xl transition-colors"
+                >
+                  申請を取り消す
+                </button>
+              )}
             </>
           )}
         </div>
@@ -321,13 +332,17 @@ export default function SuspensionPage() {
               <li>緊急停止後の再開には運営との協議が必要です</li>
             </ul>
           </div>
-          <button
-            type="button"
-            onClick={() => { setEmergencyError(''); setEmergencyModal({ isOpen: true, reason: '', password: '' }) }}
-            className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors"
-          >
-            緊急停止を申請する
-          </button>
+          {canManageSuspension ? (
+            <button
+              type="button"
+              onClick={() => { setEmergencyError(''); setEmergencyModal({ isOpen: true, reason: '', password: '' }) }}
+              className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl transition-colors"
+            >
+              緊急停止を申請する
+            </button>
+          ) : (
+            <p className="text-xs text-slate-500">緊急停止の申請にはオーナーまたは管理者権限が必要です（閲覧のみ）。</p>
+          )}
         </div>
 
         {/* セクション5: よくある質問 */}

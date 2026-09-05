@@ -35,19 +35,26 @@ export async function GET(request: NextRequest) {
 
     const records = rows ?? []
 
-    // company 名を解決（billing_records には企業名が無いため別取得してマップ）
+    // company 名 ＋ is_demo を解決（billing_records には無いため別取得）。
+    //   demo 企業（is_demo=true）の billing_record は確定請求一覧から除外する（DB is_demo が権威）。
     const companyIds = Array.from(new Set(records.map((r: { company_id: string }) => r.company_id)))
     const nameMap: Record<string, string> = {}
+    const demoCompanyIds = new Set<string>()
     if (companyIds.length > 0) {
       const { data: companies } = await supabase
         .from('companies')
-        .select('id, name')
+        .select('id, name, is_demo')
         .in('id', companyIds)
-      for (const c of companies ?? []) nameMap[c.id] = c.name ?? ''
+      for (const c of (companies ?? []) as { id: string; name: string | null; is_demo?: boolean | null }[]) {
+        nameMap[c.id] = c.name ?? ''
+        if (c.is_demo === true) demoCompanyIds.add(c.id)
+      }
     }
 
     const now = Date.now()
     const items = records
+      // demo 企業の record は一覧に出さない（実請求対象のみ）。
+      .filter((r: { company_id: string }) => !demoCompanyIds.has(r.company_id))
       .map((r: {
         id: string
         company_id: string

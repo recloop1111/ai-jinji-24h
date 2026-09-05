@@ -2,9 +2,12 @@
 
 import { Suspense } from 'react'
 import JobManager from '@/components/shared/JobManager'
+import { useCompanyPermissions } from '@/lib/rbac/useCompanyPermissions'
 
 function JobsContent() {
-  return <JobManager companyId="current" theme="light" />
+  // 企業RBAC（E-5-2）: VIEWER は求人 CRUD 不可。閲覧は可能。
+  const { can } = useCompanyPermissions()
+  return <JobManager companyId="current" theme="light" canWrite={can('job.manage')} />
 }
 
 export default function JobsPage() {

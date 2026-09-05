@@ -20,15 +20,16 @@ export function successJson<T>(data: T, status = 200) {
 }
 
 // --- エラーレスポンス（カスタムメッセージ） ---
-export function errorJson(code: string, message: string, status: number) {
+//   details は任意。フィールド単位の検証エラー等を UI へ渡す用途（PII を含めないこと）。
+export function errorJson(code: string, message: string, status: number, details?: unknown) {
   return NextResponse.json(
-    { error: { code, message } },
+    { error: { code, message, ...(details !== undefined ? { details } : {}) } },
     { status },
   )
 }
 
 // --- 定義済みエラーレスポンス（メッセージ上書き可） ---
-export function apiError(key: ErrorCodeKey, message?: string) {
+export function apiError(key: ErrorCodeKey, message?: string, details?: unknown) {
   const def = ERROR_CODES[key]
-  return errorJson(def.code, message ?? def.message, def.status)
+  return errorJson(def.code, message ?? def.message, def.status, details)
 }

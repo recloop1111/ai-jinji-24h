@@ -22,6 +22,12 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     '/api/client/billing/[billing_record_id]/invoice': ['./assets/fonts/IPAexGothic.ttf'],
     '/api/admin/billing/records/[billing_record_id]/invoice': ['./assets/fonts/IPAexGothic.ttf'],
+    // 履歴書PDF（デジタル履歴書 v1）も同じ日本語フォントを serverless へ同梱する。
+    '/api/client/applicants/[id]/resume-pdf': ['./assets/fonts/IPAexGothic.ttf'],
+    // AI面接結果レポートPDF も同じ日本語フォントを serverless へ同梱する。
+    '/api/client/applicants/[id]/report-pdf': ['./assets/fonts/IPAexGothic.ttf'],
+    // 応募者総合レポートPDF（履歴書＋AI面接評価）も同じ日本語フォントを serverless へ同梱する。
+    '/api/client/applicants/[id]/applicant-report-pdf': ['./assets/fonts/IPAexGothic.ttf'],
   },
   async headers() {
     return [

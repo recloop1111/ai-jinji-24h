@@ -1,6 +1,7 @@
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createClientServerClient } from '@/lib/supabase/server'
+import { writeCompanyAuditLog } from '@/lib/audit/company-audit'
 
 export async function POST() {
   try {
@@ -34,6 +35,10 @@ export async function POST() {
       return apiError('INTERNAL_ERROR', '停止申請の取り消しに失敗しました')
     }
 
+    await writeCompanyAuditLog({
+      companyId: user.companyId, actorUserId: user.userId, actorCompanyRole: user.companyRole,
+      action: 'company.suspension_cancelled', resourceType: 'company', resourceId: user.companyId, metadata: {},
+    })
     return successJson({ cancelled: true })
   } catch {
     return apiError('INTERNAL_ERROR')

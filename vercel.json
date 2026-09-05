@@ -1,3 +1,9 @@
 {
-  "installCommand": "npm ci"
+  "installCommand": "npm ci",
+  "crons": [
+    {
+      "path": "/api/internal/batch/monthly-billing",
+      "schedule": "0 0 1 * *"
+    }
+  ]
 }

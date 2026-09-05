@@ -2,6 +2,7 @@ import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createClientServerClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { verifySettingPassword } from '@/lib/security/setting-password'
+import { writeCompanyAuditLog } from '@/lib/audit/company-audit'
 
 export async function POST(request: Request) {
   try {
@@ -60,6 +61,11 @@ export async function POST(request: Request) {
     if (insertError) {
       return apiError('INTERNAL_ERROR', '緊急停止申請の作成に失敗しました')
     }
+
+    await writeCompanyAuditLog({
+      companyId: user.companyId, actorUserId: user.userId, actorCompanyRole: user.companyRole,
+      action: 'company.emergency_suspension_requested', resourceType: 'company', resourceId: user.companyId, metadata: {},
+    })
 
     return successJson({
       requested: true,

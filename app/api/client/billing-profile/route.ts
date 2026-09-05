@@ -2,7 +2,9 @@ import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { can } from '@/lib/rbac/permissions'
 import { BILLING_PROFILE_FIELDS, sanitizeBillingProfile } from '@/lib/billing/billing-profile'
+import { writeCompanyAuditLog } from '@/lib/audit/company-audit'
 
 // 企業の請求先情報（自社のみ）。getClientUser＋service-role（RLSは多重防御）。companyId は認証由来。
 export async function GET() {
@@ -43,6 +45,9 @@ export async function PUT(request: NextRequest) {
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
+    // 請求先情報は企業設定 = OWNER/ADMIN のみ書込可（RECRUITER/VIEWER 禁止）。service-role 書込のため
+    // RLS では守れず、アプリ層 RBAC が唯一の防壁。read(GET) は既存どおり全 role 可のまま。
+    if (!can(user.companyRole, 'company_settings.manage')) return apiError('FORBIDDEN')
 
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') {
@@ -59,6 +64,12 @@ export async function PUT(request: NextRequest) {
         { onConflict: 'company_id' },
       )
     if (upErr) return apiError('INTERNAL_ERROR', '請求先情報の保存に失敗しました')
+
+    // 操作ログ（best-effort・請求先の具体値は保存しない）。
+    await writeCompanyAuditLog({
+      companyId: user.companyId, actorUserId: user.userId, actorCompanyRole: user.companyRole,
+      action: 'company.billing_profile_changed', resourceType: 'company', resourceId: user.companyId, metadata: {},
+    })
 
     return successJson({ updated: true })
   } catch {

@@ -222,6 +222,32 @@ export async function POST(request: NextRequest) {
       return apiError('INTERNAL_ERROR', 'プロフィールの作成に失敗しました: ' + profileError.message)
     }
 
+    // Step 4: 企業内 RBAC の SoT = company_members に OWNER(active) を作成。
+    //   ※ E-5-1 以降、これが無いと getClientUser() が fail-closed し新規企業がログイン後ロックアウトになる。
+    //   ※ profiles.role='company'（account 種別）は不変。owner は company_members.company_role 側だけに置く。
+    //   ※ full_name は「担当者本人の氏名」が明示された時のみ（contact_person）。会社名(name)は入れない・曖昧なら NULL。
+    const { error: memberError } = await supabase
+      .from('company_members')
+      .insert({
+        company_id: company.id,
+        user_id: authUserId,
+        company_role: 'owner',
+        status: 'active',
+        full_name: contact_person?.trim() || null,
+        invited_by: null,
+        invited_at: null,
+        last_login_at: null,
+        joined_at: new Date().toISOString(),
+      })
+
+    if (memberError) {
+      // ロールバック: 今回作成した profiles + companies + Auth ユーザーのみ削除（fake success を返さない）。
+      await supabase.from('profiles').delete().eq('id', authUserId)
+      await supabase.from('companies').delete().eq('id', company.id)
+      await supabase.auth.admin.deleteUser(authUserId)
+      return apiError('INTERNAL_ERROR', '企業メンバー（オーナー）の作成に失敗しました: ' + memberError.message)
+    }
+
     return successJson({
       company_id: company.id,
       auth_user_id: authUserId,

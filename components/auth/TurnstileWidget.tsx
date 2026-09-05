@@ -43,11 +43,12 @@ type Props = {
   action: string
   onVerify: (token: string) => void
   onExpire?: () => void
+  onError?: () => void
   theme?: 'light' | 'dark' | 'auto'
 }
 
 const TurnstileWidget = forwardRef<TurnstileHandle, Props>(function TurnstileWidget(
-  { siteKey, action, onVerify, onExpire, theme = 'auto' },
+  { siteKey, action, onVerify, onExpire, onError, theme = 'auto' },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -56,9 +57,11 @@ const TurnstileWidget = forwardRef<TurnstileHandle, Props>(function TurnstileWid
   // ref の更新は render 中ではなく effect 内で行う（react-hooks/refs）。
   const onVerifyRef = useRef(onVerify)
   const onExpireRef = useRef(onExpire)
+  const onErrorRef = useRef(onError)
   useEffect(() => {
     onVerifyRef.current = onVerify
     onExpireRef.current = onExpire
+    onErrorRef.current = onError
   })
 
   useImperativeHandle(ref, () => ({
@@ -80,10 +83,10 @@ const TurnstileWidget = forwardRef<TurnstileHandle, Props>(function TurnstileWid
           theme,
           callback: (token: string) => onVerifyRef.current(token),
           'expired-callback': () => onExpireRef.current?.(),
-          'error-callback': () => onExpireRef.current?.(),
+          'error-callback': () => { onExpireRef.current?.(); onErrorRef.current?.() },
         })
       })
-      .catch(() => { /* スクリプト読込失敗時は無token＝サーバー側 400 で弾く */ })
+      .catch(() => { onErrorRef.current?.() /* スクリプト読込失敗時は無token＝サーバー側 400 で弾く */ })
     return () => {
       cancelled = true
       if (window.turnstile && widgetIdRef.current) {

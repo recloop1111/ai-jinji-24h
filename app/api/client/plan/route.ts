@@ -5,6 +5,7 @@ import { createClientServerClient, createServiceRoleClient } from '@/lib/supabas
 import { verifySettingPassword } from '@/lib/security/setting-password'
 import { applyNextMonthLimit, jstCurrentMonthStartIso, jstFirstOfNextMonthDate } from '@/lib/companies/applyNextMonthLimit'
 import { PRICE_PER_INTERVIEW, MIN_INTERVIEW_LIMIT } from '@/types/database'
+import { writeCompanyAuditLog } from '@/lib/audit/company-audit'
 
 // 翌月1日（YYYY-MM-01）を返す。
 // ※ JST基準（applyNextMonthLimit の昇格判定と同一基準）。サーバTZ(UTC)依存にすると、
@@ -179,6 +180,13 @@ export async function PATCH(request: NextRequest) {
     if (updateError) {
       return apiError('INTERNAL_ERROR', '翌月上限予約の更新に失敗しました')
     }
+
+    // 操作ログ（best-effort・上限人数は非 PII の整数のみ記録）。
+    await writeCompanyAuditLog({
+      companyId: user.companyId, actorUserId: user.userId, actorCompanyRole: user.companyRole,
+      action: 'company.plan_changed', resourceType: 'company', resourceId: user.companyId,
+      metadata: { from_next_month_limit: company.next_month_interview_limit ?? null, to_next_month_limit: next_month_interview_limit },
+    })
 
     return successJson({
       updated: true,

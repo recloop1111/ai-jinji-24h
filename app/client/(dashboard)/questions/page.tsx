@@ -2,9 +2,12 @@
 
 import { Suspense } from 'react'
 import QuestionEditor from '@/components/shared/QuestionEditor'
+import { useCompanyPermissions } from '@/lib/rbac/useCompanyPermissions'
 
 function QuestionsContent() {
-  return <QuestionEditor companyId="current" theme="light" />
+  // 企業RBAC（E-5-2）: VIEWER は質問 CRUD 不可。閲覧は可能。
+  const { can } = useCompanyPermissions()
+  return <QuestionEditor companyId="current" theme="light" canWrite={can('question.manage')} />
 }
 
 export default function QuestionsPage() {

@@ -120,9 +120,11 @@ type QuestionEditorProps = {
   companyId: string
   theme: 'light' | 'dark'
   onNavigateToJobs?: () => void
+  // 企業RBAC（E-5-2）: false のとき質問編集を無効化（VIEWER）。admin 代理・既存呼び出しは default true で不変。
+  canWrite?: boolean
 }
 
-export default function QuestionEditor({ companyId: companyIdProp, theme, onNavigateToJobs }: QuestionEditorProps) {
+export default function QuestionEditor({ companyId: companyIdProp, theme, onNavigateToJobs, canWrite = true }: QuestionEditorProps) {
   const searchParams = useSearchParams()
   const initialJobId = searchParams.get('jobId')
   // companyId='current'（企業自身）のときだけ client セッションから解決する。
@@ -133,9 +135,10 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
   // 共有コンポーネント（admin企業詳細・client質問設定の両方で使用）。
   // 現在のパスで使う認証セッションを切替える（/admin→admin cookie・それ以外→client cookie）。
   const pathname = usePathname()
+  const isAdminCtx = pathname?.startsWith('/admin') === true
   const supabase = useMemo(
-    () => (pathname?.startsWith('/admin') ? createAdminBrowserClient() : createClientBrowserClient()),
-    [pathname],
+    () => (isAdminCtx ? createAdminBrowserClient() : createClientBrowserClient()),
+    [isAdminCtx],
   )
   const resolvedCompanyId = companyIdProp === 'current' ? currentCompanyId : companyIdProp
 
@@ -488,34 +491,31 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
       return
     }
     try {
-      // closing カテゴリだけ削除（icebreakers/その他は触らない）
-      const { error: deleteError } = await supabase
-        .from('common_questions')
-        .delete()
-        .eq('company_id', resolvedCompanyId)
-        .eq('category', 'closing')
-
-      if (deleteError) {
-        console.error('[QuestionEditor クロージング保存] 削除エラー:', deleteError)
-        throw deleteError
-      }
-
-      if (commonQuestionsClosing.length > 0) {
-        const rows = commonQuestionsClosing.map((q, index) => ({
-          company_id: resolvedCompanyId,
-          category: 'closing',
-          label: q.label,
-          question_text: q.question,
-          is_scorable: false,
-          sort_order: index + 1,
-        }))
-        const { error: insertError } = await supabase.from('common_questions').insert(rows)
-        if (insertError) {
-          console.error('[QuestionEditor クロージング保存] 挿入エラー:', insertError)
-          throw insertError
+      if (isAdminCtx) {
+        // admin 代理: 従来どおり admin cookie + RLS でブラウザ直 delete+insert（closing のみ）。
+        const { error: deleteError } = await supabase
+          .from('common_questions')
+          .delete()
+          .eq('company_id', resolvedCompanyId)
+          .eq('category', 'closing')
+        if (deleteError) throw deleteError
+        if (commonQuestionsClosing.length > 0) {
+          const rows = commonQuestionsClosing.map((q, index) => ({
+            company_id: resolvedCompanyId, category: 'closing', label: q.label,
+            question_text: q.question, is_scorable: false, sort_order: index + 1,
+          }))
+          const { error: insertError } = await supabase.from('common_questions').insert(rows)
+          if (insertError) throw insertError
         }
+      } else {
+        // client（企業自身）: server route（getClientUser + RBAC + 監査）経由。
+        const res = await fetch('/api/client/questions', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: 'closing', questions: commonQuestionsClosing.map((q) => ({ label: q.label, question: q.question })) }),
+        })
+        if (!res.ok) throw new Error('closing save failed')
       }
-
       await fetchCommonQuestions(resolvedCompanyId)
     } catch (err) {
       console.error('[QuestionEditor クロージング保存] エラー発生:', err)
@@ -531,25 +531,31 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     category: 'evaluation' | 'icebreaker',
     items: { question: string }[],
   ) => {
-    const { error: deleteError } = await supabase
-      .from('job_questions')
-      .delete()
-      .eq('job_id', jobId)
-      .eq('pattern_key', patternKey)
-      .eq('category', category)
-    if (deleteError) throw deleteError
-
-    if (items.length > 0) {
-      const rows = items.map((q, index) => ({
-        job_id: jobId,
-        pattern_key: patternKey,
-        category,
-        question_text: q.question,
-        sort_order: index + 1,
-      }))
-      const { error: insertError } = await supabase.from('job_questions').insert(rows)
-      if (insertError) throw insertError
+    if (isAdminCtx) {
+      // admin 代理: 従来どおり admin cookie + RLS でブラウザ直 delete+insert。
+      const { error: deleteError } = await supabase
+        .from('job_questions')
+        .delete()
+        .eq('job_id', jobId)
+        .eq('pattern_key', patternKey)
+        .eq('category', category)
+      if (deleteError) throw deleteError
+      if (items.length > 0) {
+        const rows = items.map((q, index) => ({
+          job_id: jobId, pattern_key: patternKey, category, question_text: q.question, sort_order: index + 1,
+        }))
+        const { error: insertError } = await supabase.from('job_questions').insert(rows)
+        if (insertError) throw insertError
+      }
+      return
     }
+    // client（企業自身）: server route（getClientUser + RBAC + 自社 job 検証 + 監査）経由。
+    const res = await fetch('/api/client/questions', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'job', jobId, patternKey, category, questions: items.map((q) => ({ question: q.question })) }),
+    })
+    if (!res.ok) throw new Error('job questions save failed')
   }
 
   // 保存前の上限検証。OK なら null、超過ならエラーメッセージ（どのカテゴリが何問超過か）を返す。
@@ -730,6 +736,14 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
         )}
       </div>
 
+      {!canWrite && (
+        <div className={`mb-6 rounded-xl border p-4 text-sm ${isDark ? 'bg-white/[0.04] border-white/[0.08] text-gray-300' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+          質問は閲覧のみ可能です。追加・編集・保存には権限が必要です。
+        </div>
+      )}
+
+      {/* 企業RBAC（E-5-2）: canWrite=false（VIEWER）は編集領域の全操作を無効化（display:contents でレイアウト非影響）。 */}
+      <fieldset disabled={!canWrite} className="contents">
       {selectedJobId && selectedJob ? (
         <>
           <div className={`mb-8 rounded-xl border p-6 ${cn.card}`}>
@@ -994,6 +1008,7 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
           <p className={cn.subtext}>求人を選択してください</p>
         </div>
       ) : null}
+      </fieldset>
 
       {toast && (
         <div className="fixed bottom-6 right-6 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium z-50">
