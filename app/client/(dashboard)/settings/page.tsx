@@ -10,6 +10,7 @@ import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/Turnsti
 import { useCompanyPermissions } from '@/lib/rbac/useCompanyPermissions'
 import MembersTab from '@/components/client/MembersTab'
 import AuditLogsTab from '@/components/client/AuditLogsTab'
+import LoginHistorySection from '@/components/client/LoginHistorySection'
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
@@ -791,6 +792,13 @@ function SettingsContent() {
               ログアウト
             </button>
           </div>
+        </div>
+      )}
+
+      {/* セキュリティ > ログイン履歴（audit.read=OWNER/ADMIN のみ・E-5-5） */}
+      {activeTab === 'security' && canPermission('audit.read') && (
+        <div className="mt-6">
+          <LoginHistorySection />
         </div>
       )}
 
