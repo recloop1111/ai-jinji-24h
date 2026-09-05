@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import PasswordInput from '@/components/shared/PasswordInput'
 import { normalizeDigits } from '@/lib/utils/normalizeDigits'
+import { useCompanyPermissions } from '@/lib/rbac/useCompanyPermissions'
 
 type PlanData = {
   contract_type_label: string
@@ -46,6 +47,9 @@ function firstOfNextMonth(): string {
 export default function PlanPage() {
   const router = useRouter()
 
+  // 翌月上限の変更（契約設定）は OWNER/ADMIN のみ。RECRUITER/VIEWER は読み取りのみ（設定PW とも多層）。
+  const { can: canPermission } = useCompanyPermissions()
+  const canManagePlan = canPermission('company_settings.manage')
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [plan, setPlan] = useState<PlanData | null>(null)
@@ -316,7 +320,11 @@ export default function PlanPage() {
           </div>
         </div>
 
-        {settingPwConfigured === false ? (
+        {!canManagePlan ? (
+          <div className="border-t border-slate-100 pt-5">
+            <p className="text-xs text-slate-500">翌月上限の変更にはオーナーまたは管理者権限が必要です（閲覧のみ）。</p>
+          </div>
+        ) : settingPwConfigured === false ? (
           <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
             <p className="text-sm font-medium text-amber-800">管理者設定用パスワードが未設定です。</p>
             <p className="text-xs text-amber-700 mt-1">

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { APP_NAME } from '@/constants'
 import { useTemplates, type Template } from '../../contexts/TemplatesContext'
+import { useCompanyPermissions } from '@/lib/rbac/useCompanyPermissions'
 import { Plus as PlusIcon, Copy as CopyIcon, Pencil as PencilIcon, Trash2 as TrashIcon } from 'lucide-react'
 
 const VARIABLES = [
@@ -14,6 +15,9 @@ const VARIABLES = [
 
 export default function TemplatesPage() {
   const { templates, updateTemplate, addTemplate, deleteTemplate } = useTemplates()
+  // テンプレートは企業設定相当（OWNER/ADMIN のみ編集）。RECRUITER/VIEWER は閲覧・コピーのみ。
+  const { can } = useCompanyPermissions()
+  const canManage = can('company_settings.manage')
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [formName, setFormName] = useState('')
@@ -84,14 +88,16 @@ export default function TemplatesPage() {
           {/* ヘッダー */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight">メールテンプレート</h1>
-            <button
-              type="button"
-              onClick={openCreate}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all shadow-md shadow-blue-500/20 shrink-0"
-            >
-              <PlusIcon className="w-4 h-4" />
-              新規作成
-            </button>
+            {canManage && (
+              <button
+                type="button"
+                onClick={openCreate}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all shadow-md shadow-blue-500/20 shrink-0"
+              >
+                <PlusIcon className="w-4 h-4" />
+                新規作成
+              </button>
+            )}
           </div>
 
           {/* テンプレート一覧 */}
@@ -129,24 +135,26 @@ export default function TemplatesPage() {
                   </div>
                   <p className="text-sm text-gray-700 whitespace-pre-wrap pr-24">{t.body}</p>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openEdit(t)}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
-                  >
-                    <PencilIcon className="w-4 h-4" />
-                    編集
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(t.id)}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-xl hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500/30"
-                  >
-                    <TrashIcon className="w-4 h-4" />
-                    削除
-                  </button>
-                </div>
+                {canManage && (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(t)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
+                    >
+                      <PencilIcon className="w-4 h-4" />
+                      編集
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(t.id)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-xl hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500/30"
+                    >
+                      <TrashIcon className="w-4 h-4" />
+                      削除
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

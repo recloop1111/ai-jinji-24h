@@ -6,6 +6,7 @@ import { createClientBrowserClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/lib/hooks/useCompanyId'
 import { deriveCurrentStatus, CURRENT_STATUS_LABEL, type CurrentStatusKey } from '@/lib/applicants/displayStatus'
 import { useTemplates, type Template } from '../../contexts/TemplatesContext'
+import { useCompanyPermissions } from '@/lib/rbac/useCompanyPermissions'
 import { Download as DownloadIcon, Eye as EyeIcon, EyeOff as EyeOffIcon, Search as SearchEmptyIcon, Phone as PhoneIcon, Mail as MailIcon, Filter as FilterIcon, ChevronDown as ChevronDownIcon } from 'lucide-react'
 import { scoreToGrade, gradeColor } from '@/lib/utils/scoreToGrade'
 import { resultKeyToValue, type SelectionResultKey } from '@/lib/applicants/selectionResult'
@@ -148,6 +149,9 @@ function AdminAuthModal({
 
 function ApplicantsContent() {
   const { companyId, loading: companyIdLoading, error: companyIdError } = useCompanyId()
+  // CSV 一括出力（PII）は export 権限（OWNER/ADMIN/RECRUITER）。VIEWER には導線を出さない（server も 403）。
+  const { can: canPermission } = useCompanyPermissions()
+  const canExportCsv = canPermission('applicant.csv_export')
   // createClientBrowserClient() を毎レンダー生成すると、データ取得 effect の依存(supabase)が毎回変わり、
   // CSV認証モーダルを開く等の再レンダーで一覧の再取得(setDataLoading(true))が走って一覧が空白になる。
   // useMemo で安定化し、CSV認証 loading と一覧取得 loading を分離する。
@@ -507,14 +511,16 @@ function ApplicantsContent() {
       {/* ページヘッダー */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h1 className="text-xl font-bold text-slate-900">応募者一覧</h1>
-        <button
-          type="button"
-          onClick={handleCsvDownloadClick}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors shrink-0"
-        >
-          <DownloadIcon className="w-4 h-4" />
-          CSVダウンロード
-        </button>
+        {canExportCsv && (
+          <button
+            type="button"
+            onClick={handleCsvDownloadClick}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors shrink-0"
+          >
+            <DownloadIcon className="w-4 h-4" />
+            CSVダウンロード
+          </button>
+        )}
       </div>
 
       {/* フィルター・検索 */}

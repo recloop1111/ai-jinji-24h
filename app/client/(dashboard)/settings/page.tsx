@@ -49,6 +49,9 @@ function SettingsContent() {
   const [toast, setToast] = useState<string | null>(null)
   // 企業RBAC（E-5-3-1）: メンバー管理タブは member.manage 保有者（OWNER/ADMIN）のみ。
   const { can: canPermission } = useCompanyPermissions()
+  // 企業設定の write（一般/請求先/設定用パスワード）は OWNER/ADMIN のみ。RECRUITER/VIEWER は read-only。
+  // server-side（各 API の company_settings.manage）と一致。UI もこの SoT を表現する（fake editable を残さない）。
+  const canManageSettings = canPermission('company_settings.manage')
 
   // 企業情報（一般タブ）
   const [, setCompany] = useState<CompanyForm | null>(null)
@@ -404,7 +407,8 @@ function SettingsContent() {
                     type="text"
                     value={companyForm.name}
                     onChange={(e) => setCompanyForm((p) => ({ ...p, name: e.target.value }))}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={!canManageSettings}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
                     placeholder="企業名を入力"
                   />
                 </div>
@@ -414,7 +418,8 @@ function SettingsContent() {
                     type="text"
                     value={companyForm.contact_person}
                     onChange={(e) => setCompanyForm((p) => ({ ...p, contact_person: e.target.value }))}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={!canManageSettings}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
                     placeholder="担当者名を入力"
                   />
                 </div>
@@ -424,7 +429,8 @@ function SettingsContent() {
                     type="email"
                     value={companyForm.contact_email}
                     onChange={(e) => setCompanyForm((p) => ({ ...p, contact_email: e.target.value }))}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={!canManageSettings}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
                     placeholder="contact@example.com"
                   />
                 </div>
@@ -434,19 +440,24 @@ function SettingsContent() {
                     type="tel"
                     value={companyForm.phone}
                     onChange={(e) => setCompanyForm((p) => ({ ...p, phone: e.target.value }))}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={!canManageSettings}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
                     placeholder="03-1234-5678"
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={handleSaveCompany}
-                  disabled={companySaving}
-                  className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm disabled:opacity-70"
-                >
-                  <SaveIcon className="w-4 h-4" />
-                  {companySaving ? '保存中...' : '保存'}
-                </button>
+                {canManageSettings ? (
+                  <button
+                    type="button"
+                    onClick={handleSaveCompany}
+                    disabled={companySaving}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm disabled:opacity-70"
+                  >
+                    <SaveIcon className="w-4 h-4" />
+                    {companySaving ? '保存中...' : '保存'}
+                  </button>
+                ) : (
+                  <p className="text-xs text-slate-500">企業情報の変更にはオーナーまたは管理者権限が必要です（閲覧のみ）。</p>
+                )}
               </div>
             )}
           </div>
@@ -528,7 +539,8 @@ function SettingsContent() {
                       type={type}
                       value={billingProfile[key]}
                       onChange={(e) => setBillingProfile((p) => ({ ...p, [key]: e.target.value }))}
-                      className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      disabled={!canManageSettings}
+                      className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
                       placeholder={ph}
                     />
                   </div>
@@ -539,19 +551,24 @@ function SettingsContent() {
                     value={billingProfile.note}
                     onChange={(e) => setBillingProfile((p) => ({ ...p, note: e.target.value }))}
                     rows={2}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={!canManageSettings}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
                     placeholder="請求書に関する補足（任意）"
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={handleSaveBillingProfile}
-                  disabled={billingSaving}
-                  className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm disabled:opacity-70"
-                >
-                  <SaveIcon className="w-4 h-4" />
-                  {billingSaving ? '保存中...' : '保存'}
-                </button>
+                {canManageSettings ? (
+                  <button
+                    type="button"
+                    onClick={handleSaveBillingProfile}
+                    disabled={billingSaving}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm disabled:opacity-70"
+                  >
+                    <SaveIcon className="w-4 h-4" />
+                    {billingSaving ? '保存中...' : '保存'}
+                  </button>
+                ) : (
+                  <p className="text-xs text-slate-500">請求先情報の変更にはオーナーまたは管理者権限が必要です（閲覧のみ）。</p>
+                )}
               </div>
             )}
           </div>
@@ -710,6 +727,7 @@ function SettingsContent() {
                   ? <span className="text-emerald-600 font-medium">設定済み</span>
                   : <span className="text-amber-600 font-medium">未設定</span>}
             </p>
+            {canManageSettings ? (
             <div className="space-y-4">
               {settingPwConfigured && (
                 <div>
@@ -751,6 +769,9 @@ function SettingsContent() {
                 {settingPwLoading ? '保存中...' : settingPwConfigured ? '変更する' : '設定する'}
               </button>
             </div>
+            ) : (
+              <p className="text-sm text-slate-500">管理者設定用パスワードの設定・変更にはオーナーまたは管理者権限が必要です。</p>
+            )}
           </div>
 
           <div className={cardClass}>
