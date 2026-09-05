@@ -12,6 +12,12 @@ export const runtime = 'nodejs'
 // 月次請求の自前確定バッチ（Stripe不使用・銀行振込）。
 // 前月（JST）の is_billable=true 面接を company ごとに集計し billing_records を確定（pending）する。
 //
+// 【トリガ】2系統・本体（executeMonthlyBilling）は共通で冪等・不変性・demo除外を保持:
+//   - POST（手動）: Authorization: Bearer ${INTERNAL_BATCH_SECRET}。`?dryRun=1` で dry-run 可。
+//   - GET（Vercel Cron・毎月1日）: vercel.json crons `0 0 1 * *`（UTC00:00=JST09:00 day1 →
+//     jstPreviousMonthRange が前月を返す）。Cron は GET のみ・Authorization: Bearer ${CRON_SECRET}
+//     を Vercel が自動付与。CRON_SECRET 未設定/不一致は 401（fail-closed・第三者は叩けない）。cron は常に live。
+//
 // 【請求書の不変性（B-1）】billing_record が作成された時点で「請求確定・請求書発行可能」とみなす。
 //   payment_status='pending' は「未確定」ではなく **「発行済み・未入金（振込待ち）」**。
 //   一度 billing_record が存在したら、payment_status（pending/paid/failed/refunded いずれ）に関わらず
@@ -48,16 +54,31 @@ function bearerOk(authHeader: string, secret: string | undefined): boolean {
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
+// 手動トリガ（POST・INTERNAL_BATCH_SECRET・dry-run 可）。冪等・不変性・demo除外は core と共通。
 export async function POST(request: NextRequest) {
+  const authHeader = request.headers.get('authorization') ?? ''
+  if (!bearerOk(authHeader, process.env.INTERNAL_BATCH_SECRET)) {
+    return apiError('UNAUTHORIZED', '認証に失敗しました')
+  }
+  // dry-run 判定（認証は live と同一の INTERNAL_BATCH_SECRET）。?dryRun=1 のみ dry-run。
+  const dryRun = new URL(request.url).searchParams.get('dryRun') === '1'
+  return executeMonthlyBilling(dryRun)
+}
+
+// 定期トリガ（Vercel Cron・毎月1日）。Cron は GET のみ・Authorization: Bearer ${CRON_SECRET} を
+// 自動付与する（CRON_SECRET env 設定時）。fail-closed（未設定/不一致は 401）。cron は常に live 実行。
+// route 失敗（非2xx）は Vercel 側で失敗として記録される＝サイレント成功にしない。
+export async function GET(request: NextRequest) {
+  const authHeader = request.headers.get('authorization') ?? ''
+  if (!bearerOk(authHeader, process.env.CRON_SECRET)) {
+    return apiError('UNAUTHORIZED', '認証に失敗しました')
+  }
+  return executeMonthlyBilling(false)
+}
+
+// 月次請求確定の本体（POST/GET 共通）。冪等・請求書不変性(B-1)・demo除外・0件skip を保持。
+async function executeMonthlyBilling(dryRun: boolean): Promise<Response> {
   try {
-    const authHeader = request.headers.get('authorization') ?? ''
-    if (!bearerOk(authHeader, process.env.INTERNAL_BATCH_SECRET)) {
-      return apiError('UNAUTHORIZED', '認証に失敗しました')
-    }
-
-    // dry-run 判定（認証は live と同一の INTERNAL_BATCH_SECRET）。?dryRun=1 のみ dry-run。
-    const dryRun = new URL(request.url).searchParams.get('dryRun') === '1'
-
     const supabase = createServiceRoleClient()
 
     // 確定対象＝JST 前月（半開区間 [startIso, endIso) で created_at を絞る）。billing_month は前月1日。
