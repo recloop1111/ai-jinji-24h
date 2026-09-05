@@ -59,6 +59,7 @@ export async function GET(request: NextRequest) {
     const applicantIds = [...new Set(logs.filter((l) => l.resource_type === 'applicant').map((l) => l.resource_id).filter((v): v is string => !!v))]
     const memberIds = [...new Set(logs.filter((l) => l.resource_type === 'member').map((l) => l.resource_id).filter((v): v is string => !!v))]
     const inviteIds = [...new Set(logs.filter((l) => l.resource_type === 'member_invite').map((l) => l.resource_id).filter((v): v is string => !!v))]
+    const billingIds = [...new Set(logs.filter((l) => l.resource_type === 'billing_record').map((l) => l.resource_id).filter((v): v is string => !!v))]
 
     // actor: company_members.full_name（自社）＋ profiles.email（fallback）
     const memberByUser = new Map<string, { full_name: string | null }>()
@@ -89,6 +90,12 @@ export async function GET(request: NextRequest) {
     if (inviteIds.length > 0) {
       const { data } = await svc.from('member_invites').select('id, email').eq('company_id', user.companyId).in('id', inviteIds)
       for (const r of (data ?? []) as Array<{ id: string; email: string }>) inviteById.set(r.id, { email: r.email })
+    }
+    // billing_record は id / billing_month のみ取得（金額/snapshot/宛名等は取得しない・company_id 固定）。
+    const billingById = new Map<string, { billing_month: string | null }>()
+    if (billingIds.length > 0) {
+      const { data } = await svc.from('billing_records').select('id, billing_month').eq('company_id', user.companyId).in('id', billingIds)
+      for (const r of (data ?? []) as Array<{ id: string; billing_month: string | null }>) billingById.set(r.id, { billing_month: r.billing_month })
     }
 
     // company 名（company target 用に1回）
@@ -122,6 +129,12 @@ export async function GET(request: NextRequest) {
       }
       if (l.resource_type === 'company') return companyName ?? '企業設定'
       if (l.resource_type === 'template') return 'テンプレート'
+      if (l.resource_type === 'billing_record') {
+        const b = l.resource_id ? billingById.get(l.resource_id) : undefined
+        if (!b) return '請求書'
+        const m = (b.billing_month ?? '').match(/^(\d{4})-(\d{2})/)
+        return m ? `${m[1]}年${Number(m[2])}月分の請求書` : '請求書'
+      }
       return null
     }
 

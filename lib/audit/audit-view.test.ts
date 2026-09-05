@@ -58,6 +58,11 @@ describe('buildAuditSentence', () => {
     expect(buildAuditSentence(base({ action: 'company.emergency_suspension_requested' }))).toBe('緊急停止を申請')
     expect(buildAuditSentence(base({ action: 'template.updated' }))).toBe('テンプレートを更新')
   })
+  it('billing invoice: billing_month あり→YYYY年M月分・欠落→fallback（金額は出さない）', () => {
+    expect(buildAuditSentence(base({ action: 'billing.invoice_pdf_exported', resource_type: 'billing_record', metadata: { billing_month: '2026-08' } }))).toBe('2026年8月分の請求書PDFをダウンロード')
+    expect(buildAuditSentence(base({ action: 'billing.invoice_pdf_exported', resource_type: 'billing_record', metadata: { billing_month: '2026-08-01' } }))).toBe('2026年8月分の請求書PDFをダウンロード')
+    expect(buildAuditSentence(base({ action: 'billing.invoice_pdf_exported', resource_type: 'billing_record', metadata: {} }))).toBe('請求書PDFをダウンロード')
+  })
   it('unknown action は fallback', () => {
     expect(buildAuditSentence(base({ action: 'foo.bar' }))).toBe('操作を実行')
   })

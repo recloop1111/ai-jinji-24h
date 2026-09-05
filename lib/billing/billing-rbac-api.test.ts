@@ -10,6 +10,10 @@ vi.mock('@/lib/billing/invoice-pdf', () => ({
   toInvoiceInput: () => ({ invoiceNumber: 'INV-202608-abcdef12' }),
 }))
 
+// company audit（fail-closed export）は挙動を制御して検証。
+const mockAudit = vi.fn(async () => ({ ok: true }))
+vi.mock('@/lib/audit/company-audit', () => ({ writeCompanyAuditLog: (i: unknown) => mockAudit(i) }))
+
 type Cfg = { record?: Record<string, unknown> | null; company?: Record<string, unknown> | null; monthlyCount?: number; records?: unknown[] }
 let cfg: Cfg = {}
 
@@ -45,7 +49,7 @@ function asUser(role: string | null) {
 async function invoice(id = RID) { const res = await INVOICE_GET(new Request('http://x') as never, { params: Promise.resolve({ billing_record_id: id }) }); return res.status }
 async function billing() { const res = await BILLING_GET(); return res.status }
 
-beforeEach(() => { mockGetClientUser.mockReset(); cfg = {} })
+beforeEach(() => { mockGetClientUser.mockReset(); mockAudit.mockReset(); mockAudit.mockResolvedValue({ ok: true }); cfg = {} })
 
 describe('invoice DL RBAC', () => {
   it('未認証 → 401', async () => { asUser(null); expect(await invoice()).toBe(401) })
@@ -67,6 +71,33 @@ describe('invoice DL RBAC', () => {
     for (const st of ['failed', 'refunded']) { asUser('owner'); cfg.record = { id: RID, company_id: CID, payment_status: st }; expect(await invoice()).toBe(422) }
   })
   it('owner 不正 UUID → 400', async () => { asUser('owner'); expect(await invoice('bad')).toBe(400) })
+})
+
+describe('invoice DL fail-closed audit (B-3)', () => {
+  it('audit 成功 → 200・audit 呼び出し（billing_record / billing_month のみ）', async () => {
+    asUser('owner'); cfg.record = { id: RID, company_id: CID, payment_status: 'pending', billing_month: '2026-08-01' }
+    expect(await invoice()).toBe(200)
+    expect(mockAudit).toHaveBeenCalledTimes(1)
+    const arg = mockAudit.mock.calls[0][0] as Record<string, unknown>
+    expect(arg).toMatchObject({ companyId: CID, actorUserId: 'u1', actorCompanyRole: 'owner', action: 'billing.invoice_pdf_exported', resourceType: 'billing_record', resourceId: RID })
+    expect(arg.metadata).toEqual({ billing_month: '2026-08' })
+    // 金額/snapshot 等を metadata に入れない
+    const meta = JSON.stringify(arg.metadata)
+    expect(meta).not.toContain('amount'); expect(meta).not.toContain('total'); expect(meta).not.toContain('snapshot')
+  })
+  it('audit 失敗 → 500・PDF を返さない', async () => {
+    asUser('owner'); cfg.record = { id: RID, company_id: CID, payment_status: 'pending', billing_month: '2026-08-01' }
+    mockAudit.mockResolvedValue({ ok: false })
+    const res = await INVOICE_GET(new Request('http://x') as never, { params: Promise.resolve({ billing_record_id: RID }) })
+    expect(res.status).toBe(500)
+    expect(res.headers.get('Content-Type')).not.toBe('application/pdf')
+  })
+  it('403(recruiter/他社)・404(不存在)・422(failed) では audit を呼ばない', async () => {
+    asUser('recruiter'); cfg.record = { id: RID, company_id: CID, payment_status: 'pending' }; await invoice(); expect(mockAudit).not.toHaveBeenCalled()
+    mockAudit.mockClear(); asUser('owner'); cfg.record = { id: RID, company_id: 'other', payment_status: 'pending' }; await invoice(); expect(mockAudit).not.toHaveBeenCalled()
+    mockAudit.mockClear(); asUser('owner'); cfg.record = null; await invoice(); expect(mockAudit).not.toHaveBeenCalled()
+    mockAudit.mockClear(); asUser('owner'); cfg.record = { id: RID, company_id: CID, payment_status: 'failed' }; await invoice(); expect(mockAudit).not.toHaveBeenCalled()
+  })
 })
 
 describe('billing サマリ API RBAC', () => {

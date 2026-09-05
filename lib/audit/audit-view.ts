@@ -38,6 +38,15 @@ const ACTION_LABEL: Record<string, string> = {
   'template.created': 'テンプレートを作成',
   'template.updated': 'テンプレートを更新',
   'template.deleted': 'テンプレートを削除',
+  'billing.invoice_pdf_exported': '請求書PDFをダウンロード',
+}
+
+// 'YYYY-MM'（または 'YYYY-MM-DD'）→「YYYY年M月」。不正/空は null。
+function billingMonthLabel(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const m = v.match(/^(\d{4})-(\d{2})/)
+  if (!m) return null
+  return `${m[1]}年${Number(m[2])}月`
 }
 
 export function auditActionLabel(action: string): string {
@@ -88,6 +97,10 @@ export function buildAuditSentence(view: AuditLogView): string {
     case 'template.created': return 'テンプレートを作成'
     case 'template.updated': return 'テンプレートを更新'
     case 'template.deleted': return 'テンプレートを削除'
+    case 'billing.invoice_pdf_exported': {
+      const ym = billingMonthLabel(m.billing_month)
+      return ym ? `${ym}分の請求書PDFをダウンロード` : '請求書PDFをダウンロード'
+    }
     default: return auditActionLabel(view.action)
   }
 }

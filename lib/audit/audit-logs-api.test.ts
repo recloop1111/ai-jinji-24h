@@ -11,6 +11,7 @@ type Cfg = {
   profiles?: Array<Record<string, unknown>>
   applicants?: Array<Record<string, unknown>>
   invites?: Array<Record<string, unknown>>
+  billing?: Array<Record<string, unknown>>
   companyName?: string
 }
 let cfg: Cfg = {}
@@ -23,6 +24,7 @@ function builder(table: string) {
     if (table === 'profiles') return cfg.profiles ?? []
     if (table === 'applicants') return cfg.applicants ?? []
     if (table === 'member_invites') return cfg.invites ?? []
+    if (table === 'billing_records') return cfg.billing ?? []
     if (table === 'company_audit_logs') return cfg.rows ?? []
     return []
   }
@@ -111,5 +113,21 @@ describe('label resolution / no secrets', () => {
     const inviteSelect = captured.selectCols.find((c) => c.startsWith('member_invites:'))
     expect(inviteSelect).toBeDefined()
     expect(inviteSelect).not.toContain('token')
+  })
+
+  it('billing_record: billing_month を label 解決（id/billing_month のみ・金額/snapshot 非取得）', async () => {
+    asUser('owner'); cfg.total = 1
+    cfg.rows = [{ id: 'l1', action: 'billing.invoice_pdf_exported', resource_type: 'billing_record', resource_id: 'b1', actor_user_id: 'u1', actor_company_role: 'admin', metadata: { billing_month: '2026-08' }, created_at: '2026-09-05T00:00:00Z' }]
+    cfg.billing = [{ id: 'b1', billing_month: '2026-08-01' }]
+    const { json } = await call()
+    expect(json.logs[0].target.label).toBe('2026年8月分の請求書')
+    const billingSelect = captured.selectCols.find((c) => c.startsWith('billing_records:'))
+    expect(billingSelect).toBe('billing_records:id, billing_month') // amount/snapshot を SELECT しない
+  })
+  it('billing_record missing → 「請求書」fallback', async () => {
+    asUser('owner'); cfg.total = 1
+    cfg.rows = [{ id: 'l1', action: 'billing.invoice_pdf_exported', resource_type: 'billing_record', resource_id: 'gone', actor_user_id: 'u1', actor_company_role: 'admin', metadata: {}, created_at: '2026-09-05T00:00:00Z' }]
+    const { json } = await call()
+    expect(json.logs[0].target.label).toBe('請求書')
   })
 })
