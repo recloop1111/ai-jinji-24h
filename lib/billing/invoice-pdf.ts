@@ -199,39 +199,42 @@ export function buildInvoicePdf(input: InvoiceInput): Promise<Buffer> {
       const colW = cw * 0.46
       const rightColX = left + cw * 0.54
 
-      // 請求先
+      // 本文行の行間（請求先/発行者で共通。詰まりを避け読みやすくする）。
+      const BODY_GAP = 4
+      const bodyLine = (str: string, x: number): number => {
+        doc.text(str, x, doc.y, { width: colW, lineGap: BODY_GAP })
+        return doc.y
+      }
+
+      // 請求先。会社名は DB/snapshot の請求先正式名称（SoT）をそのまま表示し、御中のみ付す
+      // （renderer 側で「請求先」等の付与・除去は一切しない）。
       let by = sectionMark('請求先', left, blockY, colW)
       doc.moveTo(left, by).lineTo(left + colW, by).lineWidth(1).stroke(C.navy)
-      by += 12
+      by += 14
       const bt = input.billTo
-      fill(C.ink).fontSize(15).text(`${bt.companyName}　御中`, left, by, { width: colW })
-      by = doc.y + 4
+      fill(C.ink).fontSize(15).text(`${bt.companyName}　御中`, left, by, { width: colW, lineGap: 2 })
+      doc.y += 6 // 会社名と以降の情報の間に余白
       fill(C.ink).fontSize(10.5)
-      if (bt.department) { doc.text(bt.department, left, by, { width: colW }); by = doc.y }
-      if (bt.contactName) { doc.text(`${bt.contactName} 様`, left, by, { width: colW }); by = doc.y }
-      if (bt.postalCode) { doc.text(`〒${bt.postalCode}`, left, by, { width: colW }); by = doc.y }
-      if (bt.address) {
-        doc.text(`${bt.address}${bt.building ? ' ' + bt.building : ''}`, left, by, { width: colW })
-        by = doc.y
-      }
-      if (bt.phone) { doc.text(`TEL：${bt.phone}`, left, by, { width: colW }); by = doc.y }
+      if (bt.department) by = bodyLine(bt.department, left)
+      if (bt.contactName) by = bodyLine(`${bt.contactName} 様`, left)
+      if (bt.postalCode) by = bodyLine(`〒${bt.postalCode}`, left)
+      if (bt.address) by = bodyLine(`${bt.address}${bt.building ? ' ' + bt.building : ''}`, left)
+      if (bt.phone) by = bodyLine(`TEL：${bt.phone}`, left)
       const billToBottom = by
 
       // 発行者
       const issuer = input.issuer
       let iy = sectionMark('発行者', rightColX, blockY, colW)
       doc.moveTo(rightColX, iy).lineTo(rightColX + colW, iy).lineWidth(1).stroke(C.navy)
-      iy += 12
-      fill(C.ink).fontSize(12.5).text(issuer.name, rightColX, iy, { width: colW })
-      iy = doc.y + 4
+      iy += 14
+      fill(C.ink).fontSize(12.5).text(issuer.name, rightColX, iy, { width: colW, lineGap: 2 })
+      doc.y += 6 // 発行者名と以降の情報の間に余白（請求先と対称）
       fill(C.ink).fontSize(10.5)
-      doc.text(`〒${issuer.postalCode}`, rightColX, iy, { width: colW }); iy = doc.y
-      doc.text(`${issuer.address}${issuer.building ? ' ' + issuer.building : ''}`, rightColX, iy, { width: colW }); iy = doc.y
+      iy = bodyLine(`〒${issuer.postalCode}`, rightColX)
+      iy = bodyLine(`${issuer.address}${issuer.building ? ' ' + issuer.building : ''}`, rightColX)
       // 登録番号は設定されている場合のみ表示（未登録時に「未登録」等を出さない）。
-      if (issuer.registrationNumber) {
-        doc.text(`登録番号：${issuer.registrationNumber}`, rightColX, iy, { width: colW }); iy = doc.y
-      }
-      doc.text(`TEL：${issuer.tel}`, rightColX, iy, { width: colW }); iy = doc.y
+      if (issuer.registrationNumber) iy = bodyLine(`登録番号：${issuer.registrationNumber}`, rightColX)
+      iy = bodyLine(`TEL：${issuer.tel}`, rightColX)
       const issuerBottom = iy
 
       // ── 3. 案内文 ────────────────────────────────────────────────
@@ -256,7 +259,7 @@ export function buildInvoicePdf(input: InvoiceInput): Promise<Buffer> {
         fill(C.ink).fontSize(10).text(value, labelX + 80, ry, { width: right - (labelX + 80) - 16 })
         ry += 20
       }
-      y += infoH + 16
+      y += infoH + 12
 
       // ── 5. 合計金額ボックス ──────────────────────────────────────
       const totalBoxH = 56
@@ -362,7 +365,7 @@ export function buildInvoicePdf(input: InvoiceInput): Promise<Buffer> {
       cellText(yen(input.total), smX + smW * 0.5, smY, smW * 0.5, smTotalH, { align: 'right', size: 15, color: C.white, pad: 12 })
       const smBottom = smY + smTotalH
 
-      y = Math.max(brBottom, smBottom) + 16
+      y = Math.max(brBottom, smBottom) + 12
 
       // ── 8. 備考（枠付き） ────────────────────────────────────────
       const noteTop = sectionMark('備考', left, y, cw)

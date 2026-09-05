@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { buildInvoicePdf, toInvoiceInput, type InvoiceInput } from './invoice-pdf'
+import { resolveBillTo } from './bill-to'
 
 // Billing B-6: 請求書PDFデザイン刷新。金額ロジック・resolver は不変のまま、
 // 描画が壊れない（throw しない・実PDFを返す）ことと unitPrice 計算を検証する。
@@ -44,6 +47,14 @@ const baseInput = (over: Partial<InvoiceInput> = {}): InvoiceInput => ({
 })
 
 const isPdf = (buf: Buffer) => buf.length > 800 && buf.subarray(0, 5).toString('latin1') === '%PDF-'
+// pdfkit は Pages ノードに総ページ数 /Count を書く。MediaBox はページごとに1つ。
+// 追加の重量級 library を入れずにページ数を安定検証する。
+const pdfPageCount = (buf: Buffer): number => {
+  const s = buf.toString('latin1')
+  const m = s.match(/\/Count (\d+)/)
+  if (m) return Number(m[1])
+  return (s.match(/\/MediaBox/g) ?? []).length
+}
 
 describe('toInvoiceInput（金額ロジック無変更）', () => {
   const record = {
@@ -141,5 +152,63 @@ describe('buildInvoicePdf（デザイン刷新・描画堅牢性）', () => {
   it('dueDate が null でも throw しない', async () => {
     const pdf = await buildInvoicePdf(baseInput({ dueDate: null }))
     expect(isPdf(pdf)).toBe(true)
+  })
+})
+
+// Billing B-6.2: 請求先名は DB/snapshot（SoT）をそのまま表示する。renderer は「請求先」等の
+// 付与・除去を一切しない。ブロック余白調整後も A4 縦1ページを維持する。
+describe('B-6.2 請求先名 SoT passthrough / 1ページ維持', () => {
+  it('A: companyName=ABC株式会社 → 有効な1ページPDF', async () => {
+    const pdf = await buildInvoicePdf(baseInput({ billTo: { ...baseInput().billTo, companyName: 'ABC株式会社' } }))
+    expect(isPdf(pdf)).toBe(true)
+    expect(pdfPageCount(pdf)).toBe(1)
+  })
+
+  it('B: companyName に「請求先」を含んでも renderer/resolver が勝手に削除しない（SoT そのまま）', async () => {
+    // resolver は入力値を改変しない（付与も除去もしない）。
+    const resolved = resolveBillTo({ name: 'テスト株式会社 請求先', contact_person: null }, null, null)
+    expect(resolved.companyName).toBe('テスト株式会社 請求先')
+    const input = toInvoiceInput(
+      { id: 'abcdef12-0000-0000-0000-000000000000', billing_month: '2026-08-01', interview_count: 1, amount_jpy: 4000, tax_jpy: 400, total_jpy: 4400, created_at: '2026-09-01T00:00:00Z' },
+      { name: 'テスト株式会社 請求先', contact_person: null },
+    )
+    expect(input.billTo.companyName).toBe('テスト株式会社 請求先') // 改変なし
+    const pdf = await buildInvoicePdf(baseInput({ billTo: { ...baseInput().billTo, companyName: 'ABC株式会社 請求先' } }))
+    expect(isPdf(pdf)).toBe(true)
+  })
+
+  it('B(source): renderer に「請求先」を除去する文字列 hack が存在しない', () => {
+    const src = readFileSync(path.join(process.cwd(), 'lib/billing/invoice-pdf.ts'), 'utf8')
+    expect(src).not.toContain(".replace('請求先'")
+    expect(src).not.toContain('.replace("請求先"')
+    expect(src).not.toContain('.replaceAll')
+  })
+
+  it('C: 長い会社名でも1ページPDFを生成', async () => {
+    const pdf = await buildInvoicePdf(baseInput({ billTo: { ...baseInput().billTo, companyName: '株式会社' + 'あ'.repeat(24) } }))
+    expect(isPdf(pdf)).toBe(true)
+    expect(pdfPageCount(pdf)).toBe(1)
+  })
+
+  it('D: 長い住所でも1ページPDFを生成', async () => {
+    const pdf = await buildInvoicePdf(baseInput({ billTo: { ...baseInput().billTo, address: '東京都千代田区' + 'テスト町'.repeat(10) + '1-2-3', building: '' + 'ビル'.repeat(8) } }))
+    expect(isPdf(pdf)).toBe(true)
+    expect(pdfPageCount(pdf)).toBe(1)
+  })
+
+  it('E: 長い発行者名でも1ページPDFを生成', async () => {
+    const pdf = await buildInvoicePdf(baseInput({ issuer: { ...baseInput().issuer, name: 'AIMEN24運営会社' + 'ながい名称'.repeat(8) } }))
+    expect(isPdf(pdf)).toBe(true)
+    expect(pdfPageCount(pdf)).toBe(1)
+  })
+
+  it('F: registrationNumber 空でも1ページPDFを生成', async () => {
+    const pdf = await buildInvoicePdf(baseInput({ issuer: { ...baseInput().issuer, registrationNumber: '' } }))
+    expect(isPdf(pdf)).toBe(true)
+    expect(pdfPageCount(pdf)).toBe(1)
+  })
+
+  it('G: 通常入力（demo fixture相当）は1ページ', async () => {
+    expect(pdfPageCount(await buildInvoicePdf(baseInput()))).toBe(1)
   })
 })
