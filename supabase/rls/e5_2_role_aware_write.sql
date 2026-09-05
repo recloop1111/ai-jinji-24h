@@ -1,6 +1,7 @@
 -- ============================================================================
 -- e5_2_role_aware_write.sql — 企業RBAC を DB レベルで enforcement（browser-direct write 対策）
---   ※ 手動SQL・**Production 未適用**（別承認・ROLLBACK 同梱: e5_2_role_aware_write_ROLLBACK.sql）。
+--   ※ 手動SQL・**Production 適用済み**（2026-09 inspection で `*_rbac_write_*` policy の存在を確認）。
+--     再適用は不要（idempotent だが不要）。ROLLBACK 同梱: e5_2_role_aware_write_ROLLBACK.sql。
 --   ※ 目的: server route を 403 にしても、authenticated user が Supabase browser client から
 --     直接 INSERT/UPDATE/DELETE できる RLS だと VIEWER が RBAC を回避できる。これを DB で塞ぐ。
 --   ※ 対象（browser-direct write されるテーブル）: jobs / job_questions / applicants / internal_memos。

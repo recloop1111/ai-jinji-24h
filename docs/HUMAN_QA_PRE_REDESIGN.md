@@ -8,11 +8,12 @@
 - テスト用に OWNER / ADMIN / RECRUITER / VIEWER の各企業アカウントを1つずつ用意（同一企業）。
 - 別企業アカウントを1つ用意（テナント分離確認用）。
 
-> **適用が必要な手動 SQL（Production 未適用・任意/該当時のみ）**
-> - `supabase/rls/e5_4b_jobs_questions_write_lockdown.sql`（jobs/questions の browser 直書き封じ・防御多層。未適用でも server route の RBAC で保護される）。
-> - `supabase/rls/e5_2_role_aware_write.sql`（既存・未適用の RBAC RESTRICTIVE）。
+> **手動 SQL の Production 適用状況（2026-09 inspection で確定）**
+> - `supabase/rls/e5_2_role_aware_write.sql` — **Production 適用済み**（applicants/internal_memos/jobs/job_questions の `*_rbac_write_*` policy が存在）。再適用不要。
+> - `supabase/rls/phase_e_admin_company_resources.sql` — **Production 適用済み**（`admin_all_jobs/job_questions/common_questions` が存在・運営admin 2件は company_id=null）。再適用不要。
+> - `supabase/rls/e5_4b_jobs_questions_write_lockdown.sql` — **Production 未適用（意図どおり）＝post-deploy migration**。現行 Production(main) は PR #79 の jobs/questions server route 化が未 deploy で browser 直書きを使うため、**今 適用すると企業ユーザーの求人・質問編集を破壊する**。適用は「PR #79（最終完成版）が Production へ deploy され、jobs/questions が server route 経由になったのを確認した直後」。
 > - B-6.2 の請求先名是正 SQL（`docs` 外・前フェーズ報告参照。「テスト株式会社 請求先」表示時のみ）。
-> QA は上記 SQL 未適用でも実施可能（アプリ層で RBAC/監査は担保）。RLS 適用後は「VIEWER が browser devtools から直書きできない」ことの追加確認が可能。
+> QA はアプリ層（RBAC/監査）で担保。VIEWER の browser 直書き迂回は既に e5_2（適用済み）で DB 遮断。e5_4b は server route deploy 後に jobs/questions の直書きを admin のみへ締める追加防御。
 
 ---
 

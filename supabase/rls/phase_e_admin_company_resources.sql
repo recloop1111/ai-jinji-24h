@@ -5,7 +5,8 @@
 --
 -- 【重要】
 --   * これは MIGRATION ではない。supabase/migrations には置かない（本番自動適用しない）。
---   * 手動実行専用（運用者が Supabase SQL Editor / psql で意図的に流す）。本ファイルは未実行。
+--   * 手動実行専用（運用者が Supabase SQL Editor / psql で意図的に流す）。
+--   * **Production 適用済み**（2026-09 inspection で admin_all_jobs/job_questions/common_questions の存在を確認）。再適用不要。
 --   * **追加のみ（additive）**。既存の company_* ポリシーは DROP も変更もしない。
 --   * service_role / anon の扱いは変えない（service_role は RLS bypass・anon は対象外）。
 --
@@ -147,7 +148,7 @@ COMMIT;
 
 
 -- ── §5. 注意書き ────────────────────────────────────────────────────────────
--- * 本SQLは未実行。手動実行前に必ずレビューすること。
+-- * 本SQLは Production 適用済み（2026-09 inspection 確認）。再実行は不要。
 -- * 実行は Supabase SQL Editor（service_role 接続）で §2 の BEGIN..COMMIT を流す。
 -- * 追加のみ（既存 company_* / anon 遮断 / service_role bypass は不変）。
 -- * 実行後、運営管理画面で求人管理・質問設定が見える/編集できることを確認（§4-b）。

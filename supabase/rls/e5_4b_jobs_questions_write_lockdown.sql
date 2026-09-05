@@ -3,10 +3,13 @@
 --   E-5-4-B: jobs / job_questions / common_questions の browser-direct write を
 --   「運営 admin のみ」に締める（企業ユーザーの browser 直 write を DB で塞ぐ）。
 --
---   ※ 手動SQL・**Production 未適用**（別承認・ROLLBACK 同梱: e5_4b_..._ROLLBACK.sql）。
---   ※ 前提: 企業側の jobs/questions/settings の書き込みは server route（service-role・
---     getClientUser + RBAC + 監査）へ移行済み（app/api/client/jobs・/questions・/company PATCH）。
---     よって企業ユーザーが authenticated browser client から直接 write する経路は不要になった。
+--   ※ 手動SQL・**Production 未適用（意図どおり）= POST-DEPLOY migration**（ROLLBACK 同梱: e5_4b_..._ROLLBACK.sql）。
+--   ※ 【適用タイミング厳守】このファイルは PR #79（最終完成版）が Production(main) へ deploy され、
+--     企業側 jobs/questions が server route 経由（app/api/client/jobs・/questions・/company PATCH）に
+--     なったことを確認した「直後」にのみ適用する。deploy 前に適用すると、現行 Production UI は
+--     browser 直書きのため、企業ユーザーの求人・質問の作成/編集/公開/削除を破壊する。
+--   ※ 依存（適用済み前提）: admin_all_*（phase_e・Production 適用済み確認）が運営admin 代理 write の permissive。
+--     e5_2_role_aware_write.sql（Production 適用済み）と併存し、jobs/job_questions は AND で最終的に admin only に収束。
 --
 --   方式 = **RESTRICTIVE write policy（運営 admin のみ許可）を追加**（既存 permissive を DROP しない）。
 --     - PostgreSQL RLS: restrictive は AND。既存 permissive（tenant/admin）と AND され、
