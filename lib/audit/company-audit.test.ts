@@ -58,6 +58,6 @@ describe('writeCompanyAuditLog', () => {
     expect(COMPANY_AUDIT_ACTIONS).toContain('applicant.resume_pdf_exported')
     expect(COMPANY_AUDIT_ACTIONS).toContain('member.joined')
     expect(COMPANY_AUDIT_ACTIONS).toContain('billing.invoice_pdf_exported') // B-3
-    expect(COMPANY_AUDIT_RESOURCE_TYPES).toEqual(['applicant', 'member', 'member_invite', 'company', 'template', 'billing_record'])
+    expect(COMPANY_AUDIT_RESOURCE_TYPES).toEqual(['applicant', 'member', 'member_invite', 'company', 'template', 'billing_record', 'job'])
   })
 })

@@ -97,9 +97,10 @@ export default function JobManager({ companyId: companyIdProp, theme, onNavigate
   // 共有コンポーネント（admin企業詳細・client求人管理の両方で使用）。
   // 現在のパスで使う認証セッションを切替える（/admin→admin cookie・それ以外→client cookie）。
   const pathname = usePathname()
+  const isAdminCtx = pathname?.startsWith('/admin') === true
   const supabase = useMemo(
-    () => (pathname?.startsWith('/admin') ? createAdminBrowserClient() : createClientBrowserClient()),
-    [pathname],
+    () => (isAdminCtx ? createAdminBrowserClient() : createClientBrowserClient()),
+    [isAdminCtx],
   )
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
@@ -248,13 +249,19 @@ export default function JobManager({ companyId: companyIdProp, theme, onNavigate
     }
 
     try {
-      const { error } = await supabase
-        .from('jobs')
-        .insert(payload)
-        .select()
-        .single()
-
-      if (error) throw error
+      if (isAdminCtx) {
+        // admin 代理: 従来どおり admin cookie + RLS でブラウザ直 insert。
+        const { error } = await supabase.from('jobs').insert(payload).select().single()
+        if (error) throw error
+      } else {
+        // client（企業自身）: server route（getClientUser + RBAC + 監査）経由。
+        const res = await fetch('/api/client/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, employment_type: employmentTypeDb, description: form.employmentTypeOther.trim() }),
+        })
+        if (!res.ok) throw new Error('create failed')
+      }
       setCreateModalOpen(false)
       showToast('求人を作成しました。質問設定を行ってください。')
       fetchJobs()
@@ -286,12 +293,17 @@ export default function JobManager({ companyId: companyIdProp, theme, onNavigate
     }
 
     try {
-      const { error } = await supabase
-        .from('jobs')
-        .update(updatePayload)
-        .eq('id', editingJobId)
-
-      if (error) throw error
+      if (isAdminCtx) {
+        const { error } = await supabase.from('jobs').update(updatePayload).eq('id', editingJobId)
+        if (error) throw error
+      } else {
+        const res = await fetch(`/api/client/jobs/${editingJobId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'update', title, employment_type: employmentTypeDb, description: editEmploymentTypeOther.trim() }),
+        })
+        if (!res.ok) throw new Error('update failed')
+      }
       closeEditModal()
       showToast('求人を更新しました。')
       fetchJobs()
@@ -307,12 +319,17 @@ export default function JobManager({ companyId: companyIdProp, theme, onNavigate
     const newIsActive = job.status === 'active' ? false : true
 
     try {
-      const { error } = await supabase
-        .from('jobs')
-        .update({ is_active: newIsActive })
-        .eq('id', id)
-
-      if (error) throw error
+      if (isAdminCtx) {
+        const { error } = await supabase.from('jobs').update({ is_active: newIsActive }).eq('id', id)
+        if (error) throw error
+      } else {
+        const res = await fetch(`/api/client/jobs/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'set_active', is_active: newIsActive }),
+        })
+        if (!res.ok) throw new Error('toggle failed')
+      }
       setJobs((prev) =>
         prev.map((j) => {
           if (j.id !== id) return j
@@ -329,11 +346,13 @@ export default function JobManager({ companyId: companyIdProp, theme, onNavigate
   async function handleDeleteJob(jobId: string) {
     if (!confirm('この求人を削除しますか？関連する質問データも削除されます。')) return
     try {
-      const { error } = await supabase
-        .from('jobs')
-        .delete()
-        .eq('id', jobId)
-      if (error) throw error
+      if (isAdminCtx) {
+        const { error } = await supabase.from('jobs').delete().eq('id', jobId)
+        if (error) throw error
+      } else {
+        const res = await fetch(`/api/client/jobs/${jobId}`, { method: 'DELETE' })
+        if (!res.ok) throw new Error('delete failed')
+      }
       showToast('求人を削除しました')
       fetchJobs()
     } catch (err) {

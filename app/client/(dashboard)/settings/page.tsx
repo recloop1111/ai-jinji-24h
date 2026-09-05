@@ -203,25 +203,31 @@ function SettingsContent() {
   }
 
   const handleSaveCompany = async () => {
-    if (!companyId) return
     setCompanySaving(true)
-    const { error } = await supabase
-      .from('companies')
-      .update({
-        name: companyForm.name,
-        contact_person: companyForm.contact_person,
-        contact_email: companyForm.contact_email,
-        phone: companyForm.phone,
-        updated_at: new Date().toISOString(),
+    try {
+      // E-5-4-B: ブラウザ直 update を廃止し server route（getClientUser + RBAC + 監査）経由。
+      const res = await fetch('/api/client/company', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: companyForm.name,
+          contact_person: companyForm.contact_person,
+          contact_email: companyForm.contact_email,
+          phone: companyForm.phone,
+        }),
       })
-      .eq('id', companyId)
-    setCompanySaving(false)
-    if (error) {
-      showToastMessage('保存に失敗しました: ' + error.message)
-      return
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        showToastMessage('保存に失敗しました: ' + (json?.error?.message ?? ''))
+        return
+      }
+      setCompany({ ...companyForm })
+      showToastMessage('企業情報を保存しました')
+    } catch {
+      showToastMessage('保存に失敗しました')
+    } finally {
+      setCompanySaving(false)
     }
-    setCompany({ ...companyForm })
-    showToastMessage('企業情報を保存しました')
   }
 
   // 請求先情報の読み込み（cookie 認証・companyId 不要）

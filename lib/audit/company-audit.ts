@@ -29,10 +29,16 @@ export const COMPANY_AUDIT_ACTIONS = [
   'company.emergency_suspension_requested',
   'template.updated',
   'billing.invoice_pdf_exported',
+  // E-5-4-B: jobs / questions / general settings の server route 化に伴う mutation。
+  'job.created',
+  'job.updated',
+  'job.deleted',
+  'question.updated',
+  'company_settings.updated',
 ] as const
 export type CompanyAuditAction = (typeof COMPANY_AUDIT_ACTIONS)[number]
 
-export const COMPANY_AUDIT_RESOURCE_TYPES = ['applicant', 'member', 'member_invite', 'company', 'template', 'billing_record'] as const
+export const COMPANY_AUDIT_RESOURCE_TYPES = ['applicant', 'member', 'member_invite', 'company', 'template', 'billing_record', 'job'] as const
 export type CompanyAuditResourceType = (typeof COMPANY_AUDIT_RESOURCE_TYPES)[number]
 
 // metadata に入れてよいのは安全な primitive のみ（object/array/関数などは受けない＝PII/本文の巻き込みを防ぐ）。

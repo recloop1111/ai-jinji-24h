@@ -39,6 +39,11 @@ const ACTION_LABEL: Record<string, string> = {
   'template.updated': 'テンプレートを更新',
   'template.deleted': 'テンプレートを削除',
   'billing.invoice_pdf_exported': '請求書PDFをダウンロード',
+  'job.created': '求人を作成',
+  'job.updated': '求人を更新',
+  'job.deleted': '求人を削除',
+  'question.updated': '面接質問を更新',
+  'company_settings.updated': '企業情報を変更',
 }
 
 // 'YYYY-MM'（または 'YYYY-MM-DD'）→「YYYY年M月」。不正/空は null。

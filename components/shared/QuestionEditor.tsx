@@ -135,9 +135,10 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
   // 共有コンポーネント（admin企業詳細・client質問設定の両方で使用）。
   // 現在のパスで使う認証セッションを切替える（/admin→admin cookie・それ以外→client cookie）。
   const pathname = usePathname()
+  const isAdminCtx = pathname?.startsWith('/admin') === true
   const supabase = useMemo(
-    () => (pathname?.startsWith('/admin') ? createAdminBrowserClient() : createClientBrowserClient()),
-    [pathname],
+    () => (isAdminCtx ? createAdminBrowserClient() : createClientBrowserClient()),
+    [isAdminCtx],
   )
   const resolvedCompanyId = companyIdProp === 'current' ? currentCompanyId : companyIdProp
 
@@ -490,34 +491,31 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
       return
     }
     try {
-      // closing カテゴリだけ削除（icebreakers/その他は触らない）
-      const { error: deleteError } = await supabase
-        .from('common_questions')
-        .delete()
-        .eq('company_id', resolvedCompanyId)
-        .eq('category', 'closing')
-
-      if (deleteError) {
-        console.error('[QuestionEditor クロージング保存] 削除エラー:', deleteError)
-        throw deleteError
-      }
-
-      if (commonQuestionsClosing.length > 0) {
-        const rows = commonQuestionsClosing.map((q, index) => ({
-          company_id: resolvedCompanyId,
-          category: 'closing',
-          label: q.label,
-          question_text: q.question,
-          is_scorable: false,
-          sort_order: index + 1,
-        }))
-        const { error: insertError } = await supabase.from('common_questions').insert(rows)
-        if (insertError) {
-          console.error('[QuestionEditor クロージング保存] 挿入エラー:', insertError)
-          throw insertError
+      if (isAdminCtx) {
+        // admin 代理: 従来どおり admin cookie + RLS でブラウザ直 delete+insert（closing のみ）。
+        const { error: deleteError } = await supabase
+          .from('common_questions')
+          .delete()
+          .eq('company_id', resolvedCompanyId)
+          .eq('category', 'closing')
+        if (deleteError) throw deleteError
+        if (commonQuestionsClosing.length > 0) {
+          const rows = commonQuestionsClosing.map((q, index) => ({
+            company_id: resolvedCompanyId, category: 'closing', label: q.label,
+            question_text: q.question, is_scorable: false, sort_order: index + 1,
+          }))
+          const { error: insertError } = await supabase.from('common_questions').insert(rows)
+          if (insertError) throw insertError
         }
+      } else {
+        // client（企業自身）: server route（getClientUser + RBAC + 監査）経由。
+        const res = await fetch('/api/client/questions', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: 'closing', questions: commonQuestionsClosing.map((q) => ({ label: q.label, question: q.question })) }),
+        })
+        if (!res.ok) throw new Error('closing save failed')
       }
-
       await fetchCommonQuestions(resolvedCompanyId)
     } catch (err) {
       console.error('[QuestionEditor クロージング保存] エラー発生:', err)
@@ -533,25 +531,31 @@ export default function QuestionEditor({ companyId: companyIdProp, theme, onNavi
     category: 'evaluation' | 'icebreaker',
     items: { question: string }[],
   ) => {
-    const { error: deleteError } = await supabase
-      .from('job_questions')
-      .delete()
-      .eq('job_id', jobId)
-      .eq('pattern_key', patternKey)
-      .eq('category', category)
-    if (deleteError) throw deleteError
-
-    if (items.length > 0) {
-      const rows = items.map((q, index) => ({
-        job_id: jobId,
-        pattern_key: patternKey,
-        category,
-        question_text: q.question,
-        sort_order: index + 1,
-      }))
-      const { error: insertError } = await supabase.from('job_questions').insert(rows)
-      if (insertError) throw insertError
+    if (isAdminCtx) {
+      // admin 代理: 従来どおり admin cookie + RLS でブラウザ直 delete+insert。
+      const { error: deleteError } = await supabase
+        .from('job_questions')
+        .delete()
+        .eq('job_id', jobId)
+        .eq('pattern_key', patternKey)
+        .eq('category', category)
+      if (deleteError) throw deleteError
+      if (items.length > 0) {
+        const rows = items.map((q, index) => ({
+          job_id: jobId, pattern_key: patternKey, category, question_text: q.question, sort_order: index + 1,
+        }))
+        const { error: insertError } = await supabase.from('job_questions').insert(rows)
+        if (insertError) throw insertError
+      }
+      return
     }
+    // client（企業自身）: server route（getClientUser + RBAC + 自社 job 検証 + 監査）経由。
+    const res = await fetch('/api/client/questions', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'job', jobId, patternKey, category, questions: items.map((q) => ({ question: q.question })) }),
+    })
+    if (!res.ok) throw new Error('job questions save failed')
   }
 
   // 保存前の上限検証。OK なら null、超過ならエラーメッセージ（どのカテゴリが何問超過か）を返す。
