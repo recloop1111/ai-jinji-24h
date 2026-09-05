@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { can } from '@/lib/rbac/permissions'
 import { hashSettingPassword, verifySettingPassword, isValidSettingPassword } from '@/lib/security/setting-password'
 import { writeCompanyAuditLog } from '@/lib/audit/company-audit'
 
@@ -40,6 +41,9 @@ export async function POST(request: NextRequest) {
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
+    // 管理者設定用パスワードの初期設定は企業設定 = OWNER/ADMIN のみ（RECRUITER/VIEWER 禁止）。
+    // 未ゲートだと VIEWER が未設定企業のパスワードを乗っ取り、以降の設定変更ゲートを掌握できる。
+    if (!can(user.companyRole, 'company_settings.manage')) return apiError('FORBIDDEN')
 
     const body = await request.json().catch(() => null)
     const newPassword = body?.newPassword
@@ -79,6 +83,8 @@ export async function PATCH(request: NextRequest) {
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
+    // 変更も企業設定 = OWNER/ADMIN のみ（現行パスワード照合に加え role でも制限）。
+    if (!can(user.companyRole, 'company_settings.manage')) return apiError('FORBIDDEN')
 
     const body = await request.json().catch(() => null)
     const currentPassword = body?.currentPassword
