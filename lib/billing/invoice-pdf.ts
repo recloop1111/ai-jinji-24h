@@ -49,8 +49,27 @@ export type InvoiceSnapshot = {
 
 const FONT_PATH = path.join(process.cwd(), 'assets', 'fonts', 'IPAexGothic.ttf')
 
+// AIMEN24 ブランドパレット（請求書PDF）。主要ブランドカラー = Navy #06182F。
+// 濃色は帯・見出し・強調のみに使い、地は白/薄グレー/薄ブルーグレーで視認性を優先する。
+const C = {
+  navy: '#06182F', // AIMEN24 Navy（帯・表ヘッダー・合計強調）
+  navyMid: '#13294a', // 帯アクセント（斜めカットの中間色）
+  blueLt: '#aebfd6', // 帯アクセント（明るいブルーグレー）／INVOICE サブ文字
+  ink: '#1f2937', // 本文（slate-800）
+  sub: '#6b7280', // 補助文字（slate-500）
+  line: '#e2e8f0', // 罫線（slate-200）
+  soft: '#f1f5f9', // 情報ブロック背景（slate-100）
+  navySoft: '#eaeef5', // 合計金額右ボックス・小見出し背景（薄ネイビー）
+  white: '#ffffff',
+} as const
+
 function yen(n: number): string {
   return `¥${(n ?? 0).toLocaleString('ja-JP')}`
+}
+
+// 表示用の日付整形（YYYY-MM-DD → YYYY/MM/DD）。resolver（jstDueDate）の値は変えない。
+function slashDate(d: string | null | undefined): string {
+  return d ? d.replace(/-/g, '/') : '—'
 }
 
 // client/admin の invoice API が共有する、billing_records 行 + companies から InvoiceInput を組み立てる。
@@ -108,7 +127,8 @@ export function toInvoiceInput(
 export function buildInvoicePdf(input: InvoiceInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ size: 'A4', margin: 50, font: '' })
+      // margin:0 でページ全域に描画可能にし、コンテンツは MX の内側で管理（帯は全幅ブリード）。
+      const doc = new PDFDocument({ size: 'A4', margin: 0, font: '' })
       doc.registerFont('jp', readFileSync(FONT_PATH))
       doc.font('jp')
 
@@ -117,120 +137,249 @@ export function buildInvoicePdf(input: InvoiceInput): Promise<Buffer> {
       doc.on('end', () => resolve(Buffer.concat(chunks)))
       doc.on('error', reject)
 
-      const left = doc.page.margins.left
-      const right = doc.page.width - doc.page.margins.right
-      const contentWidth = right - left
+      const W = doc.page.width
+      const H = doc.page.height
+      const MX = 45 // 左右の内容マージン（十分な余白）
+      const left = MX
+      const right = W - MX
+      const cw = right - left // コンテンツ幅
 
-      // タイトル
-      doc.fontSize(22).text('請求書', { align: 'center' })
-      doc.moveDown(1)
+      // ── 描画ヘルパ（絶対座標・1ページ完結レイアウト） ──────────────────
+      const fill = (color: string) => doc.fillColor(color)
+      // 縦中央寄せの1行テキスト（行高 rowH のセル内）。
+      const cellText = (
+        str: string,
+        x: number,
+        rowY: number,
+        w: number,
+        rowH: number,
+        opt: { align?: 'left' | 'center' | 'right'; size?: number; color?: string; pad?: number } = {},
+      ) => {
+        const size = opt.size ?? 10
+        const align = opt.align ?? 'left'
+        const pad = opt.pad ?? 10
+        const tx = align === 'left' ? x + pad : x
+        const tw = align === 'left' ? w - pad : align === 'right' ? w - pad : w
+        fill(opt.color ?? C.ink).fontSize(size)
+        doc.text(str, tx, rowY + (rowH - size) / 2 - 1, { width: tw, align })
+      }
+      // セクション見出し（ナビーの縦バー＋ラベル）。戻り値は見出し下端の y。
+      const sectionMark = (label: string, x: number, y: number, width: number): number => {
+        doc.rect(x, y + 1, 3.5, 15).fill(C.navy)
+        fill(C.navy).fontSize(12).text(label, x + 10, y, { width: width - 10, characterSpacing: 0.5 })
+        return y + 20
+      }
 
-      // 請求書番号・請求日・支払期限（右寄せ）
-      doc.fontSize(10)
-      doc.text(`請求書番号: ${input.invoiceNumber}`, { align: 'right' })
-      doc.text(`請求日: ${input.issueDate}`, { align: 'right' })
-      doc.text(`支払期限: ${input.dueDate ?? '—'}`, { align: 'right' })
-      doc.moveDown(1)
+      // ── 1. ヘッダー帯（AIMEN24 Navy・斜めカットアクセント） ───────────────
+      const bandH = 120
+      // 主帯（左〜中央・右端を斜めに）
+      doc.polygon([0, 0], [W * 0.6, 0], [W * 0.5, bandH], [0, bandH]).fill(C.navy)
+      // 中間色アクセント（斜めの層）
+      doc.polygon([W * 0.6, 0], [W * 0.68, 0], [W * 0.58, bandH], [W * 0.5, bandH]).fill(C.navyMid)
+      // 明るいブルーグレーの細アクセント
+      doc.polygon([W * 0.68, 0], [W * 0.71, 0], [W * 0.61, bandH], [W * 0.58, bandH]).fill(C.blueLt)
 
-      // 請求先（左ブロック）。宛名は resolveBillTo（snapshot→profile→companies）の確定値。
-      // 右の発行者ブロックと重ならないよう幅を contentWidth/2 に制限。
-      const billToY = doc.y
-      const billToW = contentWidth / 2
+      // 御請求書（白・字間広め）＋ INVOICE
+      fill(C.white).fontSize(29).text('御 請 求 書', MX, 34, { characterSpacing: 4 })
+      fill(C.blueLt).fontSize(11).text('I N V O I C E', MX + 2, 76, { characterSpacing: 5 })
+
+      // AIMEN24 テキストロゴ（帯の白側・右上）＋ タグライン
+      fill(C.navy).fontSize(23).text('AIMEN24', right - 240, 30, { width: 240, align: 'right', characterSpacing: 0.5 })
+      fill(C.sub).fontSize(8.5).text('AIで、採用をもっとシンプルに。', right - 240, 62, { width: 240, align: 'right' })
+
+      // 発行日 / 請求書番号（帯下・右寄せ・コロン揃え）
+      const metaW = 260
+      const metaX = right - metaW
+      fill(C.ink).fontSize(10)
+      doc.text(`発行日　　：${input.issueDate}`, metaX, 134, { width: metaW, align: 'right' })
+      doc.text(`請求書番号：${input.invoiceNumber}`, metaX, 151, { width: metaW, align: 'right' })
+
+      // ── 2. 請求先（左） / 発行者（右） ─────────────────────────────────
+      const blockY = 178
+      const colW = cw * 0.46
+      const rightColX = left + cw * 0.54
+
+      // 請求先
+      let by = sectionMark('請求先', left, blockY, colW)
+      doc.moveTo(left, by).lineTo(left + colW, by).lineWidth(1).stroke(C.navy)
+      by += 12
       const bt = input.billTo
-      doc.fontSize(12).text(`${bt.companyName}　御中`, left, billToY, { width: billToW })
-      doc.fontSize(10)
-      if (bt.department) doc.text(bt.department, left, doc.y, { width: billToW })
-      if (bt.contactName) doc.text(`${bt.contactName} 様`, left, doc.y, { width: billToW })
-      if (bt.postalCode) doc.text(`〒${bt.postalCode}`, left, doc.y, { width: billToW })
+      fill(C.ink).fontSize(15).text(`${bt.companyName}　御中`, left, by, { width: colW })
+      by = doc.y + 4
+      fill(C.ink).fontSize(10.5)
+      if (bt.department) { doc.text(bt.department, left, by, { width: colW }); by = doc.y }
+      if (bt.contactName) { doc.text(`${bt.contactName} 様`, left, by, { width: colW }); by = doc.y }
+      if (bt.postalCode) { doc.text(`〒${bt.postalCode}`, left, by, { width: colW }); by = doc.y }
       if (bt.address) {
-        doc.text(`${bt.address}${bt.building ? ' ' + bt.building : ''}`, left, doc.y, { width: billToW })
+        doc.text(`${bt.address}${bt.building ? ' ' + bt.building : ''}`, left, by, { width: colW })
+        by = doc.y
       }
-      if (bt.phone) doc.text(`TEL: ${bt.phone}`, left, doc.y, { width: billToW })
-      const billToBottom = doc.y
+      if (bt.phone) { doc.text(`TEL：${bt.phone}`, left, by, { width: colW }); by = doc.y }
+      const billToBottom = by
 
-      // 発行者（右ブロック）。billing_issuer_settings(DB)→config で解決済みの input.issuer。
+      // 発行者
       const issuer = input.issuer
-      const issuerTop = billToY
-      const issuerX = left + contentWidth / 2
-      const issuerW = contentWidth / 2
-      doc.fontSize(10)
-      doc.text(issuer.name, issuerX, issuerTop, { width: issuerW, align: 'right' })
-      doc.text(`〒${issuer.postalCode}`, issuerX, doc.y, { width: issuerW, align: 'right' })
-      doc.text(
-        `${issuer.address}${issuer.building ? ' ' + issuer.building : ''}`,
-        issuerX,
-        doc.y,
-        { width: issuerW, align: 'right' },
-      )
-      doc.text(`TEL: ${issuer.tel}`, issuerX, doc.y, { width: issuerW, align: 'right' })
-      // 登録番号は設定されている場合のみ表示（インボイス未登録時に「未登録」等を出さない）。
+      let iy = sectionMark('発行者', rightColX, blockY, colW)
+      doc.moveTo(rightColX, iy).lineTo(rightColX + colW, iy).lineWidth(1).stroke(C.navy)
+      iy += 12
+      fill(C.ink).fontSize(12.5).text(issuer.name, rightColX, iy, { width: colW })
+      iy = doc.y + 4
+      fill(C.ink).fontSize(10.5)
+      doc.text(`〒${issuer.postalCode}`, rightColX, iy, { width: colW }); iy = doc.y
+      doc.text(`${issuer.address}${issuer.building ? ' ' + issuer.building : ''}`, rightColX, iy, { width: colW }); iy = doc.y
+      // 登録番号は設定されている場合のみ表示（未登録時に「未登録」等を出さない）。
       if (issuer.registrationNumber) {
-        doc.text(`登録番号: ${issuer.registrationNumber}`, issuerX, doc.y, {
-          width: issuerW,
-          align: 'right',
-        })
+        doc.text(`登録番号：${issuer.registrationNumber}`, rightColX, iy, { width: colW }); iy = doc.y
       }
+      doc.text(`TEL：${issuer.tel}`, rightColX, iy, { width: colW }); iy = doc.y
+      const issuerBottom = iy
 
-      // 請求先・発行者のうち下端が低い方へ移動してから次セクションへ（重なり防止）。
-      doc.y = Math.max(billToBottom, doc.y)
-      doc.moveDown(2)
+      // ── 3. 案内文 ────────────────────────────────────────────────
+      let y = Math.max(billToBottom, issuerBottom) + 14
+      fill(C.ink).fontSize(10.5).text('下記の通り、御請求申し上げます。', left, y)
+      y = doc.y + 8
 
-      // 件名（請求対象月）
-      doc.fontSize(11).fillColor('#000').text(`件名: ${input.billingMonth} 分 AI面接利用料`, left, doc.y)
-      doc.moveDown(0.5)
+      // ── 4. 請求情報ブロック（薄背景） ──────────────────────────────
+      const infoH = 82
+      doc.roundedRect(left, y, cw, infoH, 8).fill(C.soft)
+      sectionMark('請求情報', left + 18, y + infoH / 2 - 9, 100)
+      const labelX = left + 150
+      const infoRows: [string, string][] = [
+        ['件名　', `${input.billingMonth}分 AI面接利用料`],
+        ['支払期限', slashDate(input.dueDate)],
+        ['振込先', `${input.bank.bankName} ${input.bank.branchName} ${input.bank.accountType} ${input.bank.accountNumber}`],
+      ]
+      let ry = y + 16
+      for (const [label, value] of infoRows) {
+        fill(C.sub).fontSize(10).text(label, labelX, ry, { width: 64 })
+        fill(C.navy).fontSize(10).text('：', labelX + 64, ry)
+        fill(C.ink).fontSize(10).text(value, labelX + 80, ry, { width: right - (labelX + 80) - 16 })
+        ry += 20
+      }
+      y += infoH + 16
 
-      // 合計（大きく）
-      doc.fontSize(14).text(`ご請求金額（税込）: ${yen(input.total)}`, { align: 'left' })
-      doc.moveDown(1)
+      // ── 5. 合計金額ボックス ──────────────────────────────────────
+      const totalBoxH = 56
+      const totLabelW = cw * 0.28
+      doc.rect(left, y, totLabelW, totalBoxH).fill(C.navy)
+      fill(C.white).fontSize(16).text('合計金額', left, y + (totalBoxH - 16) / 2, { width: totLabelW, align: 'center' })
+      const totValX = left + totLabelW
+      const totValW = cw - totLabelW
+      doc.rect(totValX, y, totValW, totalBoxH).fill(C.navySoft)
+      const totalStr = yen(input.total)
+      const suffix = '（税込）'
+      doc.fontSize(30); const tW = doc.widthOfString(totalStr)
+      doc.fontSize(11); const sW = doc.widthOfString(suffix)
+      const groupX = totValX + (totValW - (tW + 8 + sW)) / 2
+      fill(C.navy).fontSize(30).text(totalStr, groupX, y + (totalBoxH - 30) / 2 - 1)
+      fill(C.sub).fontSize(11).text(suffix, groupX + tW + 8, y + totalBoxH / 2 - 2)
+      y += totalBoxH + 16
 
-      // 明細テーブル（簡易）
-      const tableTop = doc.y
-      const colItem = left
-      const colQty = left + contentWidth * 0.5
-      const colUnit = left + contentWidth * 0.65
-      const colAmount = left + contentWidth * 0.82
-      doc.fontSize(10)
-      doc.text('内容', colItem, tableTop)
-      doc.text('数量', colQty, tableTop, { width: contentWidth * 0.13, align: 'right' })
-      doc.text('単価', colUnit, tableTop, { width: contentWidth * 0.15, align: 'right' })
-      doc.text('金額(税抜)', colAmount, tableTop, { width: contentWidth * 0.18, align: 'right' })
-      doc
-        .moveTo(left, doc.y + 2)
-        .lineTo(right, doc.y + 2)
-        .stroke()
-      doc.moveDown(0.5)
+      // ── 6. 明細テーブル ──────────────────────────────────────────
+      const cols = [
+        { label: '内容', w: 0.40, align: 'left' as const },
+        { label: '数量', w: 0.09, align: 'center' as const },
+        { label: '単位', w: 0.09, align: 'center' as const },
+        { label: '単価（税抜）', w: 0.15, align: 'right' as const },
+        { label: '税率', w: 0.10, align: 'center' as const },
+        { label: '金額（税抜）', w: 0.17, align: 'right' as const },
+      ]
+      const colX: number[] = []
+      const colWidth: number[] = []
+      { let acc = left; for (const c of cols) { colX.push(acc); colWidth.push(cw * c.w); acc += cw * c.w } }
+      const headH = 26
+      // ヘッダー行（ナビー背景・白文字）
+      doc.rect(left, y, cw, headH).fill(C.navy)
+      cols.forEach((c, i) => cellText(c.label, colX[i], y, colWidth[i], headH, { align: c.align, size: 9.5, color: C.white, pad: 10 }))
+      // データ行 ＋ 空行（合計 3 行）
+      const rowH = 28
+      const dataVals = [
+        `${input.billingMonth} AI面接利用料`,
+        `${input.interviewCount}`,
+        '件',
+        yen(input.unitPrice),
+        `${Math.round(BILLING_TERMS.taxRate * 100)}%`,
+        yen(input.subtotal),
+      ]
+      const bodyRows = 3
+      for (let r = 0; r < bodyRows; r++) {
+        const rowTop = y + headH + r * rowH
+        if (r === 0) {
+          cols.forEach((c, i) => cellText(dataVals[i], colX[i], rowTop, colWidth[i], rowH, { align: c.align, size: 10, color: C.ink, pad: 10 }))
+        }
+        doc.moveTo(left, rowTop + rowH).lineTo(right, rowTop + rowH).lineWidth(0.7).stroke(C.line)
+      }
+      // 外枠（下端＋左右）を薄い罫線で締める
+      const tableBottom = y + headH + bodyRows * rowH
+      doc.moveTo(left, y).lineTo(left, tableBottom).lineWidth(0.7).stroke(C.line)
+      doc.moveTo(right, y).lineTo(right, tableBottom).lineWidth(0.7).stroke(C.line)
+      y = tableBottom + 18
 
-      const rowY = doc.y
-      doc.text(`${input.billingMonth} AI面接`, colItem, rowY, { width: contentWidth * 0.5 })
-      doc.text(`${input.interviewCount}`, colQty, rowY, { width: contentWidth * 0.13, align: 'right' })
-      doc.text(`${yen(input.unitPrice)}`, colUnit, rowY, { width: contentWidth * 0.15, align: 'right' })
-      doc.text(`${yen(input.subtotal)}`, colAmount, rowY, { width: contentWidth * 0.18, align: 'right' })
-      doc.moveDown(1)
+      // ── 7. 税別内訳（左） / 合計サマリー（右） ────────────────────────
+      const rate = `${Math.round(BILLING_TERMS.taxRate * 100)}%`
+      // 税別内訳
+      const bkX = left
+      const bkW = cw * 0.5
+      const bkTop = sectionMark('税別内訳', bkX, y, bkW)
+      const brCols = [
+        { label: '税率', w: 0.30, align: 'center' as const },
+        { label: '対象金額（税抜）', w: 0.4, align: 'right' as const },
+        { label: '消費税額', w: 0.30, align: 'right' as const },
+      ]
+      const brX: number[] = []
+      const brW: number[] = []
+      { let acc = bkX; for (const c of brCols) { brX.push(acc); brW.push(bkW * c.w); acc += bkW * c.w } }
+      const brHeadH = 23
+      const brHeadY = bkTop + 4
+      doc.rect(bkX, brHeadY, bkW, brHeadH).fill(C.navySoft)
+      brCols.forEach((c, i) => cellText(c.label, brX[i], brHeadY, brW[i], brHeadH, { align: c.align, size: 8.5, color: C.navy, pad: 8 }))
+      const brRowH = 24
+      const brRowY = brHeadY + brHeadH
+      const brVals = [`${rate}対象分`, yen(input.subtotal), yen(input.tax)]
+      brCols.forEach((c, i) => cellText(brVals[i], brX[i], brRowY, brW[i], brRowH, { align: c.align, size: 9.5, color: C.ink, pad: 8 }))
+      doc.rect(bkX, brHeadY, bkW, brHeadH + brRowH).lineWidth(0.7).stroke(C.line)
+      const brBottom = brRowY + brRowH
 
-      // 小計・消費税・合計（右寄せ）
-      const sumX = left + contentWidth * 0.55
-      const sumW = contentWidth * 0.45
-      doc.text(`小計（税抜）: ${yen(input.subtotal)}`, sumX, doc.y, { width: sumW, align: 'right' })
-      doc.text(
-        `消費税（${Math.round(BILLING_TERMS.taxRate * 100)}%）: ${yen(input.tax)}`,
-        sumX,
-        doc.y,
-        { width: sumW, align: 'right' },
-      )
-      doc.fontSize(12).text(`合計（税込）: ${yen(input.total)}`, sumX, doc.y, { width: sumW, align: 'right' })
-      doc.moveDown(2)
+      // 合計サマリー（右・小計/消費税/合計）
+      const smX = left + cw * 0.55
+      const smW = cw * 0.45
+      const smRowH = 28
+      const smTotalH = 34
+      let smY = y + 4
+      const summary: [string, string][] = [
+        ['小計（税抜）', yen(input.subtotal)],
+        [`消費税（${rate}）`, yen(input.tax)],
+      ]
+      for (const [label, value] of summary) {
+        doc.rect(smX, smY, smW, smRowH).lineWidth(0.7).stroke(C.line)
+        cellText(label, smX, smY, smW * 0.55, smRowH, { align: 'left', size: 10, color: C.sub, pad: 12 })
+        cellText(value, smX + smW * 0.45, smY, smW * 0.55, smRowH, { align: 'right', size: 10.5, color: C.ink, pad: 12 })
+        smY += smRowH
+      }
+      // 合計行（ナビー背景・白）
+      doc.rect(smX, smY, smW, smTotalH).fill(C.navy)
+      cellText('合計（税込）', smX, smY, smW * 0.5, smTotalH, { align: 'left', size: 11, color: C.white, pad: 12 })
+      cellText(yen(input.total), smX + smW * 0.5, smY, smW * 0.5, smTotalH, { align: 'right', size: 15, color: C.white, pad: 12 })
+      const smBottom = smY + smTotalH
 
-      // 振込先（billing_issuer_settings(DB)→config で解決済みの input.bank）
-      const bank = input.bank
-      doc.fontSize(11).text('お振込先', left, doc.y)
-      doc.fontSize(10)
-      doc.text(`${bank.bankName} ${bank.branchName}`)
-      doc.text(`${bank.accountType} ${bank.accountNumber}`)
-      doc.text(`口座名義: ${bank.accountHolder}`)
-      doc.moveDown(1)
+      y = Math.max(brBottom, smBottom) + 16
 
-      // 備考（支払案内文・解決済みの input.paymentNote）
-      doc.fontSize(9).fillColor('#444').text(input.paymentNote, left, doc.y, { width: contentWidth })
+      // ── 8. 備考（枠付き） ────────────────────────────────────────
+      const noteTop = sectionMark('備考', left, y, cw)
+      const notePadX = 14
+      const notePadY = 12
+      fill(C.ink).fontSize(9.5)
+      const noteTextH = doc.heightOfString(input.paymentNote, { width: cw - notePadX * 2 })
+      const noteBoxH = Math.max(50, noteTextH + notePadY * 2)
+      doc.roundedRect(left, noteTop + 4, cw, noteBoxH, 6).lineWidth(0.7).stroke(C.line)
+      fill(C.ink).fontSize(9.5).text(input.paymentNote, left + notePadX, noteTop + 4 + notePadY, { width: cw - notePadX * 2 })
+
+      // ── 9. フッター（ページ下部固定） ─────────────────────────────
+      const footY = H - 46
+      doc.moveTo(left, footY).lineTo(right, footY).lineWidth(0.7).stroke(C.line)
+      fill(C.navy).fontSize(11).text('AIMEN24', left, footY + 12, { continued: true, characterSpacing: 0.5 })
+      fill(C.sub).fontSize(8.5).text('　AIで、採用をもっとシンプルに。')
+      fill(C.sub).fontSize(8.5).text('｜  https://aimen24.jp', left, footY + 14, { width: cw, align: 'right' })
 
       doc.end()
     } catch (err) {
