@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const mockGetClientUser = vi.fn()
 vi.mock('@/lib/api/auth', () => ({ getClientUser: () => mockGetClientUser() }))
 
-type Cfg = { profile?: unknown; existingMember?: unknown; existingPending?: unknown; insertError?: unknown }
+type Cfg = { profile?: unknown; profileError?: unknown; existingMember?: unknown; memberError?: unknown; existingPending?: unknown; pendingError?: unknown; insertError?: unknown }
 let cfg: Cfg = {}
 const captured = { inviteInsert: null as Record<string, unknown> | null }
 
@@ -12,11 +12,11 @@ function svcFrom(table: string) {
   let op: 'select' | 'insert' | 'update' = 'select'
   let payload: Record<string, unknown> | null = null
   const result = () => {
-    if (table === 'profiles') return { data: cfg.profile ?? null, error: null }
-    if (table === 'company_members') return { data: cfg.existingMember ?? null, error: null }
+    if (table === 'profiles') return { data: cfg.profile ?? null, error: cfg.profileError ?? null }
+    if (table === 'company_members') return { data: cfg.existingMember ?? null, error: cfg.memberError ?? null }
     if (table === 'member_invites') {
       if (op === 'insert') return { data: payload ? { id: 'inv1', email: payload.email, company_role: payload.company_role, status: 'pending', expires_at: 'E', created_at: 'C' } : null, error: cfg.insertError ?? null }
-      return { data: cfg.existingPending ?? null, error: null } // pending 存在チェック
+      return { data: cfg.existingPending ?? null, error: cfg.pendingError ?? null } // pending 存在チェック
     }
     return { data: null, error: null }
   }
@@ -51,6 +51,21 @@ describe('POST /api/client/members/invite（リンク発行）', () => {
   it('別企業所属 → 409', async () => { asUser('owner'); cfg.profile = { id: 'p1', role: 'company' }; cfg.existingMember = { company_id: 'other', status: 'active' }; expect((await call({ email: 'a@b.com', company_role: 'viewer' })).status).toBe(409) })
   it('運営 admin → 409', async () => { asUser('owner'); cfg.profile = { id: 'p1', role: 'admin' }; expect((await call({ email: 'a@b.com', company_role: 'viewer' })).status).toBe(409) })
   it('既存 pending あり → 409（自動再発行しない）', async () => { asUser('owner'); cfg.existingPending = { id: 'old' }; expect((await call({ email: 'a@b.com', company_role: 'viewer' })).status).toBe(409) })
+  it('profiles lookup DB error → 500・invite 未作成（fail closed）', async () => {
+    asUser('owner'); cfg.profileError = { message: 'db' }
+    const r = await call({ email: 'a@b.com', company_role: 'viewer' })
+    expect(r.status).toBe(500); expect(captured.inviteInsert).toBeNull()
+  })
+  it('company_members lookup DB error → 500・invite 未作成', async () => {
+    asUser('owner'); cfg.profile = { id: 'p1', role: 'company' }; cfg.memberError = { message: 'db' }
+    const r = await call({ email: 'a@b.com', company_role: 'viewer' })
+    expect(r.status).toBe(500); expect(captured.inviteInsert).toBeNull()
+  })
+  it('pending lookup DB error → 500・invite 未作成', async () => {
+    asUser('owner'); cfg.pendingError = { message: 'db' }
+    const r = await call({ email: 'a@b.com', company_role: 'viewer' })
+    expect(r.status).toBe(500); expect(captured.inviteInsert).toBeNull()
+  })
   it('成功: company_id 固定・token_hash 保存・inviteUrl(#token=)・token_hash 非返却・no-store', async () => {
     asUser('owner')
     const r = await call({ email: 'member@company.com', company_role: 'admin' })

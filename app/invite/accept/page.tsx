@@ -77,7 +77,7 @@ export default function InviteAcceptPage() {
         ) : done ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
             <h1 className="text-lg font-bold text-slate-900">アカウントを作成しました</h1>
-            <p className="mt-2 text-sm text-slate-600">設定したメールアドレスとパスワードでログインできます。</p>
+            <p className="mt-2 text-sm text-slate-600">登録されたメールアドレスと、設定したパスワードでログインできます。</p>
             <Link href="/client/login" className="mt-5 inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">ログインへ</Link>
           </div>
         ) : (

@@ -29,9 +29,17 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     if (!oldRow) return apiError('NOT_FOUND', '再発行対象の招待が見つかりません')
     const old = oldRow as { id: string; company_id: string; email: string; company_role: string }
 
-    // 旧 invite を revoke（履歴を残す）。
+    // 旧 invite を revoke（履歴を残す）。pending→revoked を conditional 更新し、実際に 1 件 revoke
+    //   できたことを確認してから新 invite を作る（fail closed。確認不能なら新 token を作らない）。
     const nowIso = new Date().toISOString()
-    await svc.from('member_invites').update({ status: 'revoked', revoked_at: nowIso, updated_at: nowIso }).eq('id', old.id)
+    const { data: revoked, error: revokeError } = await svc.from('member_invites')
+      .update({ status: 'revoked', revoked_at: nowIso, updated_at: nowIso })
+      .eq('id', old.id)
+      .eq('status', 'pending')
+      .select('id')
+      .maybeSingle()
+    if (revokeError) return apiError('INTERNAL_ERROR', '招待の再発行に失敗しました')
+    if (!revoked) return apiError('NOT_FOUND', '再発行対象の招待が見つかりません')
 
     // 新 invite を作成（新 token）。
     const { token, tokenHash } = generateInviteToken()

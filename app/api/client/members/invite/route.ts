@@ -31,13 +31,17 @@ export async function POST(request: NextRequest) {
     const svc = createServiceRoleClient()
 
     // 既存ユーザー/所属チェック（tenant / 1user1company / platform admin 混入防止）。
-    const { data: prof } = await svc.from('profiles').select('id, role').ilike('email', email).maybeSingle()
+    // ※ 招待作成は権限付与に直結するため、既存状態を確認できない（DB error / 複数行等）場合は
+    //   「安全判定不能＝fail closed」で中止する（invite row を作らない）。
+    const { data: prof, error: profError } = await svc.from('profiles').select('id, role').ilike('email', email).maybeSingle()
+    if (profError) return apiError('INTERNAL_ERROR', '既存ユーザーの確認に失敗しました')
     if (prof) {
       const p = prof as { id: string; role: string | null }
       if (p.role === 'admin' || p.role === 'super_admin') {
         return apiError('CONFLICT', '運営アカウントは企業メンバーとして招待できません')
       }
-      const { data: existingMember } = await svc.from('company_members').select('company_id, status').eq('user_id', p.id).maybeSingle()
+      const { data: existingMember, error: memberError } = await svc.from('company_members').select('company_id, status').eq('user_id', p.id).maybeSingle()
+      if (memberError) return apiError('INTERNAL_ERROR', '既存メンバーの確認に失敗しました')
       if (existingMember) {
         const em = existingMember as { company_id: string; status: string }
         if (em.company_id === user.companyId && em.status === 'active') {
@@ -49,9 +53,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 既存 pending は自動再発行しない（明示的な「リンクを再発行」に分離）。
-    const { data: existingPending } = await svc.from('member_invites')
+    // 既存 pending は自動再発行しない（明示的な「リンクを再発行」に分離）。確認不能時は fail closed。
+    const { data: existingPending, error: pendingError } = await svc.from('member_invites')
       .select('id').eq('company_id', user.companyId).eq('email', email).eq('status', 'pending').maybeSingle()
+    if (pendingError) return apiError('INTERNAL_ERROR', '招待状況の確認に失敗しました')
     if (existingPending) {
       return apiError('CONFLICT', 'このメールアドレスは既に招待中です。リンクを再発行してください。')
     }

@@ -4,15 +4,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const mockGetClientUser = vi.fn()
 vi.mock('@/lib/api/auth', () => ({ getClientUser: () => mockGetClientUser() }))
 
-type Cfg = { oldRow?: unknown }
+type Cfg = { oldRow?: unknown; revokeResult?: { data: unknown; error: unknown } }
 let cfg: Cfg = {}
 const captured = { revokedId: null as string | null, newInsert: null as Record<string, unknown> | null }
+const OID_DEF = '11111111-1111-1111-1111-111111111111'
 
 function svcFrom(_table: string) {
   let op: 'select' | 'update' | 'insert' = 'select'
   let payload: Record<string, unknown> | null = null
   const result = () => {
     if (op === 'select') return { data: cfg.oldRow ?? null, error: null }
+    if (op === 'update') return cfg.revokeResult ?? { data: { id: OID_DEF }, error: null } // 旧 pending の revoke 確定
     if (op === 'insert') return { data: payload ? { id: 'new1', email: payload.email, company_role: payload.company_role, status: 'pending', expires_at: 'E', created_at: 'C' } : null, error: null }
     return { data: null, error: null }
   }
@@ -50,5 +52,21 @@ describe('POST regenerate', () => {
     expect(r.json.inviteUrl).toContain('/invite/accept#token=')
     expect(JSON.stringify(r.json)).not.toContain('token_hash')
     expect(r.headers.get('Cache-Control')).toBe('no-store')
+  })
+  it('revoke DB error → 新 invite を作らない・非成功', async () => {
+    asUser('owner')
+    cfg.oldRow = { id: OID, company_id: CID, email: 'm@e.com', company_role: 'recruiter', status: 'pending' }
+    cfg.revokeResult = { data: null, error: { message: 'db' } }
+    const r = await call()
+    expect(r.status).toBe(500)
+    expect(captured.newInsert).toBeNull()
+  })
+  it('revoke 0 行（並行取消等）→ 新 invite を作らない・NOT_FOUND', async () => {
+    asUser('owner')
+    cfg.oldRow = { id: OID, company_id: CID, email: 'm@e.com', company_role: 'recruiter', status: 'pending' }
+    cfg.revokeResult = { data: null, error: null }
+    const r = await call()
+    expect(r.status).toBe(404)
+    expect(captured.newInsert).toBeNull()
   })
 })

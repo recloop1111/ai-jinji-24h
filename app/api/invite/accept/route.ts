@@ -36,8 +36,11 @@ export async function POST(request: NextRequest) {
       return errorJson('INVITE_INVALID', 'この招待は既に使用済みか無効です。', 409)
     }
     if (isInviteExpired(invite.expires_at)) {
-      await svc.from('member_invites').update({ status: 'expired', updated_at: new Date().toISOString() }).eq('id', invite.id)
-      return errorJson('INVITE_EXPIRED', '招待の有効期限が切れています。招待者に再送を依頼してください。', 410)
+      // security condition は expires_at<=now＝accept 拒否。status 更新は best-effort（失敗しても 410 を維持）。
+      try {
+        await svc.from('member_invites').update({ status: 'expired', updated_at: new Date().toISOString() }).eq('id', invite.id).eq('status', 'pending')
+      } catch { /* 期限切れ拒否は status 更新結果に依存させない */ }
+      return errorJson('INVITE_EXPIRED', '招待リンクの有効期限が切れています。招待者にリンクの再発行を依頼してください。', 410)
     }
 
     // Step 1: Auth ユーザー作成（email は invite の値で確定）。既存 email は attach 未対応＝honest に 409。
@@ -85,8 +88,23 @@ export async function POST(request: NextRequest) {
       return apiError('INTERNAL_ERROR', 'メンバーの登録に失敗しました')
     }
 
-    // Step 4: 招待を accepted に確定（best-effort・失敗しても登録は成立済）。
-    await svc.from('member_invites').update({ status: 'accepted', accepted_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', invite.id)
+    // Step 4: 招待を accepted に確定（one-time 保証）。pending→accepted を conditional 更新し、
+    //   実際に 1 件確定できて初めて成功とする。DB error / 0 行（＝並行 accept 等で既に消費）の場合は
+    //   今回作成した member/profile/auth user を cleanup し、成功を返さない（fake success 禁止）。
+    const nowIso = new Date().toISOString()
+    const { data: finalized, error: finalizeError } = await svc.from('member_invites')
+      .update({ status: 'accepted', accepted_at: nowIso, updated_at: nowIso })
+      .eq('id', invite.id)
+      .eq('status', 'pending')
+      .select('id')
+      .maybeSingle()
+    if (finalizeError || !finalized) {
+      // 今回生成した resource のみ cleanup（既存は触らない）。cleanup が best-effort でも成功は返さない。
+      await svc.from('company_members').delete().eq('user_id', authUserId).eq('company_id', invite.company_id)
+      await svc.from('profiles').delete().eq('id', authUserId)
+      await svc.auth.admin.deleteUser(authUserId)
+      return apiError('CONFLICT', 'この招待は既に使用済みか無効です。')
+    }
 
     return successJson({ accepted: true, email: invite.email }, 201)
   } catch {
