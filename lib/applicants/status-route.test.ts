@@ -25,7 +25,8 @@ function applicantsBuilder() {
 vi.mock('@/lib/supabase/server', () => ({
   createClientServerClient: async () => ({ from: () => applicantsBuilder() }),
   createServiceRoleClient: () => ({
-    from: () => ({ insert: async () => { historyInserted = true; return { error: null } } }),
+    // selection_status_histories の insert のみ historyInserted を立てる（company_audit_logs 等は無視）。
+    from: (t: string) => ({ insert: async () => { if (t === 'selection_status_histories') historyInserted = true; return { error: null } } }),
   }),
 }))
 

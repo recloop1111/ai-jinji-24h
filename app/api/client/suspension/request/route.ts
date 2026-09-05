@@ -3,6 +3,7 @@ import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createClientServerClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { verifySettingPassword } from '@/lib/security/setting-password'
+import { writeCompanyAuditLog } from '@/lib/audit/company-audit'
 
 export async function POST(request: NextRequest) {
   try {
@@ -71,6 +72,11 @@ export async function POST(request: NextRequest) {
     const requestedAt = req.created_at
     const scheduledStopAt = new Date(requestedAt)
     scheduledStopAt.setMonth(scheduledStopAt.getMonth() + 1)
+
+    await writeCompanyAuditLog({
+      companyId: user.companyId, actorUserId: user.userId, actorCompanyRole: user.companyRole,
+      action: 'company.suspension_requested', resourceType: 'company', resourceId: user.companyId, metadata: {},
+    })
 
     return successJson({
       requested: true,

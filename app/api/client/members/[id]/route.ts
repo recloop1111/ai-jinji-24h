@@ -5,6 +5,7 @@ import { can } from '@/lib/rbac/permissions'
 import { isValidUUID } from '@/lib/api/validation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { isMemberAction, planMemberAction } from '@/lib/members/member-actions'
+import { writeCompanyAuditLog } from '@/lib/audit/company-audit'
 
 // 企業メンバーの権限変更 / 利用停止 / 再有効化 / 削除（client・member.manage=OWNER/ADMIN のみ）。
 //   action-based（change_role / suspend / reactivate / remove）。member id = company_members.id。
@@ -55,6 +56,18 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (updateError) return apiError('INTERNAL_ERROR', '操作に失敗しました')
     if (!updated) return apiError('CONFLICT', '操作を完了できませんでした（メンバーの状態が変化した可能性があります）')
     const row = updated as { id: string; company_role: string; status: string; updated_at: string | null }
+
+    // 操作ログ（best-effort・本文/PII なし）。action ごとに stable ID と from/to を記録。
+    const auditBase = { companyId: user.companyId, actorUserId: user.userId, actorCompanyRole: user.companyRole, resourceType: 'member' as const, resourceId: row.id }
+    if (action === 'change_role') {
+      await writeCompanyAuditLog({ ...auditBase, action: 'member.role_changed', metadata: { from_role: target.company_role, to_role: row.company_role } })
+    } else if (action === 'suspend') {
+      await writeCompanyAuditLog({ ...auditBase, action: 'member.suspended', metadata: { from_status: target.status, to_status: 'suspended' } })
+    } else if (action === 'reactivate') {
+      await writeCompanyAuditLog({ ...auditBase, action: 'member.reactivated', metadata: { from_status: target.status, to_status: 'active' } })
+    } else if (action === 'remove') {
+      await writeCompanyAuditLog({ ...auditBase, action: 'member.removed', metadata: { from_status: target.status, to_status: 'removed' } })
+    }
 
     return successJson({ updated: true, member: { id: row.id, company_role: row.company_role, status: row.status, updated_at: row.updated_at } })
   } catch {

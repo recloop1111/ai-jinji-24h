@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { apiError } from '@/lib/api/response'
 import { can } from '@/lib/rbac/permissions'
+import { writeCompanyAuditLog } from '@/lib/audit/company-audit'
 import { isValidUUID } from '@/lib/api/validation'
 import { createClientServerClient } from '@/lib/supabase/server'
 import { deriveCurrentStatus, CURRENT_STATUS_LABEL } from '@/lib/applicants/displayStatus'
@@ -133,6 +134,13 @@ export async function GET(
     }
 
     const pdf = await buildApplicantReportPdf(input)
+
+    // export は fail-closed 監査: 記録できて初めて download を返す。
+    const audit = await writeCompanyAuditLog({
+      companyId: user.companyId, actorUserId: user.userId, actorCompanyRole: user.companyRole,
+      action: 'applicant.report_pdf_exported', resourceType: 'applicant', resourceId: id, metadata: { kind: 'applicant_report' },
+    })
+    if (!audit.ok) return apiError('INTERNAL_ERROR', '操作を記録できなかったため、ダウンロードを中止しました。')
 
     const filename = `applicant-report_${id.slice(0, 8)}.pdf`
     return new Response(new Uint8Array(pdf), {

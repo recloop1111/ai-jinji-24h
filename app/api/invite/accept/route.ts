@@ -4,6 +4,8 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { hashInviteToken } from '@/lib/members/invite-token'
 import { isInviteExpired } from '@/lib/members/invite'
 import { validateFullName } from '@/lib/members/member-view'
+import { isCompanyRole } from '@/lib/rbac/roles'
+import { writeCompanyAuditLog } from '@/lib/audit/company-audit'
 
 // 招待の受諾（public・token が唯一の資格情報）。本人が氏名＋パスワードを設定してアカウント作成＋メンバー有効化。
 //   ※ email は invite 行の値で確定（本人入力の email を受け取らない＝別人が別 email を紐づけできない）。
@@ -70,8 +72,8 @@ export async function POST(request: NextRequest) {
       return apiError('INTERNAL_ERROR', 'プロフィールの作成に失敗しました')
     }
 
-    // Step 3: company_members（企業内 RBAC の SoT）。full_name は本人入力を保存。
-    const { error: memberError } = await svc.from('company_members').insert({
+    // Step 3: company_members（企業内 RBAC の SoT）。full_name は本人入力を保存。id は audit 用に取得。
+    const { data: memberRow, error: memberError } = await svc.from('company_members').insert({
       company_id: invite.company_id,
       user_id: authUserId,
       company_role: invite.company_role,
@@ -81,8 +83,8 @@ export async function POST(request: NextRequest) {
       invited_at: invite.created_at,
       last_login_at: null,
       joined_at: new Date().toISOString(),
-    })
-    if (memberError) {
+    }).select('id').maybeSingle()
+    if (memberError || !memberRow) {
       await svc.from('profiles').delete().eq('id', authUserId)
       await svc.auth.admin.deleteUser(authUserId)
       return apiError('INTERNAL_ERROR', 'メンバーの登録に失敗しました')
@@ -105,6 +107,13 @@ export async function POST(request: NextRequest) {
       await svc.auth.admin.deleteUser(authUserId)
       return apiError('CONFLICT', 'この招待は既に使用済みか無効です。')
     }
+
+    // 操作ログ（best-effort・token/password/email は入れない）。actor=新規参加ユーザー・当時 role=付与 role。
+    await writeCompanyAuditLog({
+      companyId: invite.company_id, actorUserId: authUserId,
+      actorCompanyRole: isCompanyRole(invite.company_role) ? invite.company_role : null,
+      action: 'member.joined', resourceType: 'member', resourceId: (memberRow as { id: string }).id, metadata: { company_role: invite.company_role },
+    })
 
     return successJson({ accepted: true, email: invite.email }, 201)
   } catch {

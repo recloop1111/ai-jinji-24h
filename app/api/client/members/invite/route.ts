@@ -6,6 +6,7 @@ import { can } from '@/lib/rbac/permissions'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { normalizeInviteEmail, isInvitableRole, computeInviteExpiresAt, buildInviteUrl } from '@/lib/members/invite'
 import { generateInviteToken } from '@/lib/members/invite-token'
+import { writeCompanyAuditLog } from '@/lib/audit/company-audit'
 
 // 企業メンバー招待リンクの発行（client・member.manage=OWNER/ADMIN のみ）。
 //   v1: アプリからメールを送らない。招待リンク（#token=）を発行し、OWNER/ADMIN が本人へ手渡し共有する。
@@ -73,6 +74,12 @@ export async function POST(request: NextRequest) {
     }).select('id, email, company_role, status, expires_at, created_at').maybeSingle()
     if (insertError || !inserted) return apiError('INTERNAL_ERROR', '招待リンクの発行に失敗しました')
     const invite = inserted as { id: string; email: string; company_role: string; status: string; expires_at: string; created_at: string }
+
+    // 操作ログ（best-effort・token/URL/email は入れない）。
+    await writeCompanyAuditLog({
+      companyId: user.companyId, actorUserId: user.userId, actorCompanyRole: user.companyRole,
+      action: 'member.invite_created', resourceType: 'member_invite', resourceId: invite.id, metadata: { company_role: companyRole },
+    })
 
     // 平文 token は fragment（#token=）で URL に載せる。応答は no-store（CDN/browser に残さない）。
     const inviteUrl = buildInviteUrl(new URL(request.url).origin, token)

@@ -9,10 +9,11 @@ let cfg: Cfg = {}
 const captured = { revokedId: null as string | null, newInsert: null as Record<string, unknown> | null }
 const OID_DEF = '11111111-1111-1111-1111-111111111111'
 
-function svcFrom(_table: string) {
+function svcFrom(table: string) {
   let op: 'select' | 'update' | 'insert' = 'select'
   let payload: Record<string, unknown> | null = null
   const result = () => {
+    if (table !== 'member_invites') return { data: null, error: null } // company_audit_logs 等は無視
     if (op === 'select') return { data: cfg.oldRow ?? null, error: null }
     if (op === 'update') return cfg.revokeResult ?? { data: { id: OID_DEF }, error: null } // 旧 pending の revoke 確定
     if (op === 'insert') return { data: payload ? { id: 'new1', email: payload.email, company_role: payload.company_role, status: 'pending', expires_at: 'E', created_at: 'C' } : null, error: null }
@@ -20,10 +21,11 @@ function svcFrom(_table: string) {
   }
   const b: Record<string, unknown> = {}
   b.select = () => b
-  b.eq = (col: string, val: unknown) => { if (op === 'update' && col === 'id') captured.revokedId = val as string; return b }
+  b.eq = (col: string, val: unknown) => { if (table === 'member_invites' && op === 'update' && col === 'id') captured.revokedId = val as string; return b }
   b.update = () => { op = 'update'; return b }
-  b.insert = (p: Record<string, unknown>) => { op = 'insert'; payload = p; captured.newInsert = p; return b }
+  b.insert = (p: Record<string, unknown>) => { op = 'insert'; payload = p; if (table === 'member_invites') captured.newInsert = p; return b }
   b.maybeSingle = async () => result()
+  ;(b as { then: unknown }).then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => Promise.resolve(result()).then(res, rej)
   return b
 }
 vi.mock('@/lib/supabase/server', () => ({ createServiceRoleClient: () => ({ from: (t: string) => svcFrom(t) }) }))

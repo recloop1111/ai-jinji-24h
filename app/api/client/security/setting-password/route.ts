@@ -3,6 +3,7 @@ import { getClientUser } from '@/lib/api/auth'
 import { successJson, apiError } from '@/lib/api/response'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { hashSettingPassword, verifySettingPassword, isValidSettingPassword } from '@/lib/security/setting-password'
+import { writeCompanyAuditLog } from '@/lib/audit/company-audit'
 
 // 企業設定変更用パスワード（ログインPWとは別）の保存・検証基盤。
 // 保存先: companies.company_setting_password_hash（自社のみ）。
@@ -63,6 +64,10 @@ export async function POST(request: NextRequest) {
     if (error) {
       return apiError('INTERNAL_ERROR', '設定変更用パスワードの保存に失敗しました')
     }
+    await writeCompanyAuditLog({
+      companyId: user.companyId, actorUserId: user.userId, actorCompanyRole: user.companyRole,
+      action: 'company.setting_password_changed', resourceType: 'company', resourceId: user.companyId, metadata: {},
+    })
     return successJson({ configured: true })
   } catch {
     return apiError('INTERNAL_ERROR')
@@ -102,6 +107,10 @@ export async function PATCH(request: NextRequest) {
     if (error) {
       return apiError('INTERNAL_ERROR', '設定変更用パスワードの更新に失敗しました')
     }
+    await writeCompanyAuditLog({
+      companyId: user.companyId, actorUserId: user.userId, actorCompanyRole: user.companyRole,
+      action: 'company.setting_password_changed', resourceType: 'company', resourceId: user.companyId, metadata: {},
+    })
     return successJson({ updated: true })
   } catch {
     return apiError('INTERNAL_ERROR')

@@ -4,6 +4,7 @@ import { apiError } from '@/lib/api/response'
 import { isValidDate } from '@/lib/api/validation'
 import { createClientServerClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { verifySettingPassword } from '@/lib/security/setting-password'
+import { writeCompanyAuditLog } from '@/lib/audit/company-audit'
 import { deriveCurrentStatus, CURRENT_STATUS_LABEL, type CurrentStatusKey } from '@/lib/applicants/displayStatus'
 
 export const runtime = 'nodejs'
@@ -161,6 +162,14 @@ export async function POST(request: NextRequest) {
       ].map(escapeCsvField).join(','),
     )
     const csv = '﻿' + [header, ...lines].join('\r\n')
+
+    // export は fail-closed 監査: 記録できて初めて CSV を返す（応募者個人情報の一括出力）。件数のみ metadata。
+    const audit = await writeCompanyAuditLog({
+      companyId: user.companyId, actorUserId: user.userId, actorCompanyRole: user.companyRole,
+      action: 'applicant.csv_exported', resourceType: 'company', resourceId: user.companyId,
+      metadata: { kind: 'csv', exported_count: lines.length },
+    })
+    if (!audit.ok) return apiError('INTERNAL_ERROR', '操作を記録できなかったため、ダウンロードを中止しました。')
 
     const today = new Date()
     const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`

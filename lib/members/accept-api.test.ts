@@ -16,7 +16,7 @@ function svcFrom(table: string) {
     if (table === 'member_invites' && op === 'select') return { data: cfg.invite ?? null, error: null }
     if (table === 'member_invites' && op === 'update') return cfg.finalize ?? { data: { id: 'inv1' }, error: null } // accepted/expired 確定
     if (table === 'profiles' && op === 'upsert') return { error: cfg.profileError ?? null }
-    if (table === 'company_members' && op === 'insert') return { error: cfg.memberError ?? null }
+    if (table === 'company_members' && op === 'insert') return { data: cfg.memberError ? null : { id: 'newmember' }, error: cfg.memberError ?? null }
     return { data: null, error: null }
   }
   const b: Record<string, unknown> = {}

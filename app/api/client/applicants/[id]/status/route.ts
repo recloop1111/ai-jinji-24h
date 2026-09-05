@@ -5,6 +5,7 @@ import { can } from '@/lib/rbac/permissions'
 import { isValidUUID } from '@/lib/api/validation'
 import { createClientServerClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { isSelectionResultValue, validateSelectionMemo } from '@/lib/applicants/selectionResult'
+import { writeCompanyAuditLog } from '@/lib/audit/company-audit'
 
 // 選考結果＋選考メモの更新（client・自社 applicant のみ）。SoT:
 //   選考結果 = applicants.result（未対応/検討中/二次通過/不採用）
@@ -109,6 +110,21 @@ export async function PATCH(
       } catch {
         // best-effort（履歴の失敗で保存を失敗にしない）
       }
+    }
+
+    // 操作ログ（best-effort・実変更時のみ・本文は保存しない）。result/memo 両変更なら 2 行。
+    if (resultChanged) {
+      await writeCompanyAuditLog({
+        companyId: user.companyId, actorUserId: user.userId, actorCompanyRole: user.companyRole,
+        action: 'applicant.selection_result_changed', resourceType: 'applicant', resourceId: id,
+        metadata: { from_result: oldResult, to_result: newResult as string },
+      })
+    }
+    if (memoChanged) {
+      await writeCompanyAuditLog({
+        companyId: user.companyId, actorUserId: user.userId, actorCompanyRole: user.companyRole,
+        action: 'applicant.selection_memo_changed', resourceType: 'applicant', resourceId: id, metadata: {},
+      })
     }
 
     return successJson({

@@ -6,6 +6,7 @@ import { isValidUUID } from '@/lib/api/validation'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { computeInviteExpiresAt, buildInviteUrl } from '@/lib/members/invite'
 import { generateInviteToken } from '@/lib/members/invite-token'
+import { writeCompanyAuditLog } from '@/lib/audit/company-audit'
 
 // 招待リンクの再発行（client・member.manage=OWNER/ADMIN のみ）。
 //   旧 pending invite を revoke（履歴保持）し、同じ company_id/email/company_role で新しい token の pending を作る。
@@ -54,6 +55,12 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     }).select('id, email, company_role, status, expires_at, created_at').maybeSingle()
     if (insertError || !inserted) return apiError('INTERNAL_ERROR', '招待リンクの再発行に失敗しました')
     const invite = inserted as { id: string; email: string; company_role: string; status: string; expires_at: string; created_at: string }
+
+    // 操作ログ（best-effort・token/URL は入れない）。
+    await writeCompanyAuditLog({
+      companyId: user.companyId, actorUserId: user.userId, actorCompanyRole: user.companyRole,
+      action: 'member.invite_regenerated', resourceType: 'member_invite', resourceId: invite.id, metadata: { company_role: old.company_role },
+    })
 
     const inviteUrl = buildInviteUrl(new URL(_request.url).origin, token)
     return NextResponse.json({
