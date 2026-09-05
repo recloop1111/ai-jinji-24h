@@ -47,6 +47,9 @@ export async function GET() {
     //     interviews_used に使う（demo も自社利用として実数表示）。
     //   - 売上/請求集計（monthlyRevenue / unbilled 等）は demo を除外（下の rows map で is_demo 判定）。
     const allCompanyIds = (companyList as { id: string }[]).map((c) => c.id)
+    // demo 企業（is_demo=true）の billing_record は実請求/売上集計から完全除外する（DB is_demo が唯一の権威）。
+    //   利用状況（interviews_used）は demo も表示するため allCompanyIds はフィルタしない。
+    const demoCompanyIds = new Set((companyList as { id: string; is_demo?: boolean | null }[]).filter((c) => c.is_demo === true).map((c) => c.id))
 
     // 当月の billable 面接数（企業ごと・demo 含む）。PostgREST の1ページ上限（通常1000行）で
     // 過少集計しないよう range() で全件ページングして件数を積み上げる。
@@ -112,12 +115,16 @@ export async function GET() {
       if (eff === 'overdue') return 'overdue'
       return 'billed' // pending/failed/refunded/null/その他 → 発行済み未入金相当
     }
-    const invoices = recordData.map((r) => ({
-      company_id: r.company_id,
-      period: r.billing_month ? String(r.billing_month).slice(0, 7) : '',
-      amount: typeof r.amount_jpy === 'number' ? r.amount_jpy : 0,
-      status: normalizeStatus(r.payment_status, r.created_at),
-    }))
+    // demo 企業の record は集計対象から除外（monthly sales / yearly revenue / unpaid / overdue /
+    // currentStatusByCompany すべてが invoices を経由するため、ここで除けば全指標から外れる）。
+    const invoices = recordData
+      .filter((r) => !demoCompanyIds.has(r.company_id))
+      .map((r) => ({
+        company_id: r.company_id,
+        period: r.billing_month ? String(r.billing_month).slice(0, 7) : '',
+        amount: typeof r.amount_jpy === 'number' ? r.amount_jpy : 0,
+        status: normalizeStatus(r.payment_status, r.created_at),
+      }))
 
     // 当月 period の請求ステータス（company_id -> status）
     const currentStatusByCompany: Record<string, string> = {}
