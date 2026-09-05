@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { getClientUser } from '@/lib/api/auth'
 import { apiError } from '@/lib/api/response'
+import { can } from '@/lib/rbac/permissions'
 import { isValidDate } from '@/lib/api/validation'
 import { createClientServerClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { verifySettingPassword } from '@/lib/security/setting-password'
@@ -29,6 +30,9 @@ export async function POST(request: NextRequest) {
   try {
     const { data: user, error: authError } = await getClientUser()
     if (authError) return authError
+    // 応募者 CSV（氏名/メール/電話の一括出力）は export 権限（OWNER/ADMIN/RECRUITER）必須。
+    // VIEWER は禁止（resume/report PDF と同じ export ティア）。設定用パスワード検証と多層。
+    if (!can(user.companyRole, 'applicant.csv_export')) return apiError('FORBIDDEN')
 
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') {

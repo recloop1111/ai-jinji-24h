@@ -8,6 +8,7 @@ const MATRIX: Record<Permission, { owner: boolean; admin: boolean; recruiter: bo
   'report.pdf.download':            { owner: true,  admin: true,  recruiter: true,  viewer: false },
   'applicant_report.pdf.download':  { owner: true,  admin: true,  recruiter: true,  viewer: false },
   'applicant_report.email_share':   { owner: true,  admin: true,  recruiter: true,  viewer: false },
+  'applicant.csv_export':           { owner: true,  admin: true,  recruiter: true,  viewer: false },
   'share_link.manage':              { owner: true,  admin: true,  recruiter: true,  viewer: false },
   'selection.manage':               { owner: true,  admin: true,  recruiter: true,  viewer: false },
   'applicant_memo.manage':          { owner: true,  admin: true,  recruiter: true,  viewer: false },
